@@ -54,7 +54,7 @@ import umap
 from itertools import product
 
 # self imports
-import rosella.metrics as metrics
+import flock.metrics as metrics
 
 # Set plotting style
 sns.set(style='white', context='notebook', rc={'figure.figsize': (14, 10)})

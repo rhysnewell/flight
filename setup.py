@@ -27,14 +27,14 @@ setup(
     license='BSD-3',
     author='Rhys Newell',
     author_email='rhys.newell@hdr.qut.edu.au',
-    description='flock - metagenomic binner and variant clusterer.',
+    description='flock - metagenomic binning module for rosella and variant clusterer for lorikeet.',
     long_description=long_description,
     long_description_content_type='text/markdown',
     packages=['flock'],
     package_data={'': [
             "flock/*",
                        ]},
-    data_files=[(".", ["README.md", "LICENSE.txt"])],
+    data_files=[(".", ["README.md", "LICENSE"])],
     include_package_data=True,
     install_requires= [
     ],
