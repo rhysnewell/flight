@@ -129,8 +129,6 @@ def spawn_count(idx, seq):
     return pd.Series(tetras, name=idx)
 
 
-
-
 def spawn_merge_low_n(idx, soft_clusters):
     second_max = sorted(soft_clusters, reverse=True)[1]
     try:
@@ -139,6 +137,17 @@ def spawn_merge_low_n(idx, soft_clusters):
         next_label = -1
 
     return next_label, idx
+
+
+def read_variant_rates(variant_rates, contig_names, min_contig_size=1000):
+    rates = pd.read_csv(variant_rates, sep='\t')
+    rates = rates[rates["contigLen"] >= min_contig_size]
+    if list(rates['contigName']) != list(contig_names):
+        sys.exit("Contig ordering incorrect for variant rate table")
+    snv_rates = rates.iloc[:, 2::2]
+    sv_rates = rates.iloc[:, 3::2]
+    return snv_rates, sv_rates
+
 
 ###############################################################################
 ################################ - Classes - ##################################
@@ -178,6 +187,8 @@ class Binner():
     def __init__(
             self,
             count_path,
+            kmer_frequencies,
+            variant_rates,
             output_prefix,
             assembly,
             scaler="clr",
@@ -192,7 +203,7 @@ class Binner():
             cluster_selection_method="eom",
             precomputed=False,
             hdbscan_metric="euclidean",
-            metric = 'aggregate_tnf',
+            metric = 'aggregate_variant_tnf',
             threads=8,
     ):
         self.threads = threads
@@ -201,61 +212,75 @@ class Binner():
 
         ## Set up clusterer and UMAP
         self.path = output_prefix
+
+        ## These tables should have the same ordering as each other if they came from rosella.
+        ## I.e. all the rows match the same contig
         self.coverage_table = pd.read_csv(count_path, sep='\t')
+        self.tnfs = pd.read_csv(kmer_frequencies, sep='\t')
+        self.tnfs = self.tnfs[self.tnfs["contigLen"] >= min_contig_size]
+
         self.large_contigs = self.coverage_table[self.coverage_table["contigLen"] >= min_contig_size]
         self.small_contigs = self.coverage_table[self.coverage_table["contigLen"] < min_contig_size]
+
+        self.snv_rates, self.sv_rates = read_variant_rates(variant_rates, self.large_contigs['contigName'], min_contig_size)
+
+        ## Check the ordering of the contig names for sanity check
+        if list(self.large_contigs['contigName']) != list(self.tnfs['contigName']):
+            sys.exit("Contig ordering incorrect for kmer table or coverage table")
+
+        # self.tnfs = self.tnfs.iloc[:, 2:] + 1
+        # self.tnfs = self.tnfs.div(self.tnfs.sum(axis=1), axis=0)  # convert counts to frequencies along rows
+        # self.tnfs = skbio.stats.composition.clr(self.tnfs + 1)
+
 
         # If there are enough contigs of that size
         if self.large_contigs.shape[0] > 100:
             self.depths = self.large_contigs.iloc[:,3:]
-            self.small_depths = self.small_contigs.iloc[:,3:]
+            # self.small_depths = self.small_contigs.iloc[:,3:]
         else: # Otherwise we'll just use a smaller value
             self.large_contigs = self.coverage_table[self.coverage_table["contigLen"] >= 1000]
-            self.small_contigs = self.coverage_table[self.coverage_table["contig_len"] < 1000]
+            self.small_contigs = self.coverage_table[self.coverage_table["contigLen"] < 1000]
             self.depths = self.large_contigs.iloc[:,3:]
-            self.small_depths = self.small_contigs.iloc[:,3:]
+            # self.small_depths = self.small_contigs.iloc[:,3:]
 
         # if self.depths.shape[1] > 2:
         self.depths = self.depths[self.depths.columns[::2]]
         self.n_samples = self.depths.shape[1]
-        self.small_depths = self.small_depths[self.small_depths.columns[::2]]
-
-        logging.info("Calculating TNF values")
-        ## Add the TNF values
-        pool = mp.Pool(self.threads)
-        results = pool.starmap_async(spawn_count, [(idx, self.assembly[contig].seq) for (idx, contig) in enumerate(self.large_contigs.iloc[:, 0])]).get()
-        self.tnfs = pd.DataFrame(results)
-
-        pool.close()
-        pool.join()
-
-        self.tnfs = self.tnfs + 1
-        self.tnfs = self.tnfs.div(self.tnfs.sum(axis=1), axis=0) # convert counts to frequencies along rows
-        self.tnfs = skbio.stats.composition.clr(self.tnfs + 1)
+        # self.small_depths = self.small_depths[self.small_depths.columns[::2]]
 
         ## Scale the data but first check if we have an appropriate amount of samples
         if scaler.lower() == "clr" and self.n_samples < 3:
             scaler = "minmax"
 
-        if scaler.lower() == "minmax":
-            self.depths = MinMaxScaler().fit_transform(self.depths)
-            self.small_depths = MinMaxScaler().fit_transform(self.small_depths)
-        elif scaler.lower() == "clr":
-            # Need to merge small and large together for CLR transform to work properly
-            large_count = self.depths.shape[0]
-            concatenated = np.concatenate((self.depths, self.small_depths))
-            concatenated = concatenated.T + 1
-            # concatenated = concatenated.div(concatenated.sum(axis=1), axis=0)
-            concatenated = skbio.stats.composition.clr(concatenated).T
-            self.depths = concatenated[:large_count, ]
-            self.small_depths = concatenated[large_count:, ]
-        elif scaler.lower() == "none":
-            pass
+        # if scaler.lower() == "minmax":
+        #     self.depths = MinMaxScaler().fit_transform(self.depths)
+        #     # self.small_depths = MinMaxScaler().fit_transform(self.small_depths)
+        # elif scaler.lower() == "clr":
+        #     # Need to merge small and large together for CLR transform to work properly
+        #     # large_count = self.depths.shape[0]
+        #     # concatenated = np.concatenate((self.depths, self.small_depths))
+        #     # concatenated = concatenated.T + 1
+        #     # concatenated = skbio.stats.composition.clr(concatenated).T
+        #     # self.depths = concatenated[:large_count, ]
+        #     # self.small_depths = concatenated[large_count:, ]
+        #     self.depths = skbio.stats.composition.clr(self.depths.T + 1).T
+        # elif scaler.lower() == "none":
+        #     pass
+
+        # Normalize all table values
+        # self.tnfs = (self.tnfs.iloc[:, 2:] / np.sqrt(np.square(self.tnfs.iloc[:, 2:] + 1).sum(axis=1)))
+
+        # clr transformations
+        self.tnfs = skbio.stats.composition.clr(self.tnfs.iloc[:, 2:] + 1)
+        self.depths = skbio.stats.composition.clr(self.depths.T + 1).T
+        self.snv_rates = skbio.stats.composition.clr(self.snv_rates.T + 1).T
+        self.sv_rates = skbio.stats.composition.clr(self.sv_rates.T + 1).T
+
 
         # if self.depths.shape[1] > 1:
             # pass
         # else:
-        self.depths = np.concatenate((self.depths, self.tnfs), axis=1) # Add extra dimension so concatenation works
+        self.depths = np.concatenate((self.depths, self.snv_rates, self.sv_rates, self.tnfs), axis=1) # Add extra dimension so concatenation works
             
         if n_neighbors >= int(self.depths.shape[0] * 0.5):
             n_neighbors = max(int(self.depths.shape[0] * 0.5), 2)
@@ -263,7 +288,7 @@ class Binner():
         if n_components > self.depths.shape[1]:
             n_components = self.depths.shape[1]
 
-        if metric in ['aggregate', 'aggregate_tnf', 'rho', 'phi', 'phi_dist']:
+        if metric in ['aggregate', 'aggregate_variant_tnf', 'aggregate_tnf', 'rho', 'phi', 'phi_dist']:
             self.reducer = umap.UMAP(
                 n_neighbors=n_neighbors,
                 min_dist=min_dist,

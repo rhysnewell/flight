@@ -56,7 +56,41 @@ def tnf(a, b, n_samples):
     # return rho
     euc_dist = np.linalg.norm(a[n_samples:] - b[n_samples:])
     return euc_dist
-    
+
+@numba.njit()
+def snv_corr(a, b, n_samples):
+    snv1 = a[n_samples:n_samples * 2]
+    snv2 = b[n_samples:n_samples * 2]
+    if len(set(snv1)) == 1 and len(set(snv2)) == 1:
+        return 1
+    else:
+        covariance_mat = np.cov(snv1, snv2, rowvar=True)
+        covariance = covariance_mat[0, 1]
+        var_a = covariance_mat[0, 0]
+        var_b = covariance_mat[1, 1]
+        vlr = -2 * covariance + var_a + var_b
+        rho = 1 - vlr / (var_a + var_b)
+        rho += 1
+        rho = 2 - rho
+        return rho
+
+@numba.njit()
+def sv_corr(a, b, n_samples):
+    sv1 = a[n_samples*2:n_samples*3]
+    sv2 = b[n_samples*2:n_samples*3]
+    # check if all values where just 0 originally
+    if len(set(sv1)) == 1 and len(set(sv2)) == 1:
+        return 1
+    else:
+        covariance_mat = np.cov(sv1, sv2, rowvar=True)
+        covariance = covariance_mat[0, 1]
+        var_a = covariance_mat[0, 0]
+        var_b = covariance_mat[1, 1]
+        vlr = -2 * covariance + var_a + var_b
+        rho = 1 - vlr / (var_a + var_b)
+        rho += 1
+        rho = 2 - rho
+        return rho
 
 @numba.njit()
 def euclidean(a, b, n_samples):
@@ -64,6 +98,32 @@ def euclidean(a, b, n_samples):
     # This is the equivalent to the aitchinson distance but we calculat the l2 norm
     euc_dist = np.linalg.norm(a[:n_samples] - b[:n_samples])
     return euc_dist
+
+@numba.njit()
+def snv_euclidean(a, b, n_samples):
+    # Since these compositonal arrays are CLR transformed
+    # This is the equivalent to the aitchinson distance but we calculat the l2 norm
+    # check if all values where just 0 originally
+    snv1 = a[n_samples:n_samples * 2]
+    snv2 = b[n_samples:n_samples * 2]
+    if len(set(snv1)) == 1 and len(set(snv2)) == 1:
+        return 1
+    else:
+        euc_dist = np.linalg.norm(snv1 - snv2)
+        return euc_dist
+
+
+@numba.njit()
+def sv_euclidean(a, b, n_samples):
+    # Since these compositonal arrays are CLR transformed
+    # This is the equivalent to the aitchinson distance but we calculat the l2 norm
+    sv1 = a[n_samples * 2:n_samples * 3]
+    sv2 = b[n_samples * 2:n_samples * 3]
+    if len(set(sv1)) == 1 and len(set(sv2)) == 1:
+        return 1
+    else:
+        euc_dist = np.linalg.norm(sv1 - sv2)
+        return euc_dist
 
 @numba.njit()
 def rho(a, b, n_samples):
@@ -122,12 +182,32 @@ def aggregate_tnf(a, b, n_samples):
     agg = 0
 
     # if n_samples >= 3:
-        # rho_val = rho(a, b, n_samples)
-        # agg = (tnf_dist**(1-w)) * (aitchinson**(w)) * rho_val
+    #     corr = snv_corr(a, b, n_samples)
+    #     agg = (tnf_dist**(1-w)) * (aitchinson**(w)) * corr
     # else:
     agg = (tnf_dist**(1-w)) * (aitchinson**(w))
 
     return agg
+
+@numba.njit()
+def aggregate_variant_tnf(a, b, n_samples):
+    w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
+    tnf_dist = tnf(a, b, n_samples*3)
+    aitchinson = euclidean(a, b, n_samples)
+
+    if n_samples >= 3:
+        snv = snv_corr(a, b, n_samples)
+        sv = sv_corr(a, b, n_samples)
+        agg = (tnf_dist ** (1 - w)) * (aitchinson ** (w)) * snv * sv
+        return agg
+    else:
+        snv = snv_euclidean(a, b, n_samples)
+        sv = snv_euclidean(a, b, n_samples)
+
+        # Weighted average of these metrics. Weighted by w
+        agg = (tnf_dist ** (1 - w)) + (aitchinson ** w) + (snv ** w) + (sv ** w)
+        agg /= 4
+        return agg
 
 @numba.njit()
 def aggregate(a, b, n_samples):

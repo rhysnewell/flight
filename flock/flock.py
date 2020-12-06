@@ -175,6 +175,20 @@ def main():
     )
 
     bin_options.add_argument(
+        '--variant_rates',
+        help='Per contig SNV and SV rates over a given sliding window size',
+        dest='variant_rates',
+        required=True
+    )
+
+    bin_options.add_argument(
+        '--kmer_frequencies',
+        help='Per contig kmer frequencies. Can be calculated using rosella kmer mode',
+        dest='kmer_frequencies',
+        required=True,
+    )
+
+    bin_options.add_argument(
         '--min_bin_size',
         help='The minimum size of a returned MAG in base pairs',
         dest="min_bin_size",
@@ -228,7 +242,7 @@ def main():
     bin_options.add_argument('--metric',
                              help='Metric to use in UMAP projection',
                              dest="metric",
-                             default="aggregate_tnf")
+                             default="aggregate_variant_tnf")
     ## HDBSCAN parameters
     bin_options.add_argument('--min_cluster_size',
                              help='Minimum cluster size for HDBSCAN',
@@ -248,7 +262,7 @@ def main():
     ## Genral parameters
     bin_options.add_argument(
         '--precomputed',
-        help='Minimum cluster size for HDBSCAN',
+        help='Flag indicating whether the input matrix is a set of precomputed distances',
         dest="precomputed",
         type=str2bool,
         nargs='?',
@@ -256,8 +270,8 @@ def main():
         default=False,
     )
 
-    bin_options.add_argument('--threads',
-                             help='Number of threads to run in parallel',
+    bin_options.add_argument('--cores',
+                             help='Number of cores to run in parallel',
                              dest='threads',
                              default=8)
     bin_options.set_defaults(func=bin)
@@ -326,6 +340,8 @@ def bin(args):
 
     if not args.precomputed:
         clusterer = Binner(args.input,
+                           args.kmer_frequencies,
+                           args.variant_rates,
                            prefix,
                            args.assembly,
                            n_neighbors=int(args.n_neighbors),
@@ -345,10 +361,10 @@ def bin(args):
         clusterer.plot_distances()
         # np.save(prefix + '_labels.npy', clusterer.labels())
         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-        clusterer.merge_bins(int(args.min_bin_size))
-
-        if clusterer.n_samples >= 3:
-            clusterer.rescue_small_contigs()
+        # clusterer.merge_bins(int(args.min_bin_size))
+        #
+        # if clusterer.n_samples >= 3:
+        #     clusterer.rescue_small_contigs()
 
         clusterer.write_bins(int(args.min_bin_size))
 
