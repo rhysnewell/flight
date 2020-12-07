@@ -361,7 +361,7 @@ def bin(args):
         clusterer.plot_distances()
         # np.save(prefix + '_labels.npy', clusterer.labels())
         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-        # clusterer.merge_bins(int(args.min_bin_size))
+        clusterer.merge_bins(int(args.min_bin_size)) # Merges bins when n_samples is < 3
         #
         # if clusterer.n_samples >= 3:
         #     clusterer.rescue_small_contigs()

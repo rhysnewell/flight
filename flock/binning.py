@@ -44,7 +44,7 @@ import multiprocessing as mp
 import pandas as pd
 import hdbscan
 import seaborn as sns
-from sklearn.preprocessing import MinMaxScaler
+import json
 import matplotlib
 matplotlib.use('pdf')
 import matplotlib.pyplot as plt
@@ -437,9 +437,9 @@ class Binner():
         for (idx, label) in enumerate(self.clusterer.labels_):
             if label != -1:
                 try:
-                    self.bins[label].append(idx)
+                    self.bins[label].append(self.large_contigs.iloc[idx, 0:2].name) # inputs values as tid
                 except KeyError:
-                    self.bins[label] = [idx]
+                    self.bins[label] = [self.large_contigs.iloc[idx, 0:2].name]
             # elif len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) >= min_bin_size:
             #     try:
             #         self.bins[label].append(idx)
@@ -448,9 +448,9 @@ class Binner():
             else:
                 soft_label = self.soft_clusters_capped[idx]
                 try:
-                    self.bins[soft_label].append(idx)
+                    self.bins[soft_label].append(self.large_contigs.iloc[idx, 0:2].name)
                 except KeyError:
-                    self.bins[soft_label] = [idx]
+                    self.bins[soft_label] = [self.large_contigs.iloc[idx, 0:2].name]
 
         # ## Bin out small contigs
         # for (idx, label) in enumerate(self.small_labels):
@@ -475,32 +475,33 @@ class Binner():
                         for result in results:
                             result = result.get()
                             try:
-                                self.bins[result[0]].append(result[1])
+                                self.bins[result[0]].append(self.large_contigs.iloc[result[1], 0:2].name)
                                 # self.bins[bin].remove(idx)
                             except KeyError:
-                                self.bins[result[0]] = [result[1]]
-        else:
-            for bin in list(self.bins):
-                if bin != -1:
-                    contigs = self.bins[bin]
-                    lengths = [pool.apply_async(len, args=(self.assembly[self.large_contigs.iloc[idx, 0]].seq)) for idx in contigs]
-                    bin_length = 0
-                    [bin_length := bin_length + r.get() for r in lengths]
-                    # bin_length = sum([len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) for idx in contigs])
-                    if bin_length < min_bin_size:
-                        for idx in contigs:
-                            results = [self.spawn_merge_high_n(idx, self.depths, other_bin, other_ids, self.n_samples, pool)
-                                                          for other_bin, other_ids in self.bins.items() if
-                                                          other_bin != bin and other_bin != -1]
-
-                            # results = [r.get() for r in results]
-                            max_concordance = max(results, key=itemgetter(0))
-                            if max_concordance[0] > 0.8:
-                                try:
-                                    self.bins[max_concordance[1]].append(idx)
-                                    # self.bins[bin].remove(idx)
-                                except KeyError:
-                                    self.bins[max_concordance[1]] = [idx]
+                                self.bins[result[0]] = [self.large_contigs.iloc[result[1], 0:2].name]
+        # else:
+            # for bin in list(self.bins):
+            #     if bin != -1:
+            #         contigs = self.bins[bin]
+            #         lengths = [pool.apply_async(len, args=(self.assembly[self.large_contigs.iloc[idx, 0]].seq)) for idx in contigs]
+            #         bin_length = 0
+            #         [bin_length := bin_length + r.get() for r in lengths]
+            #         # bin_length = sum([len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) for idx in contigs])
+            #         if bin_length < min_bin_size:
+            #             for idx in contigs:
+            #                 results = [self.spawn_merge_high_n(idx, self.depths, other_bin, other_ids, self.n_samples, pool)
+            #                                               for other_bin, other_ids in self.bins.items() if
+            #                                               other_bin != bin and other_bin != -1]
+            #
+            #                 # results = [r.get() for r in results]
+            #                 max_concordance = max(results, key=itemgetter(0))
+            #                 if max_concordance[0] > 0.8:
+            #                     try:
+            #                         self.bins[max_concordance[1]].append(idx)
+            #                         # self.bins[bin].remove(idx)
+            #                     except KeyError:
+            #                         self.bins[max_concordance[1]] = [idx]
+            # Let rosella handle this
 
         pool.close()
         pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
@@ -524,229 +525,30 @@ class Binner():
 
     def rescue_small_contigs(self):
         logging.info("Rescuing contigs...")
-
-        pool = mp.Pool(self.threads)
-        for (contig_id, small_depth) in enumerate(self.small_depths):
-            results = [self.pool.apply_async(self.spawn_merge_small_contigs, args=(contig_id, small_depth, self.depths, other_bin, other_ids, self.n_samples)) for
-                                          other_bin, other_ids
-                                          in self.bins.items() if
-                                          other_bin != bin and other_bin != -1]
-            results = [r.get() for r in results]
-            max_concordance = max(results, key=itemgetter(0))
-            if max_concordance[0] > 0.8:
-                try:
-                    self.bins[max_concordance[1]].append(contig_id)
-                    # self.bins[bin].remove(idx)
-                except KeyError:
-                    self.bins[max_concordance[1]] = [contig_id]
-
-        pool.close()
-        pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
+        #
+        # pool = mp.Pool(self.threads)
+        # for (contig_id, small_depth) in enumerate(self.small_depths):
+        #     results = [self.pool.apply_async(self.spawn_merge_small_contigs, args=(contig_id, small_depth, self.depths, other_bin, other_ids, self.n_samples)) for
+        #                                   other_bin, other_ids
+        #                                   in self.bins.items() if
+        #                                   other_bin != bin and other_bin != -1]
+        #     results = [r.get() for r in results]
+        #     max_concordance = max(results, key=itemgetter(0))
+        #     if max_concordance[0] > 0.8:
+        #         try:
+        #             self.bins[max_concordance[1]].append(contig_id)
+        #             # self.bins[bin].remove(idx)
+        #         except KeyError:
+        #             self.bins[max_concordance[1]] = [contig_id]
+        #
+        # pool.close()
+        # pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
 
     def write_bins(self, min_bin_size=200000):
-        logging.info("Writing bins...")
-        for (bin, contigs) in self.bins.items():
-            if bin != -1:
-                # Calculate total bin size and check if it is larger than min_bin_size
-                bin_length = sum([len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) for idx in contigs])
-                if bin_length >= min_bin_size:
-                    with open(self.path + '/rosella_bin.' + str(bin) + '.fna', 'w') as f:
-                        for idx in contigs:
-                            contig = self.large_contigs.iloc[idx, 0]
-                            write_contig(contig, self.assembly, f)
+        logging.info("Writing bin JSON...")
 
-            else:
-                # Get final bin value
-                bin_max = max(self.bins.keys()) + 1
-                # Rescue any large unbinned contigs and put them in their own cluster
-                for idx in contigs:
-                    contig = self.large_contigs.iloc[idx, 0]
-                    if len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) >= min_bin_size:
-                        with open(self.path + '/rosella_bin.' + str(bin_max) + '.fna', 'w') as f:
-                            write_contig(contig, self.assembly, f)
-                        bin_max += 1
+        with open(self.path + '/rosella_bins.json', 'w') as fp:
+            json.dump(self.bins, fp)
 
-
-
-if __name__ == '__main__':
-
-    ############################ ~ Main Parser ~ ##############################
-    main_parser = argparse.ArgumentParser(prog='cluster',
-                                          formatter_class=CustomHelpFormatter,
-                                          add_help=False)
-    main_parser.add_argument('--version',
-                             action='version',
-                             version=__version__,
-                             help='Show version information.')
-    main_parser.add_argument(
-        '--verbosity',
-        help=
-        '1 = critical, 2 = error, 3 = warning, 4 = info, 5 = debug. Default = 4 (logging)',
-        type=int,
-        default=4)
-    main_parser.add_argument('--log',
-                             help='Output logging information to file',
-                             default=False)
-    subparsers = main_parser.add_subparsers(help="--", dest='subparser_name')
-
-    ########################## ~ sub-parser ~ ###########################
-    input_options = subparsers.add_parser(
-        'fit',
-        description='Perform UMAP and then HDBSCAN on array of variant depths',
-        formatter_class=CustomHelpFormatter,
-        epilog='''
-                            ~ fit ~
-How to use fit:
-
-rosella.py fit --input coverm_output.tsv --assembly scaffolds.fasta
-
-''')
-    ## Main input array. Coverages from CoverM contig
-    input_options.add_argument(
-        '--input',
-        help='CoverM coverage results',
-        dest="input",
-        required=True)
-
-    input_options.add_argument(
-        '--assembly',
-        help='FASTA file containing scaffolded contigs of the metagenome assembly',
-        dest="assembly",
-        required=True,
-    )
-
-    input_options.add_argument(
-        '--min_bin_size',
-        help='The minimum size of a returned MAG in base pairs',
-        dest="min_bin_size",
-        default=200000,
-        required=False,
-    )
-
-    input_options.add_argument(
-        '--scaler',
-        help='The method used to scale the input data',
-        dest="scaler",
-        default='clr',
-        choices=['clr', 'minmax', 'none'],
-        required=False,
-    )
-
-    input_options.add_argument(
-        '--min_contig_size',
-        help='The minimum contig size to be considered for binning',
-        dest="min_contig_size",
-        default=1000,
-        required=False,
-    )
-
-    input_options.add_argument(
-        '--output_directory',
-        help='Output directory',
-        dest="output",
-        default="rosella_bins",
-        required=False,
-    )
-
-    ## UMAP parameters
-    input_options.add_argument('--n_neighbors',
-                               help='Number of neighbors considered in UMAP',
-                               dest="n_neighbors",
-                               default=100)
-
-    input_options.add_argument(
-        '--min_dist',
-        help=
-        'Minimum distance used by UMAP during construction of high dimensional graph',
-        dest="min_dist",
-        default=0)
-
-    input_options.add_argument('--n_components',
-                               help='Dimensions to use in UMAP projection',
-                               dest="n_components",
-                               default=3)
-
-    ## HDBSCAN parameters
-    input_options.add_argument('--min_cluster_size',
-                               help='Minimum cluster size for HDBSCAN',
-                               dest="min_cluster_size",
-                               default=5)
-
-    input_options.add_argument('--min_samples',
-                               help='Minimum samples for HDBSCAN',
-                               dest="min_samples",
-                               default=5)
-
-    input_options.add_argument('--cluster_selection_method',
-                               help='Cluster selection method used by HDBSCAN. Either "eom" or "leaf"',
-                               dest='cluster_selection_method',
-                               default='eom')
-
-    ## Genral parameters
-    input_options.add_argument(
-        '--precomputed',
-        help='Minimum cluster size for HDBSCAN',
-        dest="precomputed",
-        type=str2bool,
-        nargs='?',
-        const=True,
-        default=False,
-    )
-
-    input_options.add_argument('--threads',
-                               help='Number of threads to run in parallel',
-                               dest='threads',
-                               default=8)
-
-    ###########################################################################
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Parsing input ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-    if (len(sys.argv) == 2 or len(sys.argv) == 1 or sys.argv[1] == '-h'
-            or sys.argv[1] == '--help'):
-        phelp()
-    else:
-        args = main_parser.parse_args()
-        time = datetime.datetime.now().strftime('%H:%M:%S %d-%m-%Y')
-
-        if args.log:
-            if os.path.isfile(args.log):
-                raise Exception("File %s exists" % args.log)
-            logging.basicConfig(
-                filename=args.log,
-                level=debug[args.verbosity],
-                format='%(asctime)s %(levelname)s: %(message)s',
-                datefmt='%m/%d/%Y %I:%M:%S %p')
-        else:
-            logging.basicConfig(
-                level=debug[args.verbosity],
-                format='%(asctime)s %(levelname)s: %(message)s',
-                datefmt='%m/%d/%Y %I:%M:%S %p')
-
-        logging.info("Time - %s" % (time))
-        logging.info("Command - %s" % ' '.join(sys.argv))
-
-        prefix = args.output
-        if not os.path.exists(prefix):
-            os.makedirs(prefix)
-
-        if not args.precomputed:
-            clusterer = Binner(args.input,
-                                prefix,
-                                args.assembly,
-                                n_neighbors=int(args.n_neighbors),
-                                min_cluster_size=int(args.min_cluster_size),
-                                min_contig_size=int(args.min_contig_size),
-                                min_samples=int(args.min_samples),
-                                min_dist=float(args.min_dist),
-                                scaler=args.scaler,
-                                n_components=int(args.n_components),
-                                cluster_selection_method=args.cluster_selection_method,
-                                threads=int(args.threads),
-                                )
-            clusterer.fit_transform()
-            clusterer.cluster()
-            clusterer.plot()
-            clusterer.plot_distances()
-            # np.save(prefix + '_labels.npy', clusterer.labels())
-            clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
+        # self.small_contigs.to_csv(self.path + '/rosella_small_contigs.tsv', sep='\t')
+        # self.large_contigs.to_csv(self.path + '/rosella_large_contigs.tsv', sep='\t')
