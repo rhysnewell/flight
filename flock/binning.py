@@ -273,8 +273,8 @@ class Binner():
         # clr transformations
         self.tnfs = skbio.stats.composition.clr(self.tnfs.iloc[:, 2:] + 1)
         self.depths = skbio.stats.composition.clr(self.depths.T + 1).T
-        self.snv_rates = skbio.stats.composition.clr(self.snv_rates.T + 1).T
-        self.sv_rates = skbio.stats.composition.clr(self.sv_rates.T + 1).T
+        self.snv_rates = skbio.stats.composition.clr(self.snv_rates + 1)
+        self.sv_rates = skbio.stats.composition.clr(self.sv_rates + 1)
 
 
         # if self.depths.shape[1] > 1:
@@ -437,9 +437,9 @@ class Binner():
         for (idx, label) in enumerate(self.clusterer.labels_):
             if label != -1:
                 try:
-                    self.bins[label].append(self.large_contigs.iloc[idx, 0:2].name) # inputs values as tid
+                    self.bins[label.item()].append(self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
                 except KeyError:
-                    self.bins[label] = [self.large_contigs.iloc[idx, 0:2].name]
+                    self.bins[label.item()] = [self.large_contigs.iloc[idx, 0:2].name.item()]
             # elif len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) >= min_bin_size:
             #     try:
             #         self.bins[label].append(idx)
@@ -448,9 +448,9 @@ class Binner():
             else:
                 soft_label = self.soft_clusters_capped[idx]
                 try:
-                    self.bins[soft_label].append(self.large_contigs.iloc[idx, 0:2].name)
+                    self.bins[soft_label.item()].append(self.large_contigs.iloc[idx, 0:2].name.item())
                 except KeyError:
-                    self.bins[soft_label] = [self.large_contigs.iloc[idx, 0:2].name]
+                    self.bins[soft_label.item()] = [self.large_contigs.iloc[idx, 0:2].name.item()]
 
         # ## Bin out small contigs
         # for (idx, label) in enumerate(self.small_labels):
@@ -461,11 +461,10 @@ class Binner():
         #             self.bins[label] = [idx]
 
     def merge_bins(self, min_bin_size=200000):
-        logging.info("Merging bins...")
         pool = mp.Pool(self.threads)
 
         if self.n_samples < 3:
-
+            logging.info("Merging bins...")
             for bin in list(self.bins):
                 if bin != -1:
                     contigs = self.bins[bin]
@@ -475,10 +474,10 @@ class Binner():
                         for result in results:
                             result = result.get()
                             try:
-                                self.bins[result[0]].append(self.large_contigs.iloc[result[1], 0:2].name)
+                                self.bins[result[0].item()].append(self.large_contigs.iloc[result[1], 0:2].name)
                                 # self.bins[bin].remove(idx)
                             except KeyError:
-                                self.bins[result[0]] = [self.large_contigs.iloc[result[1], 0:2].name]
+                                self.bins[result[0].item()] = [self.large_contigs.iloc[result[1], 0:2].name]
         # else:
             # for bin in list(self.bins):
             #     if bin != -1:

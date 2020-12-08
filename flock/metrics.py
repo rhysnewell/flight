@@ -155,7 +155,7 @@ def concordance(a, b, n_samples):
     return rho
 
 @numba.njit()
-def phi(a, b):
+def phi(a, b, n_samples):
     covariance_mat = np.cov(a, b, rowvar=True)
     covariance = covariance_mat[0, 1]
     var_a = covariance_mat[0, 0]
@@ -165,7 +165,7 @@ def phi(a, b):
     return phi
 
 @numba.njit()
-def phi_dist(a, b):
+def phi_dist(a, b, n_samples):
     covariance_mat = np.cov(a, b, rowvar=True)
     covariance = covariance_mat[0, 1]
     var_a = covariance_mat[0, 0]
