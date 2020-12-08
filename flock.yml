@@ -3,7 +3,7 @@ channels:
   - bioconda
   - defaults
 dependencies:
-  - python>=3.6
+  - python>=3.8
   - umap-learn
   - hdbscan
   - matplotlib
@@ -13,3 +13,5 @@ dependencies:
   - scikit-bio
   - numba
   - biopython
+  - pynndescent
+  - threadpoolctl
