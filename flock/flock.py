@@ -38,6 +38,7 @@ import datetime
 
 # Function imports
 import numpy as np
+from threadpoolctl import threadpool_limits
 
 # Self imports
 from .binning import Binner
@@ -144,6 +145,13 @@ def main():
         nargs='?',
         const=True,
         default=False,
+    )
+
+    fit_options.add_argument(
+        '--cores',
+        help='Number of cores to run UMAP with',
+        dest='threads',
+        default=8
     )
 
     fit_options.set_defaults(func=fit)
@@ -308,29 +316,30 @@ def main():
 
 def fit(args):
     prefix = args.input.replace(".npy", "")
-    if not args.precomputed:
-        clusterer = Cluster(args.input,
-                           prefix,
-                           n_neighbors=int(args.n_neighbors),
-                           min_cluster_size=int(args.min_cluster_size),
-                           min_samples=int(args.min_samples),
-                           min_dist=float(args.min_dist),
-                           n_components=int(args.n_components))
-        clusterer.fit_transform()
-        clusterer.cluster()
-        clusterer.plot()
-        np.save(prefix + '_labels.npy', clusterer.labels())
-    else:
-        clusterer = Cluster(args.input,
-                           prefix,
-                           n_neighbors=int(args.n_neighbors),
-                           min_cluster_size=int(args.min_cluster_size),
-                           min_samples=int(args.min_samples),
-                           scaler="none",
-                           precomputed=args.precomputed)
-        clusterer.cluster_distances()
-        clusterer.plot_distances()
-        np.save(prefix + '_labels.npy', clusterer.labels())
+    with threadpool_limits(limits=int(args.threads), user_api='blas'):
+        if not args.precomputed:
+            clusterer = Cluster(args.input,
+                               prefix,
+                               n_neighbors=int(args.n_neighbors),
+                               min_cluster_size=int(args.min_cluster_size),
+                               min_samples=int(args.min_samples),
+                               min_dist=float(args.min_dist),
+                               n_components=int(args.n_components))
+            clusterer.fit_transform()
+            clusterer.cluster()
+            clusterer.plot()
+            np.save(prefix + '_labels.npy', clusterer.labels())
+        else:
+            clusterer = Cluster(args.input,
+                               prefix,
+                               n_neighbors=int(args.n_neighbors),
+                               min_cluster_size=int(args.min_cluster_size),
+                               min_samples=int(args.min_samples),
+                               scaler="none",
+                               precomputed=args.precomputed)
+            clusterer.cluster_distances()
+            clusterer.plot_distances()
+            np.save(prefix + '_labels.npy', clusterer.labels())
 
 
 def bin(args):
@@ -339,34 +348,35 @@ def bin(args):
         os.makedirs(prefix)
 
     if not args.precomputed:
-        clusterer = Binner(args.input,
-                           args.kmer_frequencies,
-                           args.variant_rates,
-                           prefix,
-                           args.assembly,
-                           n_neighbors=int(args.n_neighbors),
-                           metric=args.metric,
-                           min_cluster_size=int(args.min_cluster_size),
-                           min_contig_size=int(args.min_contig_size),
-                           min_samples=int(args.min_samples),
-                           min_dist=float(args.min_dist),
-                           scaler=args.scaler,
-                           n_components=int(args.n_components),
-                           cluster_selection_method=args.cluster_selection_method,
-                           threads=int(args.threads),
-                           )
-        clusterer.fit_transform()
-        clusterer.cluster()
-        clusterer.plot()
-        clusterer.plot_distances()
-        # np.save(prefix + '_labels.npy', clusterer.labels())
-        clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-        clusterer.merge_bins(int(args.min_bin_size)) # Merges bins when n_samples is < 3
-        #
-        # if clusterer.n_samples >= 3:
-        #     clusterer.rescue_small_contigs()
+        with threadpool_limits(limits=int(args.threads), user_api='blas'):
+            clusterer = Binner(args.input,
+                               args.kmer_frequencies,
+                               args.variant_rates,
+                               prefix,
+                               args.assembly,
+                               n_neighbors=int(args.n_neighbors),
+                               metric=args.metric,
+                               min_cluster_size=int(args.min_cluster_size),
+                               min_contig_size=int(args.min_contig_size),
+                               min_samples=int(args.min_samples),
+                               min_dist=float(args.min_dist),
+                               scaler=args.scaler,
+                               n_components=int(args.n_components),
+                               cluster_selection_method=args.cluster_selection_method,
+                               threads=int(args.threads),
+                               )
+            clusterer.fit_transform()
+            clusterer.cluster()
+            clusterer.plot()
+            clusterer.plot_distances()
+            # np.save(prefix + '_labels.npy', clusterer.labels())
+            clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
+            clusterer.merge_bins(int(args.min_bin_size)) # Merges bins when n_samples is < 3
+            #
+            # if clusterer.n_samples >= 3:
+            #     clusterer.rescue_small_contigs()
 
-        clusterer.write_bins(int(args.min_bin_size))
+            clusterer.write_bins(int(args.min_bin_size))
 
 
 def phelp():
