@@ -47,7 +47,8 @@ matplotlib.use('pdf')
 import matplotlib.pyplot as plt
 import skbio.stats.composition
 import umap
-import numba
+from numba import set_num_threads
+import pynndescent
 
 # self imports
 
@@ -149,8 +150,9 @@ class Cluster():
         precomputed=False,
         metric='euclidean',
         hdbscan_metric="euclidean",
+        threads=8
     ):
-
+        set_num_threads(threads)
         ## Set up clusterer and UMAP
         self.path = output_prefix
         self.depths = np.load(count_path)

@@ -39,7 +39,7 @@ from operator import itemgetter
 
 # Function imports
 import numpy as np
-from numba import njit
+from numba import njit, set_num_threads
 import multiprocessing as mp
 import pandas as pd
 import hdbscan
@@ -52,6 +52,7 @@ from Bio import SeqIO
 import skbio.stats.composition
 import umap
 from itertools import product
+import pynndescent
 
 # self imports
 import flock.metrics as metrics
@@ -207,6 +208,7 @@ class Binner():
             threads=8,
     ):
         self.threads = threads
+        set_num_threads(threads)
         # Open up assembly
         self.assembly = SeqIO.to_dict(SeqIO.parse(assembly, "fasta"))
 
@@ -271,16 +273,16 @@ class Binner():
         # self.tnfs = (self.tnfs.iloc[:, 2:] / np.sqrt(np.square(self.tnfs.iloc[:, 2:] + 1).sum(axis=1)))
 
         # clr transformations
-        self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if 'N' not in name]].iloc[:, 1:] + 1)
-        self.depths = skbio.stats.composition.clr(self.depths.T + 1).T
-        self.snv_rates = skbio.stats.composition.clr(self.snv_rates + 1)
-        self.sv_rates = skbio.stats.composition.clr(self.sv_rates + 1)
+        self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if 'N' not in name]].iloc[:, 1:].astype(np.float64) + 1)
+        self.depths = skbio.stats.composition.clr(self.depths.T.astype(np.float64) + 1).T
+        self.snv_rates = skbio.stats.composition.clr(self.snv_rates.astype(np.float64) + 1)
+        self.sv_rates = skbio.stats.composition.clr(self.sv_rates.astype(np.float64) + 1)
 
 
         # if self.depths.shape[1] > 1:
             # pass
         # else:
-        self.depths = np.concatenate((self.depths, self.snv_rates, self.sv_rates, self.tnfs), axis=1) # Add extra dimension so concatenation works
+        self.depths = np.nan_to_num(np.concatenate((self.depths, self.snv_rates, self.sv_rates, self.tnfs), axis=1).astype(np.float64)) # Add extra dimension so concatenation works
             
         if n_neighbors >= int(self.depths.shape[0] * 0.5):
             n_neighbors = max(int(self.depths.shape[0] * 0.5), 2)
