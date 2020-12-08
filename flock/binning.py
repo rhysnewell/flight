@@ -271,7 +271,7 @@ class Binner():
         # self.tnfs = (self.tnfs.iloc[:, 2:] / np.sqrt(np.square(self.tnfs.iloc[:, 2:] + 1).sum(axis=1)))
 
         # clr transformations
-        self.tnfs = skbio.stats.composition.clr(self.tnfs.iloc[:, 2:] + 1)
+        self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if 'N' not in name]].iloc[:, 1:] + 1)
         self.depths = skbio.stats.composition.clr(self.depths.T + 1).T
         self.snv_rates = skbio.stats.composition.clr(self.snv_rates + 1)
         self.sv_rates = skbio.stats.composition.clr(self.sv_rates + 1)
