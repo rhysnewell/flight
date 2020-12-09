@@ -282,13 +282,13 @@ class Binner():
         # if self.depths.shape[1] > 1:
             # pass
         # else:
-        self.depths = np.nan_to_num(np.concatenate((self.depths, self.snv_rates, self.sv_rates, self.tnfs), axis=1).astype(np.float64)) # Add extra dimension so concatenation works
+        self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1], self.depths, self.snv_rates, self.sv_rates, self.tnfs), axis=1).astype(np.float64)) # Add extra dimension so concatenation works
             
         if n_neighbors >= int(self.depths.shape[0] * 0.5):
             n_neighbors = max(int(self.depths.shape[0] * 0.5), 2)
 
         if n_components > self.depths.shape[1]:
-            n_components = self.depths.shape[1]
+            n_components = 2
 
         if metric in ['aggregate', 'aggregate_variant_tnf', 'aggregate_tnf', 'rho', 'phi', 'phi_dist']:
             self.reducer = umap.UMAP(

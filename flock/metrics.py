@@ -177,36 +177,39 @@ def phi_dist(a, b, n_samples):
 @numba.njit()
 def aggregate_tnf(a, b, n_samples):
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
-    tnf_dist = tnf(a, b, n_samples)
-    aitchinson = euclidean(a, b, n_samples)
+    tnf_dist = tnf(a[1:], b[1:], n_samples)
+    l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
+
+    aitchinson = euclidean(a[1:], b[1:], n_samples)
     agg = 0
 
     # if n_samples >= 3:
     #     corr = snv_corr(a, b, n_samples)
     #     agg = (tnf_dist**(1-w)) * (aitchinson**(w)) * corr
     # else:
-    agg = (tnf_dist**(1-w)) * (aitchinson**(w))
+    agg = (tnf_dist ** ((1 - w) * l)) * (aitchinson)
 
     return agg
 
 @numba.njit()
 def aggregate_variant_tnf(a, b, n_samples):
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
-    tnf_dist = tnf(a, b, n_samples*3)
-    aitchinson = euclidean(a, b, n_samples)
+    # Need to weigh by differences in contig size. TNF becomes less reliable as contigs diverge in size
+    l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
+
+    tnf_dist = tnf(a[1:], b[1:], n_samples*3)
+    aitchinson = euclidean(a[1:], b[1:], n_samples)
 
     if n_samples >= 3:
-        snv = snv_corr(a, b, n_samples)
-        sv = sv_corr(a, b, n_samples)
-        agg = (tnf_dist ** (1 - w)) * (aitchinson ** (w)) * snv * sv
+        snv = snv_corr(a[1:], b[1:], n_samples)
+        sv = sv_corr(a[1:], b[1:], n_samples)
+        agg = (tnf_dist ** ((1 - w) * l)) * (aitchinson) * snv * sv
         return agg
     else:
-        snv = snv_euclidean(a, b, n_samples)
-        sv = snv_euclidean(a, b, n_samples)
 
         # Weighted average of these metrics. Weighted by w
-        agg = (tnf_dist ** (1 - w)) + (aitchinson ** w) + (snv ** w) + (sv ** w)
-        agg /= 4
+        agg = (tnf_dist ** ((1 - w) * l)) * (aitchinson)
+
         return agg
 
 @numba.njit()
