@@ -194,8 +194,8 @@ class Binner():
             output_prefix,
             assembly,
             scaler="clr",
-            n_neighbors=20,
-            min_dist=0.1,
+            n_neighbors=100,
+            min_dist=0.0,
             n_components=2,
             random_state=42,
             min_cluster_size=100,
@@ -253,13 +253,19 @@ class Binner():
 
 
         # clr transformations
-        self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if 'N' not in name]].iloc[:, 1:].astype(np.float64) + 1)
+        self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if 'N' not in name]]
+                                                .iloc[:, 1:].astype(np.float64) + 1)
+        self.tnfs = np.nan_to_num(np.concatenate((self.large_contigs[:, 1][:, None], self.tnfs), axis=1))
         self.depths = skbio.stats.composition.clr(self.depths.T.astype(np.float64) + 1).T
-        self.snv_rates = skbio.stats.composition.clr(self.snv_rates.astype(np.float64) + 1)
-        self.sv_rates = skbio.stats.composition.clr(self.sv_rates.astype(np.float64) + 1)
+        # self.snv_rates = skbio.stats.composition.clr(self.snv_rates.astype(np.float64) + 1)
+        # self.sv_rates = skbio.stats.composition.clr(self.sv_rates.astype(np.float64) + 1)
 
 
-        self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1], self.depths, self.snv_rates, self.sv_rates, self.tnfs), axis=1).astype(np.float64)) # Add extra dimension so concatenation works
+        # self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1][:, None],
+        #                                             self.depths,
+        #                                             self.snv_rates,
+        #                                             self.sv_rates,
+        #                                             self.tnfs), axis=1).astype(np.float64)) # Add extra dimension so concatenation works
             
         if n_neighbors >= int(self.depths.shape[0] * 0.5):
             n_neighbors = max(int(self.depths.shape[0] * 0.5), 2)
@@ -267,31 +273,64 @@ class Binner():
         if n_components > self.depths.shape[1]:
             n_components = 2
 
-        if metric in ['aggregate', 'aggregate_variant_tnf', 'aggregate_tnf', 'rho', 'phi', 'phi_dist']:
-            self.reducer = umap.UMAP(
-                n_neighbors=n_neighbors,
-                min_dist=min_dist,
-                n_components=n_components,
-                random_state=random_state,
-                spread=1,
-                metric=getattr(metrics, metric),
-                metric_kwds={'n_samples': self.n_samples}
-            )
-        else:
-            self.reducer = umap.UMAP(
-                n_neighbors=n_neighbors,
-                min_dist=min_dist,
-                n_components=n_components,
-                random_state=random_state,
-                spread=1,
-                metric=metric
-            )
+
+        # Three UMAP reducers for each input type
+        self.tnf_reducer = umap.UMAP(
+            metric=getattr(metrics, 'tnf_dist'),
+            metric_kwds={'n_samples': self.n_samples},
+            n_neighbors=150,
+            n_components=n_components,
+            min_dist=0,
+            random_state=random_state,
+            spread=1,
+        )
+
+        self.depth_reducer = umap.UMAP(
+            metric='euclidean', # euclidean transforms into aitchinson distance in log ratio space
+            n_neighbors=n_neighbors,
+            n_components=n_components,
+            min_dist=min_dist,
+            random_state=random_state,
+            spread=1,
+        )
+
+        self.snv_reducer = umap.UMAP(
+            metric='correlation',
+            n_neighbors=n_neighbors,
+            n_components=n_components,
+            min_dist=min_dist,
+            random_state=random_state,
+            spread=1,
+        )
+        # if metric in ['aggregate', 'aggregate_variant_tnf', 'aggregate_tnf', 'rho', 'phi', 'phi_dist']:
+        #     self.reducer = umap.UMAP(
+        #         n_neighbors=n_neighbors,
+        #         min_dist=min_dist,
+        #         n_components=n_components,
+        #         random_state=random_state,
+        #         spread=1,
+        #         metric=getattr(metrics, metric),
+        #         metric_kwds={'n_samples': self.n_samples}
+        #     )
+        # else:
+        #     self.reducer = umap.UMAP(
+        #         n_neighbors=n_neighbors,
+        #         min_dist=min_dist,
+        #         n_components=n_components,
+        #         random_state=random_state,
+        #         spread=1,
+        #         metric=metric
+        #     )
 
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
         logging.info("Running UMAP - %s" % self.reducer)
-        self.embeddings = self.reducer.fit_transform(self.depths)
+        tnf_mapping = self.tnf_reducer.fit(self.tnfs)
+        depth_mapping = self.depth_reducer.fit(self.depths)
+        snv_mapping = self.snv_reducer.fit(self.snv_rates)
+        intersection_union_mapper = (tnf_mapping * depth_mapping) + snv_mapping
+        self.embeddings = intersection_union_mapper.embedding_
         # self.small_embeddings = self.reducer.transform(self.small_depths)
 
     def cluster(self):

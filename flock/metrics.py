@@ -213,6 +213,17 @@ def aggregate_variant_tnf(a, b, n_samples):
         return agg
 
 @numba.njit()
+def tnf_dist(a, b, n_samples):
+    w = n_samples / (n_samples + 1)  # weighting by number of samples same as in metabat2
+    # Need to weigh by differences in contig size. TNF becomes less reliable as contigs diverge in size
+    l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
+    tnf_dist = np.linalg.norm(a[1:] - b[1:])
+
+    return tnf_dist ** ((1 - w) * l)
+
+
+
+@numba.njit()
 def aggregate(a, b, n_samples):
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
     # tnf_dist = tnf(a, b, n_samples)
