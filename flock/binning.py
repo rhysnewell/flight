@@ -279,7 +279,7 @@ class Binner():
 
         # Three UMAP reducers for each input type
         self.tnf_reducer = umap.UMAP(
-            metric='euclidean',
+            metric='correlation',
             n_neighbors=150,
             n_components=n_components,
             min_dist=0,
@@ -288,7 +288,7 @@ class Binner():
         )
 
         self.depth_reducer = umap.UMAP(
-            metric='euclidean', # euclidean transforms into aitchinson distance in log ratio space
+            metric='correlation',
             n_neighbors=n_neighbors,
             n_components=n_components,
             min_dist=min_dist,
@@ -434,20 +434,21 @@ class Binner():
         for (idx, label) in enumerate(self.clusterer.labels_):
             if label != -1:
                 try:
-                    self.bins[label.item()].append(self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                    self.bins[label.item() + 1].append(self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
                 except KeyError:
-                    self.bins[label.item()] = [self.large_contigs.iloc[idx, 0:2].name.item()]
-            # elif len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) >= min_bin_size:
-            #     try:
-            #         self.bins[label].append(idx)
-            #     except KeyError:
-            #         self.bins[label] = [idx]
-            else:
+                    self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+
+            elif self.n_samples < 3:
                 soft_label = self.soft_clusters_capped[idx]
                 try:
-                    self.bins[soft_label.item()].append(self.large_contigs.iloc[idx, 0:2].name.item())
+                    self.bins[soft_label.item() + 1].append(self.large_contigs.iloc[idx, 0:2].name.item())
                 except KeyError:
-                    self.bins[soft_label.item()] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+                    self.bins[soft_label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+            else:
+                try:
+                    self.bins[label.item() + 1].append(self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                except KeyError:
+                    self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
 
         # ## Bin out small contigs
         # for (idx, label) in enumerate(self.small_labels):
@@ -463,7 +464,7 @@ class Binner():
         if self.n_samples < 3:
             logging.info("Merging bins...")
             for bin in list(self.bins):
-                if bin != -1:
+                if bin != 0:
                     contigs = self.bins[bin]
                     bin_length = sum([len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) for idx in contigs])
                     if bin_length < min_bin_size:
@@ -475,70 +476,9 @@ class Binner():
                                 # self.bins[bin].remove(idx)
                             except KeyError:
                                 self.bins[result[0].item()] = [self.large_contigs.iloc[result[1], 0:2].name]
-        # else:
-            # for bin in list(self.bins):
-            #     if bin != -1:
-            #         contigs = self.bins[bin]
-            #         lengths = [pool.apply_async(len, args=(self.assembly[self.large_contigs.iloc[idx, 0]].seq)) for idx in contigs]
-            #         bin_length = 0
-            #         [bin_length := bin_length + r.get() for r in lengths]
-            #         # bin_length = sum([len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) for idx in contigs])
-            #         if bin_length < min_bin_size:
-            #             for idx in contigs:
-            #                 results = [self.spawn_merge_high_n(idx, self.depths, other_bin, other_ids, self.n_samples, pool)
-            #                                               for other_bin, other_ids in self.bins.items() if
-            #                                               other_bin != bin and other_bin != -1]
-            #
-            #                 # results = [r.get() for r in results]
-            #                 max_concordance = max(results, key=itemgetter(0))
-            #                 if max_concordance[0] > 0.8:
-            #                     try:
-            #                         self.bins[max_concordance[1]].append(idx)
-            #                         # self.bins[bin].remove(idx)
-            #                     except KeyError:
-            #                         self.bins[max_concordance[1]] = [idx]
-            # Let rosella handle this
 
         pool.close()
         pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
-
-    def spawn_merge_high_n(self, idx, depths, other_bin, other_ids, n_samples, pool):
-        current_depths = depths[idx,]
-        result = [pool.apply_async(metrics.concordance, args=(current_depths, depths[other_id,], n_samples))
-                                     for other_id in other_ids]
-        result = [r.get() for r in result]
-        average_rho = sum(result) / n_samples
-
-        return average_rho, other_bin
-
-    def spawn_merge_small_contigs(self, idx, small_depths, depths, other_bin, other_ids, n_samples):
-        result = [metrics.concordance(small_depths, depths[other_id,], n_samples)
-                                     for other_id in other_ids]
-
-        average_rho = sum(result) / n_samples
-
-        return average_rho, other_bin
-
-    def rescue_small_contigs(self):
-        logging.info("Rescuing contigs...")
-        #
-        # pool = mp.Pool(self.threads)
-        # for (contig_id, small_depth) in enumerate(self.small_depths):
-        #     results = [self.pool.apply_async(self.spawn_merge_small_contigs, args=(contig_id, small_depth, self.depths, other_bin, other_ids, self.n_samples)) for
-        #                                   other_bin, other_ids
-        #                                   in self.bins.items() if
-        #                                   other_bin != bin and other_bin != -1]
-        #     results = [r.get() for r in results]
-        #     max_concordance = max(results, key=itemgetter(0))
-        #     if max_concordance[0] > 0.8:
-        #         try:
-        #             self.bins[max_concordance[1]].append(contig_id)
-        #             # self.bins[bin].remove(idx)
-        #         except KeyError:
-        #             self.bins[max_concordance[1]] = [contig_id]
-        #
-        # pool.close()
-        # pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
 
     def write_bins(self, min_bin_size=200000):
         logging.info("Writing bin JSON...")
