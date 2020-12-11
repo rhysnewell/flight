@@ -30,6 +30,7 @@ __status__ = "Development"
 ###############################################################################
 # System imports
 import warnings
+import logging
 
 # Function imports
 import numpy as np
@@ -51,7 +52,7 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean'):
                                 leaf_size=40,
                                 cluster_selection_method=method,
                                 metric=metric,
-                                min_cluster_size=int(gamma * np.sqrt(n)),
+                                min_cluster_size=int(gamma),
                                 min_samples=ms,
                                 allow_single_cluster=False,
                                 core_dist_n_jobs=20).fit(df)
@@ -78,7 +79,7 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean'):
     warnings.filterwarnings('ignore')
     results = []
     n = df.shape[0]
-    for gamma in range(1, int(np.log(n))):
+    for gamma in range(2, int(np.log(n))):
         mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric)) for ms in
                       range(1, int(2 * np.log(n)))]
         for result in mp_results:
@@ -86,8 +87,8 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean'):
             results.append(result)
             if result[2] >= .5:
                 try:
-                    print(
-                        f'min_cluster_size = {result[0]},  min_samples = {results[1]}, validity_score = {result[2]} n_clusters = {result[3]}')
+                    logging.info(
+                        f'min_cluster_size = {result[0]},  min_samples = {result[1]}, validity_score = {result[2]} n_clusters = {result[3]}')
                 except IndexError:
                     print(result)
 

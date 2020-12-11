@@ -50,6 +50,7 @@ matplotlib.use('pdf')
 import matplotlib.pyplot as plt
 from Bio import SeqIO
 import skbio.stats.composition
+from sklearn.preprocessing import RobustScaler
 import umap
 from itertools import product
 import pynndescent
@@ -234,16 +235,17 @@ class Binner():
 
         # If there are enough contigs of that size
         if self.large_contigs.shape[0] > 100:
-            self.depths = self.large_contigs.iloc[:,3:]
+            self.depths = self.large_contigs.iloc[:,3::2]
+            self.variances = self.large_contigs.iloc[:,4::2]
             # self.small_depths = self.small_contigs.iloc[:,3:]
         else: # Otherwise we'll just use a smaller value
             self.large_contigs = self.coverage_table[self.coverage_table["contigLen"] >= 1000]
             self.small_contigs = self.coverage_table[self.coverage_table["contigLen"] < 1000]
-            self.depths = self.large_contigs.iloc[:,3:]
+            self.depths = self.large_contigs.iloc[:,3::2]
+            self.variances = self.large_contigs.iloc[:,4::2]
             # self.small_depths = self.small_contigs.iloc[:,3:]
 
         # if self.depths.shape[1] > 2:
-        self.depths = self.depths[self.depths.columns[::2]]
         self.n_samples = self.depths.shape[1]
         # self.small_depths = self.small_depths[self.small_depths.columns[::2]]
 
@@ -255,9 +257,10 @@ class Binner():
         # clr transformations
         self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if 'N' not in name]]
                                                 .iloc[:, 1:].astype(np.float64) + 1)
-        self.tnfs = np.nan_to_num(np.concatenate((self.large_contigs[:, 1].values[:, None], self.tnfs), axis=1))
+        self.tnfs = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.tnfs), axis=1))
         self.depths = skbio.stats.composition.clr(self.depths.T.astype(np.float64) + 1).T
-        self.snv_rates = np.nan_to_num(self.snv_rates)
+        self.snv_rates = RobustScaler().fit_transform(np.nan_to_num(self.snv_rates, nan=0.0, posinf=0.0, neginf=0.0))
+        self.variance = RobustScaler().fit_transform(np.nan_to_num(self.variances, nan=0.0, posinf=0.0, neginf=0.0))
         # self.sv_rates = skbio.stats.composition.clr(self.sv_rates.astype(np.float64) + 1)
 
 
@@ -276,8 +279,7 @@ class Binner():
 
         # Three UMAP reducers for each input type
         self.tnf_reducer = umap.UMAP(
-            metric=getattr(metrics, 'tnf_dist'),
-            metric_kwds={'n_samples': self.n_samples},
+            metric='euclidean',
             n_neighbors=150,
             n_components=n_components,
             min_dist=0,
@@ -295,6 +297,15 @@ class Binner():
         )
 
         self.snv_reducer = umap.UMAP(
+            metric='euclidean',
+            n_neighbors=n_neighbors,
+            n_components=n_components,
+            min_dist=min_dist,
+            random_state=random_state,
+            spread=1,
+        )
+
+        self.variance_reducer = umap.UMAP(
             metric='correlation',
             n_neighbors=n_neighbors,
             n_components=n_components,
@@ -302,38 +313,21 @@ class Binner():
             random_state=random_state,
             spread=1,
         )
-        # if metric in ['aggregate', 'aggregate_variant_tnf', 'aggregate_tnf', 'rho', 'phi', 'phi_dist']:
-        #     self.reducer = umap.UMAP(
-        #         n_neighbors=n_neighbors,
-        #         min_dist=min_dist,
-        #         n_components=n_components,
-        #         random_state=random_state,
-        #         spread=1,
-        #         metric=getattr(metrics, metric),
-        #         metric_kwds={'n_samples': self.n_samples}
-        #     )
-        # else:
-        #     self.reducer = umap.UMAP(
-        #         n_neighbors=n_neighbors,
-        #         min_dist=min_dist,
-        #         n_components=n_components,
-        #         random_state=random_state,
-        #         spread=1,
-        #         metric=metric
-        #     )
 
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
+        # logging.info("Running UMAP - %s" % self.snv_reducer)
+        # snv_mapping = self.snv_reducer.fit(self.snv_rates)
         logging.info("Running UMAP - %s" % self.tnf_reducer)
         tnf_mapping = self.tnf_reducer.fit(self.tnfs)
         logging.info("Running UMAP - %s" % self.depth_reducer)
         depth_mapping = self.depth_reducer.fit(self.depths)
-        logging.info("Running UMAP - %s" % self.snv_reducer)
-        snv_mapping = self.snv_reducer.fit(self.snv_rates)
+        logging.info("Running UMAP - %s" % self.variance_reducer)
+        variance_mapping = self.variance_reducer.fit(self.variance)
         ## Contrast all reducers
-        intersection_union_mapper = (tnf_mapping - depth_mapping) - snv_mapping
-        self.embeddings = intersection_union_mapper.embedding_
+        contrast_mapper = (depth_mapping - tnf_mapping) - variance_mapping
+        self.embeddings = contrast_mapper.embedding_
 
     def cluster(self):
         ## Cluster on the UMAP embeddings and return soft clusters
