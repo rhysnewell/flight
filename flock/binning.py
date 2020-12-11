@@ -56,6 +56,7 @@ import pynndescent
 
 # self imports
 import flock.metrics as metrics
+import flock.utils as utils
 
 # Set plotting style
 sns.set(style='white', context='notebook', rc={'figure.figsize': (14, 10)})
@@ -230,10 +231,6 @@ class Binner():
         if list(self.large_contigs['contigName']) != list(self.tnfs['contigName']):
             sys.exit("Contig ordering incorrect for kmer table or coverage table")
 
-        # self.tnfs = self.tnfs.iloc[:, 2:] + 1
-        # self.tnfs = self.tnfs.div(self.tnfs.sum(axis=1), axis=0)  # convert counts to frequencies along rows
-        # self.tnfs = skbio.stats.composition.clr(self.tnfs + 1)
-
 
         # If there are enough contigs of that size
         if self.large_contigs.shape[0] > 100:
@@ -254,23 +251,6 @@ class Binner():
         if scaler.lower() == "clr" and self.n_samples < 3:
             scaler = "minmax"
 
-        # if scaler.lower() == "minmax":
-        #     self.depths = MinMaxScaler().fit_transform(self.depths)
-        #     # self.small_depths = MinMaxScaler().fit_transform(self.small_depths)
-        # elif scaler.lower() == "clr":
-        #     # Need to merge small and large together for CLR transform to work properly
-        #     # large_count = self.depths.shape[0]
-        #     # concatenated = np.concatenate((self.depths, self.small_depths))
-        #     # concatenated = concatenated.T + 1
-        #     # concatenated = skbio.stats.composition.clr(concatenated).T
-        #     # self.depths = concatenated[:large_count, ]
-        #     # self.small_depths = concatenated[large_count:, ]
-        #     self.depths = skbio.stats.composition.clr(self.depths.T + 1).T
-        # elif scaler.lower() == "none":
-        #     pass
-
-        # Normalize all table values
-        # self.tnfs = (self.tnfs.iloc[:, 2:] / np.sqrt(np.square(self.tnfs.iloc[:, 2:] + 1).sum(axis=1)))
 
         # clr transformations
         self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if 'N' not in name]].iloc[:, 1:].astype(np.float64) + 1)
@@ -279,9 +259,6 @@ class Binner():
         self.sv_rates = skbio.stats.composition.clr(self.sv_rates.astype(np.float64) + 1)
 
 
-        # if self.depths.shape[1] > 1:
-            # pass
-        # else:
         self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1], self.depths, self.snv_rates, self.sv_rates, self.tnfs), axis=1).astype(np.float64)) # Add extra dimension so concatenation works
             
         if n_neighbors >= int(self.depths.shape[0] * 0.5):
@@ -311,22 +288,6 @@ class Binner():
             )
 
 
-        if min_cluster_size > self.depths.shape[0] * 0.1:
-            min_cluster_size = max(int(self.depths.shape[0] * 0.1), 2)
-            min_samples = max(int(min_cluster_size * 0.1), 2)
-
-        if precomputed:
-            metric = "precomputed"
-            prediction_data = False
-
-        self.clusterer = hdbscan.HDBSCAN(
-            min_cluster_size=min_cluster_size,
-            # min_samples=min_samples,
-            prediction_data=prediction_data,
-            cluster_selection_method=cluster_selection_method,
-            metric=hdbscan_metric,
-        )
-
     def fit_transform(self):
         ## Calculate the UMAP embeddings
         logging.info("Running UMAP - %s" % self.reducer)
@@ -335,28 +296,27 @@ class Binner():
 
     def cluster(self):
         ## Cluster on the UMAP embeddings and return soft clusters
-        try:
-            logging.info("Running HDBSCAN - %s" % self.clusterer)
-            self.clusterer.fit(self.embeddings)
-            self.soft_clusters = hdbscan.all_points_membership_vectors(
-                self.clusterer)
-            self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
-            # self.small_labels, self.small_strengths = hdbscan.approximate_predict(self.clusterer, self.small_embeddings)
-        except:
-            ## Likely integer overflow in HDBSCAN
-            ## Try reduce min samples
-            self.clusterer = hdbscan.HDBSCAN(
-                min_cluster_size=max(int(self.depths.shape[0] * 0.01), 2),
-                min_samples=max(int(self.depths.shape[0] * 0.005), 2),
-                prediction_data=True,
-                cluster_selection_method="eom",
-            )
-            logging.info("Retrying HDBSCAN - %s" % self.clusterer)
-            self.clusterer.fit(self.embeddings)
-            self.soft_clusters = hdbscan.all_points_membership_vectors(
-                self.clusterer)
-            self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
-            # self.small_labels, self.small_strengths = hdbscan.approximate_predict(self.clusterer, self.small_embeddings)
+        logging.info("Running HDBSCAN - %s" % self.clusterer)
+        tuned = utils.hyperparameter_selection(self.embeddings, self.threads)
+        best = utils.best_validity(tuned)
+        self.clusterer = hdbscan.HDBSCAN(
+            algorithm='best',
+            alpha=1.0,
+            approx_min_span_tree=True,
+            gen_min_span_tree=True,
+            leaf_size=40,
+            cluster_selection_method='eom',
+            metric='euclidean',
+            min_cluster_size=int(best['min_cluster_size']),
+            min_samples=int(best['min_samples']),
+            allow_single_cluster=False,
+            core_dist_n_jobs=self.threads,
+            prediction_data=True
+        )
+        self.clusterer.fit(self.embeddings)
+        self.soft_clusters = hdbscan.all_points_membership_vectors(
+            self.clusterer)
+        self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
 
 
     def cluster_distances(self):
