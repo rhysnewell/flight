@@ -255,9 +255,9 @@ class Binner():
         # clr transformations
         self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if 'N' not in name]]
                                                 .iloc[:, 1:].astype(np.float64) + 1)
-        self.tnfs = np.nan_to_num(np.concatenate((self.large_contigs[:, 1][:, None], self.tnfs), axis=1))
+        self.tnfs = np.nan_to_num(np.concatenate((self.large_contigs[:, 1].values[:, None], self.tnfs), axis=1))
         self.depths = skbio.stats.composition.clr(self.depths.T.astype(np.float64) + 1).T
-        # self.snv_rates = skbio.stats.composition.clr(self.snv_rates.astype(np.float64) + 1)
+        self.snv_rates = np.nan_to_num(self.snv_rates)
         # self.sv_rates = skbio.stats.composition.clr(self.sv_rates.astype(np.float64) + 1)
 
 
@@ -325,17 +325,19 @@ class Binner():
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
-        logging.info("Running UMAP - %s" % self.reducer)
+        logging.info("Running UMAP - %s" % self.tnf_reducer)
         tnf_mapping = self.tnf_reducer.fit(self.tnfs)
+        logging.info("Running UMAP - %s" % self.depth_reducer)
         depth_mapping = self.depth_reducer.fit(self.depths)
+        logging.info("Running UMAP - %s" % self.snv_reducer)
         snv_mapping = self.snv_reducer.fit(self.snv_rates)
-        intersection_union_mapper = (tnf_mapping * depth_mapping) + snv_mapping
+        ## Contrast all reducers
+        intersection_union_mapper = (tnf_mapping - depth_mapping) - snv_mapping
         self.embeddings = intersection_union_mapper.embedding_
-        # self.small_embeddings = self.reducer.transform(self.small_depths)
 
     def cluster(self):
         ## Cluster on the UMAP embeddings and return soft clusters
-        logging.info("Running HDBSCAN - %s" % self.clusterer)
+        logging.info("Running HDBSCAN")
         tuned = utils.hyperparameter_selection(self.embeddings, self.threads)
         best = utils.best_validity(tuned)
         self.clusterer = hdbscan.HDBSCAN(

@@ -85,8 +85,11 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean'):
             result = result.get()
             results.append(result)
             if result[2] >= .5:
-                print(
-                    f'min_cluster_size = {result[0]},  min_samples = {results[1]}, validity_score = {result[2]} n_clusters = {result[3]}')
+                try:
+                    print(
+                        f'min_cluster_size = {result[0]},  min_samples = {results[1]}, validity_score = {result[2]} n_clusters = {result[3]}')
+                except IndexError:
+                    print(result)
 
     return results
 
