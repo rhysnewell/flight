@@ -279,7 +279,7 @@ class Binner():
 
         # Three UMAP reducers for each input type
         self.tnf_reducer = umap.UMAP(
-            metric='euclidean',
+            metric='correlation',
             n_neighbors=150,
             n_components=n_components,
             min_dist=0,
@@ -288,7 +288,7 @@ class Binner():
         )
 
         self.depth_reducer = umap.UMAP(
-            metric='euclidean', # euclidean transforms into aitchinson distance in log ratio space
+            metric='correlation', # euclidean transforms into aitchinson distance in log ratio space
             n_neighbors=n_neighbors,
             n_components=n_components,
             min_dist=min_dist,
@@ -326,7 +326,7 @@ class Binner():
         logging.info("Running UMAP - %s" % self.variance_reducer)
         variance_mapping = self.variance_reducer.fit(self.variance)
         ## Contrast all reducers
-        contrast_mapper = (depth_mapping - tnf_mapping) - variance_mapping
+        contrast_mapper = (depth_mapping + variance_mapping) - tnf_mapping
         self.embeddings = contrast_mapper.embedding_
 
     def cluster(self):
