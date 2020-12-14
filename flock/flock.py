@@ -366,16 +366,16 @@ def bin(args):
                            cluster_selection_method=args.cluster_selection_method,
                            threads=int(args.threads),
                            )
+
         clusterer.fit_transform()
         clusterer.cluster()
         clusterer.plot()
         clusterer.plot_distances()
-        # np.save(prefix + '_labels.npy', clusterer.labels())
         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
+        clusterer.cluster_unbinned()
+        clusterer.bin_unbinned_contigs()
         clusterer.merge_bins(int(args.min_bin_size)) # Merges bins when n_samples is < 3
-        #
-        # if clusterer.n_samples >= 3:
-        #     clusterer.rescue_small_contigs()
+
 
         clusterer.write_bins(int(args.min_bin_size))
 

@@ -214,6 +214,11 @@ class Binner():
         # Open up assembly
         self.assembly = SeqIO.to_dict(SeqIO.parse(assembly, "fasta"))
 
+        # initialize bin dictionary Label: Vec<Contig>
+        self.bins = {}
+        self.unbinned_indices = []
+        self.unbinned_embeddings = []
+
         ## Set up clusterer and UMAP
         self.path = output_prefix
 
@@ -354,23 +359,27 @@ class Binner():
         self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
 
 
-    def cluster_distances(self):
-        ## Cluster on the UMAP embeddings and return soft clusters
-        try:
-            logging.info("Running HDBSCAN - %s" % self.clusterer)
-            self.clusterer.fit(self.depths)
-        except:
-            ## Likely integer overflow in HDBSCAN
-            ## Try reduce min samples
-            self.clusterer = hdbscan.HDBSCAN(
-                min_cluster_size=max(int(self.depths.shape[0] * 0.01), 2),
-                min_samples=max(int(self.depths.shape[0] * 0.005), 2),
-                prediction_data=True,
-                cluster_selection_method="precomputed",
-            )
-            logging.info("Retrying HDBSCAN - %s" % self.clusterer)
+    def cluster_unbinned(self):
+        ## Cluster on the unbinned contigs, attempt to create fine grained clusters that were missed
 
-            self.clusterer.fit(self.depths)
+        logging.info("Running HDBSCAN")
+        tuned = utils.hyperparameter_selection(self.unbinned_embeddings, self.threads)
+        best = utils.best_validity(tuned)
+        self.unbinned_clusterer = hdbscan.HDBSCAN(
+            algorithm='best',
+            alpha=1.0,
+            approx_min_span_tree=True,
+            gen_min_span_tree=True,
+            leaf_size=40,
+            cluster_selection_method='eom',
+            metric='euclidean',
+            min_cluster_size=int(best['min_cluster_size']),
+            min_samples=int(best['min_samples']),
+            allow_single_cluster=False,
+            core_dist_n_jobs=self.threads,
+            prediction_data=True
+        )
+        self.unbinned_clusterer.fit(self.unbinned_embeddings)
 
     def plot(self):
         logging.info("Generating UMAP plot with labels")
@@ -380,10 +389,6 @@ class Binner():
         cluster_colors = [
             color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.soft_clusters_capped
         ]
-
-        # small_cluster_colors = [
-        #     color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.small_labels
-        # ]
 
         cluster_member_colors = [
             sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
@@ -399,14 +404,6 @@ class Binner():
                    c=cluster_member_colors,
                    alpha=0.7)
 
-        # ## Plot small contig membership
-        # ax.scatter(self.small_embeddings[:, 0],
-        #            self.small_embeddings[:, 1],
-        #            s=5,
-        #            linewidth=0,
-        #            c=small_cluster_colors,
-        #            alpha=0.7)
-        # ax.add_artist(legend)
         plt.gca().set_aspect('equal', 'datalim')
         plt.title('UMAP projection of contigs', fontsize=24)
         plt.savefig(self.path + '/UMAP_projection_with_clusters.png')
@@ -429,34 +426,42 @@ class Binner():
     def bin_contigs(self, assembly_file, min_bin_size=200000):
         logging.info("Binning contigs...")
 
-        # initialize bin dictionary Label: Vec<Contig>
-        self.bins = {}
         for (idx, label) in enumerate(self.clusterer.labels_):
             if label != -1:
                 try:
-                    self.bins[label.item() + 1].append(self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                    self.bins[label.item() + 1].append(
+                        self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
                 except KeyError:
                     self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+            else:
+                self.unbinned_indices.append(idx)
+                self.unbinned_embeddings.append(self.embeddings[idx, :])
 
+    def bin_unbinned_contigs(self):
+        logging.info("Binning unbinned contigs...")
+        max_bin_id = max(self.bins.keys()) + 1
+        for (unbinned_idx, label) in enumerate(self.unbinned_clusterer.labels_):
+            idx = self.unbinned_indices[unbinned_idx]
+            if label != -1:
+                try:
+                    self.bins[label.item() + max_bin_id].append(
+                        self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                except KeyError:
+                    self.bins[label.item() + max_bin_id] = [self.large_contigs.iloc[idx, 0:2].name.item()]
             elif self.n_samples < 3:
                 soft_label = self.soft_clusters_capped[idx]
                 try:
-                    self.bins[soft_label.item() + 1].append(self.large_contigs.iloc[idx, 0:2].name.item())
+                    self.bins[soft_label.item() + 1].append(self.large_contigs[idx, 0:2].name.item())
                 except KeyError:
-                    self.bins[soft_label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+                    self.bins[soft_label.item() + 1] = [self.large_contigs[idx, 0:2].name.item()]
             else:
+                ## bin out the unbinned contigs again as label 0. Rosella will try to rescue them if there
+                ## are enough samples
                 try:
-                    self.bins[label.item() + 1].append(self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                    self.bins[label.item() + 1].append(
+                        self.large_contigs.iloc[idx, 0:2].name.item())  # inputs values as tid
                 except KeyError:
                     self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
-
-        # ## Bin out small contigs
-        # for (idx, label) in enumerate(self.small_labels):
-        #     if label != -1:
-        #         try:
-        #             self.bins[label].append(idx)
-        #         except KeyError:
-        #             self.bins[label] = [idx]
 
     def merge_bins(self, min_bin_size=200000):
         pool = mp.Pool(self.threads)
