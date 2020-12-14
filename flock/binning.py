@@ -282,10 +282,10 @@ class Binner():
         #                                             self.snv_rates,
         #                                             self.sv_rates,
         #                                             self.tnfs), axis=1).astype(np.float64)) # Add extra dimension so concatenation works
-            
+
         # if n_neighbors >= int(self.depths.shape[0] * 0.5):
             # n_neighbors = max(int(self.depths.shape[0] * 0.5), 2)
-# 
+#
         # if n_components > self.depths.shape[1]:
             # n_components = 2
 
@@ -379,6 +379,29 @@ class Binner():
             self.clusterer)
         self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
 
+    @staticmethod
+    def break_overclustered(embeddings, threads):
+        ## Break up suspected regions of overclustering
+        logging.info("Running HDBSCAN")
+        tuned = utils.hyperparameter_selection(embeddings, threads)
+        best = utils.best_validity(tuned)
+        clusterer = hdbscan.HDBSCAN(
+            algorithm='best',
+            alpha=1.0,
+            approx_min_span_tree=True,
+            gen_min_span_tree=True,
+            leaf_size=40,
+            cluster_selection_method='eom',
+            metric='euclidean',
+            min_cluster_size=int(best['min_cluster_size']),
+            min_samples=int(best['min_samples']),
+            allow_single_cluster=False,
+            core_dist_n_jobs=threads,
+            prediction_data=True
+        )
+        clusterer.fit(embeddings)
+
+        return clusterer.labels_
 
     def cluster_unbinned(self):
         ## Cluster on the unbinned contigs, attempt to create fine grained clusters that were missed
@@ -447,28 +470,58 @@ class Binner():
     def bin_contigs(self, assembly_file, min_bin_size=200000):
         logging.info("Binning contigs...")
         self.bins = {}
-        
+
         self.unbinned_indices = []
         self.unbinned_embeddings = []
 
-        for (idx, label) in enumerate(self.clusterer.labels_):
-            if label != -1:
+        if set(self.clusterer.labels_) > 5:
+            for (idx, label) in enumerate(self.clusterer.labels_):
+                if label != -1:
+                    try:
+                        self.bins[label.item() + 1].append(
+                            self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                    except KeyError:
+                        self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+                else:
+                    self.unbinned_indices.append(idx)
+                    self.unbinned_embeddings.append(self.embeddings[idx, :])
+        else:
+            redo_binning = {}
+            for (idx, label) in enumerate(self.clusterer.labels_):
+                soft_label = self.soft_clusters_capped[idx]
                 try:
-                    self.bins[label.item() + 1].append(
-                        self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                    redo_binning[soft_label + 1]["embeddings"].append(
+                        self.embeddings[idx, :]) # inputs values as tid
+                    redo_binning[soft_label + 1]["indices"].append(idx)  # inputs values as tid
                 except KeyError:
-                    self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
-            else:
-                self.unbinned_indices.append(idx)
-                self.unbinned_embeddings.append(self.embeddings[idx, :])
-                
+                    redo_binning[soft_label + 1] = {}
+                    redo_binning[soft_label + 1]["embeddings"] = [self.embeddings[idx, :]]
+                    redo_binning[soft_label + 1]["indices"] = [idx]
+
+            for (original_label, values) in redo_binning.items():
+                new_labels = self.break_overclustered(values["embeddings"], self.threads)
+                try:
+                    max_bin_id = max(self.bins.keys()) + 1
+                except ValueError:
+                    max_bin_id = 1
+                for (idx, label) in zip(values["indices"], new_labels):
+                    if label != -1:
+                        try:
+                            self.bins[label.item() + max_bin_id].append(
+                                self.large_contigs.iloc[idx, 0:2].name.item())  # inputs values as tid
+                        except KeyError:
+                            self.bins[label.item() + max_bin_id] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+                    else:
+                        self.unbinned_indices.append(idx)
+                        self.unbinned_embeddings.append(self.embeddings[idx, :])
+
         self.unbinned_embeddings = np.array(self.unbinned_embeddings)
 
     def bin_unbinned_contigs(self):
         logging.info("Binning unbinned contigs...")
         max_bin_id = max(self.bins.keys()) + 1
-        
-        
+
+
         for (unbinned_idx, label) in enumerate(self.unbinned_clusterer.labels_):
             idx = self.unbinned_indices[unbinned_idx]
             if label != -1:
