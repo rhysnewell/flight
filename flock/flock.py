@@ -185,7 +185,7 @@ def main():
         '--variant_rates',
         help='Per contig SNV and SV rates over a given sliding window size',
         dest='variant_rates',
-        required=True
+        required=False
     )
 
     bin_options.add_argument(
@@ -352,7 +352,7 @@ def bin(args):
     if not args.precomputed:
         clusterer = Binner(args.input,
                            args.kmer_frequencies,
-                           args.variant_rates,
+                           # args.variant_rates,
                            prefix,
                            args.assembly,
                            n_neighbors=int(args.n_neighbors),
@@ -374,7 +374,7 @@ def bin(args):
         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
         clusterer.cluster_unbinned()
         clusterer.bin_unbinned_contigs()
-        clusterer.merge_bins(int(args.min_bin_size)) # Merges bins when n_samples is < 3
+        # clusterer.merge_bins(int(args.min_bin_size)) # Merges bins when n_samples is < 3
 
 
         clusterer.write_bins(int(args.min_bin_size))

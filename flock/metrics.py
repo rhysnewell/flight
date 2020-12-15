@@ -96,7 +96,7 @@ def sv_corr(a, b, n_samples):
 def euclidean(a, b, n_samples):
     # Since these compositonal arrays are CLR transformed
     # This is the equivalent to the aitchinson distance but we calculat the l2 norm
-    euc_dist = np.linalg.norm(a[:n_samples] - b[:n_samples])
+    euc_dist = np.linalg.norm(a[:n_samples*2] - b[:n_samples*2])
     return euc_dist
 
 @numba.njit()
@@ -129,7 +129,7 @@ def sv_euclidean(a, b, n_samples):
 def rho(a, b, n_samples):
     # This is a transformed, inversed version of rho. Normal those -1 <= rho <= 1
     # transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
-    covariance_mat = np.cov(a[:n_samples], b[:n_samples], rowvar=True)
+    covariance_mat = np.cov(a, b, rowvar=True)
     covariance = covariance_mat[0, 1]
     var_a = covariance_mat[0, 0]
     var_b = covariance_mat[1, 1]
@@ -176,18 +176,10 @@ def phi_dist(a, b, n_samples):
 
 @numba.njit()
 def aggregate_tnf(a, b, n_samples):
-    w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
-    tnf_dist = tnf(a[1:], b[1:], n_samples)
-    l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
-
+    tnf_dist = tnf(a, b, n_samples)
     aitchinson = euclidean(a[1:], b[1:], n_samples)
-    agg = 0
-
-    # if n_samples >= 3:
-    #     corr = snv_corr(a, b, n_samples)
-    #     agg = (tnf_dist**(1-w)) * (aitchinson**(w)) * corr
-    # else:
-    agg = (tnf_dist ** ((1 - w) * l)) * (aitchinson)
+    
+    agg = (tnf_dist) * (aitchinson)
 
     return agg
 
@@ -214,12 +206,20 @@ def aggregate_variant_tnf(a, b, n_samples):
 
 @numba.njit()
 def tnf_dist(a, b, n_samples):
-    w = n_samples / (n_samples + 1)  # weighting by number of samples same as in metabat2
+    # w = n_samples / (n_samples + 1)  # weighting by number of samples same as in metabat2
     # Need to weigh by differences in contig size. TNF becomes less reliable as contigs diverge in size
-    l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
-    tnf_dist = np.linalg.norm(a[1:] - b[1:])
+    # l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
 
-    return tnf_dist ** ((1 - w) * l)
+    covariance_mat = np.cov(a[1+n_samples*2:], b[1+n_samples*2:], rowvar=True)
+    covariance = covariance_mat[0, 1]
+    var_a = covariance_mat[0, 0]
+    var_b = covariance_mat[1, 1]
+    vlr = -2 * covariance + var_a + var_b
+    rho = 1 - vlr / (var_a + var_b)
+    rho += 1
+    rho = 2 - rho
+
+    return rho
 
 
 

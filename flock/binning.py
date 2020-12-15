@@ -191,7 +191,7 @@ class Binner():
             self,
             count_path,
             kmer_frequencies,
-            variant_rates,
+            # variant_rates,
             output_prefix,
             assembly,
             scaler="clr",
@@ -229,7 +229,7 @@ class Binner():
         self.large_contigs = self.coverage_table[self.coverage_table["contigLen"] >= min_contig_size]
         self.small_contigs = self.coverage_table[self.coverage_table["contigLen"] < min_contig_size]
 
-        self.snv_rates, self.sv_rates = read_variant_rates(variant_rates, self.large_contigs['contigName'], min_contig_size)
+        # self.snv_rates, self.sv_rates = read_variant_rates(variant_rates, self.large_contigs['contigName'], min_contig_size)
 
         ## Check the ordering of the contig names for sanity check
         if list(self.large_contigs['contigName']) != list(self.tnfs['contigName']):
@@ -260,49 +260,38 @@ class Binner():
         # clr transformations
         self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if 'N' not in name]]
                                                 .iloc[:, 1:].astype(np.float64) + 1)
-        self.tnfs = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.tnfs), axis=1))
 
         if self.n_samples < 3:
             # self.depths = self.depths.values.reshape(1, -1)
             # self.variances = self.variances.values.reshape(1, -1)
             # self.snv_rates = self.snv_rates.values.reshape(1, -1)
             # self.depths = skbio.stats.composition.clr(self.depths.T.astype(np.float64) + 1).T
+
             self.depths = np.nan_to_num(RobustScaler().fit_transform(np.concatenate((self.depths, self.variance), axis=1)))
+            self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.depths, self.tnfs), axis=1))
+
             # self.snv_rates = RobustScaler().fit_transform(np.nan_to_num(self.snv_rates, nan=0.0, posinf=0.0, neginf=0.0))
             # self.variance = RobustScaler().fit_transform(np.nan_to_num(self.variance, nan=0.0, posinf=0.0, neginf=0.0))
         else:
             self.depths = skbio.stats.composition.clr(self.depths.T.astype(np.float64) + 1).T
-            self.snv_rates = RobustScaler().fit_transform(np.nan_to_num(self.snv_rates, nan=0.0, posinf=0.0, neginf=0.0))
+            # self.snv_rates = RobustScaler().fit_transform(np.nan_to_num(self.snv_rates, nan=0.0, posinf=0.0, neginf=0.0))
             self.variance = RobustScaler().fit_transform(np.nan_to_num(self.variance, nan=0.0, posinf=0.0, neginf=0.0))
-        # self.sv_rates = skbio.stats.composition.clr(self.sv_rates.astype(np.float64) + 1)
-
-
-        # self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1][:, None],
-        #                                             self.depths,
-        #                                             self.snv_rates,
-        #                                             self.sv_rates,
-        #                                             self.tnfs), axis=1).astype(np.float64)) # Add extra dimension so concatenation works
-
-        # if n_neighbors >= int(self.depths.shape[0] * 0.5):
-            # n_neighbors = max(int(self.depths.shape[0] * 0.5), 2)
-#
-        # if n_components > self.depths.shape[1]:
-            # n_components = 2
 
 
         # Three UMAP reducers for each input type
         self.tnf_reducer = umap.UMAP(
-            metric=metrics.tnf_dist,
+            metric=metrics.rho,
             metric_kwds={"n_samples": self.n_samples},
-            n_neighbors=150,
+            n_neighbors=n_neighbors,
             n_components=n_components,
             min_dist=0,
             random_state=random_state,
             spread=1,
         )
-        if self.n_samples < 3:
+        if self.n_samples >= 3:
             self.depth_reducer = umap.UMAP(
-                metric='euclidean',
+                metric=metrics.rho,
+                metric_kwds={"n_samples": self.n_samples},
                 n_neighbors=n_neighbors,
                 n_components=n_components,
                 min_dist=min_dist,
@@ -311,7 +300,8 @@ class Binner():
             )
         else:
             self.depth_reducer = umap.UMAP(
-                metric='correlation',
+                metric=metrics.aggregate_tnf,
+                metric_kwds={"n_samples": self.n_samples},
                 n_neighbors=n_neighbors,
                 n_components=n_components,
                 min_dist=min_dist,
@@ -342,17 +332,18 @@ class Binner():
         ## Calculate the UMAP embeddings
         # logging.info("Running UMAP - %s" % self.snv_reducer)
         # snv_mapping = self.snv_reducer.fit(self.snv_rates)
-        logging.info("Running UMAP - %s" % self.tnf_reducer)
-        tnf_mapping = self.tnf_reducer.fit(self.tnfs)
+        
         logging.info("Running UMAP - %s" % self.depth_reducer)
         depth_mapping = self.depth_reducer.fit(self.depths)
         if self.n_samples >=3:
             logging.info("Running UMAP - %s" % self.variance_reducer)
             variance_mapping = self.variance_reducer.fit(self.variance)
+            logging.info("Running UMAP - %s" % self.tnf_reducer)
+            tnf_mapping = self.tnf_reducer.fit(self.tnfs)
             ## Contrast all reducers
-            contrast_mapper = depth_mapping * (variance_mapping + tnf_mapping)
+            contrast_mapper = depth_mapping + (variance_mapping * tnf_mapping)
         else:
-            contrast_mapper = depth_mapping + tnf_mapping
+            contrast_mapper = depth_mapping
         self.embeddings = contrast_mapper.embedding_
 
     def cluster(self):
@@ -474,7 +465,7 @@ class Binner():
         self.unbinned_indices = []
         self.unbinned_embeddings = []
 
-        if set(self.clusterer.labels_) > 5:
+        if len(set(self.clusterer.labels_)) > 5:
             for (idx, label) in enumerate(self.clusterer.labels_):
                 if label != -1:
                     try:
@@ -499,7 +490,7 @@ class Binner():
                     redo_binning[soft_label + 1]["indices"] = [idx]
 
             for (original_label, values) in redo_binning.items():
-                new_labels = self.break_overclustered(values["embeddings"], self.threads)
+                new_labels = self.break_overclustered(np.array(values["embeddings"]), self.threads)
                 try:
                     max_bin_id = max(self.bins.keys()) + 1
                 except ValueError:
@@ -530,12 +521,12 @@ class Binner():
                         self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
                 except KeyError:
                     self.bins[label.item() + max_bin_id] = [self.large_contigs.iloc[idx, 0:2].name.item()]
-            elif self.n_samples < 3:
-                soft_label = self.soft_clusters_capped[idx]
-                try:
-                    self.bins[soft_label.item() + 1].append(self.large_contigs[idx, 0:2].name.item())
-                except KeyError:
-                    self.bins[soft_label.item() + 1] = [self.large_contigs[idx, 0:2].name.item()]
+            # elif self.n_samples < 3:
+                # soft_label = self.soft_clusters_capped[idx]
+                # try:
+                    # self.bins[soft_label.item() + 1].append(self.large_contigs.iloc[idx, 0:2].name.item())
+                # except KeyError:
+                    # self.bins[soft_label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
             else:
                 ## bin out the unbinned contigs again as label 0. Rosella will try to rescue them if there
                 ## are enough samples
