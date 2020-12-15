@@ -99,5 +99,6 @@ def best_validity(source):
     """
     cols = ['min_cluster_size', 'min_samples', 'validity_score', 'n_clusters']
     df =  pd.DataFrame(source, columns = cols)
+    df['validity_score'] = df['validity_score'].fillna(0)
     best_validity = df.loc[df['validity_score'].idxmax()]
     return best_validity

@@ -351,12 +351,12 @@ class Binner():
         logging.info("Running UMAP - %s" % self.tnf_reducer)
         tnf_mapping = self.tnf_reducer.fit(self.tnfs)
         # if self.n_samples >=3:
-        # logging.info("Running UMAP - %s" % self.variance_reducer)
-        # variance_mapping = self.variance_reducer.fit(self.variance)
+        logging.info("Running UMAP - %s" % self.variance_reducer)
+        variance_mapping = self.variance_reducer.fit(self.variance)
         ## Contrast all reducers
-        contrast_mapper = depth_mapping + (tnf_mapping)
+        contrast_mapper = depth_mapping + (tnf_mapping * variance_mapping)
         # else:
-            # contrast_mapper = depth_mapping * tnf_mapping
+            # contrast_mapper = depth_mapping + tnf_mapping
         self.embeddings = contrast_mapper.embedding_
 
     def cluster(self):
@@ -379,6 +379,8 @@ class Binner():
             prediction_data=True
         )
         self.clusterer.fit(self.embeddings)
+
+        self.validity, self.cluster_validity = hdbscan.validity.validity_index(self.embeddings.astype(np.float64), self.clusterer.labels_, per_cluster_scores=True)
         self.soft_clusters = hdbscan.all_points_membership_vectors(
             self.clusterer)
         self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
@@ -435,7 +437,7 @@ class Binner():
         label_set = set(self.clusterer.labels_)
         color_palette = sns.color_palette('Paired', len(label_set))
         cluster_colors = [
-            color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.soft_clusters_capped
+            color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.clusterer.labels_
         ]
 
         cluster_member_colors = [
@@ -474,26 +476,39 @@ class Binner():
     def bin_contigs(self, assembly_file, min_bin_size=200000):
         logging.info("Binning contigs...")
         self.bins = {}
+        redo_bins = {}
 
         self.unbinned_indices = []
         self.unbinned_embeddings = []
 
         if len(set(self.clusterer.labels_)) > 5:
             for (idx, label) in enumerate(self.clusterer.labels_):
-                try:
-                    self.bins[label.item() + 1].append(
-                        self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
-                except KeyError:
-                    self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
-                # if label != -1:
-                    # try:
-                        # self.bins[label.item() + 1].append(
-                            # self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
-                    # except KeyError:
-                        # self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
-                # else:
-                    # self.unbinned_indices.append(idx)
-                    # self.unbinned_embeddings.append(self.embeddings[idx, :])
+                if label != -1:
+                    if self.cluster_validity[label] >= 0.5:
+                        try:
+                            self.bins[label.item() + 1].append(
+                                self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                        except KeyError:
+                            self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+                    else:
+                        try:
+                            redo_bins[label.item() + 1]["size"] += self.large_contigs.iloc[idx, 1]
+                            redo_bins[label.item() + 1]["embeddings"].append(self.embeddings[idx, :])
+                            redo_bins[label.item() + 1]["indices"].append(idx)
+                        except KeyError:
+                            redo_bins[label.item() + 1] = {}
+                            redo_bins[label.item() + 1]["size"] = self.large_contigs.iloc[idx, 1]
+                            redo_bins[label.item() + 1]["embeddings"] = [self.embeddings[idx, :]]
+                            redo_bins[label.item() + 1]["indices"] = [idx]
+                        
+                else:
+                    try:
+                        self.bins[label.item() + 1].append(
+                            self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                    except KeyError:
+                        self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+                    
+
         else:
             redo_binning = {}
             for (idx, label) in enumerate(self.clusterer.labels_):
@@ -514,6 +529,8 @@ class Binner():
                 except ValueError:
                     max_bin_id = 1
                 for (idx, label) in zip(values["indices"], new_labels):
+                    # Update labels
+                    self.clusterer.labels_[idx] = label + max_bin_id - 1
                     if label != -1:
                         try:
                             self.bins[label.item() + max_bin_id].append(
@@ -524,6 +541,24 @@ class Binner():
                         self.unbinned_indices.append(idx)
                         self.unbinned_embeddings.append(self.embeddings[idx, :])
 
+        # break up very large bins. Not sure how to threshold this
+        for (bin, values) in redo_bins.items():
+            new_labels = self.break_overclustered(np.array(values["embeddings"]), self.threads)
+            try:
+                max_bin_id = max(self.bins.keys()) + 1
+            except ValueError:
+                max_bin_id = 1
+            for (idx, label) in zip(values["indices"], new_labels):
+                # Update labels
+                self.clusterer.labels_[idx] = label + max_bin_id - 1
+                try:
+                    self.bins[label.item() + max_bin_id].append(
+                        self.large_contigs.iloc[idx, 0:2].name.item())  # inputs values as tid
+                except KeyError:
+                    self.bins[label.item() + max_bin_id] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+                
+                
+        
         self.unbinned_embeddings = np.array(self.unbinned_embeddings)
 
     def bin_unbinned_contigs(self):

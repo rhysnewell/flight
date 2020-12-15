@@ -211,7 +211,6 @@ class Cluster():
 
     def cluster(self):
         ## Cluster on the UMAP embeddings and return soft clusters
-        logging.info("Running HDBSCAN - %s" % self.clusterer)
         tuned = utils.hyperparameter_selection(self.embeddings, self.threads, metric=self.metric)
         best = utils.best_validity(tuned)
         self.clusterer = hdbscan.HDBSCAN(
@@ -228,6 +227,7 @@ class Cluster():
             core_dist_n_jobs=self.threads,
             prediction_data=True
         )
+        logging.info("Running HDBSCAN - %s" % self.clusterer)
         self.clusterer.fit(self.embeddings)
         self.soft_clusters = hdbscan.all_points_membership_vectors(
             self.clusterer)
