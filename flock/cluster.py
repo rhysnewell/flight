@@ -235,7 +235,7 @@ class Cluster():
 
     def cluster_distances(self):
         ## Cluster on the UMAP embeddings and return soft clusters
-        logging.info("Running HDBSCAN - %s" % self.clusterer)
+        
         tuned = utils.hyperparameter_selection(self.embeddings, self.threads, metric=self.metric)
         best = utils.best_validity(tuned)
         self.clusterer = hdbscan.HDBSCAN(
@@ -251,6 +251,7 @@ class Cluster():
             allow_single_cluster=False,
             core_dist_n_jobs=self.threads,
         )
+        logging.info("Running HDBSCAN - %s" % self.clusterer)
         self.clusterer.fit(self.embeddings)
 
     def plot(self):

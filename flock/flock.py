@@ -370,10 +370,10 @@ def bin(args):
         clusterer.fit_transform()
         clusterer.cluster()
         clusterer.plot()
-        clusterer.plot_distances()
+        # clusterer.plot_distances()
         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-        clusterer.cluster_unbinned()
-        clusterer.bin_unbinned_contigs()
+        # clusterer.cluster_unbinned()
+        # clusterer.bin_unbinned_contigs()
         # clusterer.merge_bins(int(args.min_bin_size)) # Merges bins when n_samples is < 3
 
 
