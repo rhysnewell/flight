@@ -331,7 +331,7 @@ def fit(args):
         clusterer.plot()
 
         np.save(prefix + '_labels.npy', clusterer.labels())
-        np.save(prefix + '_separation.np', clusterer.cluster_separation())
+        np.save(prefix + '_separation.npy', clusterer.cluster_separation())
     else:
         clusterer = Cluster(args.input,
                            prefix,

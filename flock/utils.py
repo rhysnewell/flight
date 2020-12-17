@@ -31,6 +31,7 @@ __status__ = "Development"
 # System imports
 import warnings
 import logging
+import re
 
 # Function imports
 import numpy as np
@@ -112,6 +113,10 @@ def best_validity(source):
 def cluster_distances(embeddings, cluster_result, threads):
     pool = mp.Pool(threads)
     labels = set(cluster_result.labels_)
+    try:
+        labels.remove(-1)
+    except KeyError:
+        None
 
     dist_mat = np.zeros((len(labels), len(labels)))
 
@@ -168,3 +173,7 @@ def break_overclustered(embeddings, threads):
 
     else:
         return np.array([-1 for i in range(len(embeddings))])
+
+
+def special_match(strg, search=re.compile(r'[^ATGC]').search):
+    return not bool(search(strg))
