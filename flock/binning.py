@@ -496,9 +496,9 @@ class Binner():
                     max_bin_id = 1
                 for (idx, label) in zip(values["indices"], new_labels):
                     # Update labels
-                    self.clusterer.labels_[idx] = label + max_bin_id - 1
-                    self.soft_clusters_capped[idx] = label + max_bin_id - 1
                     if label != -1:
+                        self.clusterer.labels_[idx] = label + max_bin_id - 1
+                        self.soft_clusters_capped[idx] = label + max_bin_id - 1
                         try:
                             self.bins[label.item() + max_bin_id].append(
                                 self.large_contigs.iloc[idx, 0:2].name.item())  # inputs values as tid
@@ -516,17 +516,24 @@ class Binner():
             except ValueError:
                 max_bin_id = 1
             for (idx, label) in zip(values["indices"], new_labels):
-                # Update labels
-                self.clusterer.labels_[idx] = label + max_bin_id - 1
-                self.soft_clusters_capped[idx] = label + max_bin_id - 1
-                try:
-                    self.bins[label.item() + max_bin_id].append(
-                        self.large_contigs.iloc[idx, 0:2].name.item())  # inputs values as tid
-                except KeyError:
-                    self.bins[label.item() + max_bin_id] = [self.large_contigs.iloc[idx, 0:2].name.item()]
-                
-                
-        
+                if label != -1:
+                    # Update labels
+                    self.clusterer.labels_[idx] = label + max_bin_id - 1
+                    self.soft_clusters_capped[idx] = label + max_bin_id - 1
+                    try:
+                        self.bins[label.item() + max_bin_id].append(
+                            self.large_contigs.iloc[idx, 0:2].name.item())  # inputs values as tid
+                    except KeyError:
+                        self.bins[label.item() + max_bin_id] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+                else:
+                    # unbinned contigs
+                    try:
+                        self.bins[label.item() + 1].append(
+                            self.large_contigs.iloc[idx, 0:2].name.item())  # inputs values as tid
+                    except KeyError:
+                        self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+
+
         self.unbinned_embeddings = np.array(self.unbinned_embeddings)
 
     def bin_unbinned_contigs(self):
