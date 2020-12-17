@@ -37,6 +37,7 @@ import numpy as np
 import pandas as pd
 import multiprocessing as mp
 import hdbscan
+import itertools
 
 
 ###############################################################################                                                                                                                      [44/1010]
@@ -89,7 +90,6 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean'):
                 logging.info(
                     f'min_cluster_size = {result[0]},  min_samples = {result[1]}, validity_score = {result[2]} n_clusters = {result[3]}')
 
-
     return results
 
 
@@ -106,3 +106,65 @@ def best_validity(source):
         best_validity = None
         
     return best_validity
+
+
+# Calculates distances between clusters using minimum spanning trees
+def cluster_distances(embeddings, cluster_result, threads):
+    pool = mp.Pool(threads)
+    labels = set(cluster_result.labels_)
+
+    dist_mat = np.zeros((len(labels), len(labels)))
+
+    dist_results = [pool.apply_async(get_dist, args=(first, second, embeddings, cluster_result)) for (first, second) in
+                    itertools.combinations(labels, 2)]
+
+    for result in dist_results:
+        result = result.get()
+        dist_mat[result[0], result[1]] = result[2]
+        dist_mat[result[1], result[0]] = result[2]
+
+    return dist_mat
+
+
+def get_dist(first, second, embeddings, cluster_result):
+    # Calculate within core mutual reachability and all core distance
+    (first_mr, first_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, cluster_result.labels_, first)
+    # Calcualtes the internal minimum spanning tree for a cluster
+    (first_nodes, first_edges) = hdbscan.validity.internal_minimum_spanning_tree(first_mr.astype(np.float64))
+
+    (second_mr, second_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, cluster_result.labels_,
+                                                                               second)
+    (second_nodes, second_edges) = hdbscan.validity.internal_minimum_spanning_tree(second_mr.astype(np.float64))
+
+    # Calculates the density separation between two clusters using the above results
+    sep = hdbscan.validity.density_separation(embeddings, cluster_result.labels_, first, second, first_nodes,
+                                              second_nodes, first_core, second_core)
+
+    return first, second, sep
+
+
+def break_overclustered(embeddings, threads):
+    ## Break up suspected regions of overclustering
+    logging.info("Running HDBSCAN")
+    tuned = hyperparameter_selection(embeddings, threads)
+    best = best_validity(tuned)
+    if best is not None:
+        clusterer = hdbscan.HDBSCAN(
+            algorithm='best',
+            alpha=1.0,
+            approx_min_span_tree=True,
+            gen_min_span_tree=True,
+            leaf_size=40,
+            cluster_selection_method='eom',
+            metric='euclidean',
+            min_cluster_size=int(best['min_cluster_size']),
+            min_samples=int(best['min_samples']),
+            allow_single_cluster=False,
+            core_dist_n_jobs=threads,
+            prediction_data=True
+        )
+        clusterer.fit(embeddings)
+        return clusterer.labels_
+
+    else:
+        return np.array([-1 for i in range(len(embeddings))])

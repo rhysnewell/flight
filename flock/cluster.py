@@ -153,6 +153,7 @@ class Cluster():
         threads=8
     ):
         set_num_threads(threads)
+        self.threads = threads
         ## Set up clusterer and UMAP
         self.path = output_prefix
         self.depths = np.load(count_path)
@@ -229,8 +230,14 @@ class Cluster():
         )
         logging.info("Running HDBSCAN - %s" % self.clusterer)
         self.clusterer.fit(self.embeddings)
+        self.validity, self.cluster_validity = hdbscan.validity.validity_index(self.embeddings.astype(np.float64),
+                                                                               self.clusterer.labels_,
+                                                                               per_cluster_scores=True)
         self.soft_clusters = hdbscan.all_points_membership_vectors(
             self.clusterer)
+
+    def cluster_separation(self):
+        dist_mat = utils.cluster_distances(self.embeddings, self.clusterer, self.threads)
 
 
     def cluster_distances(self):
@@ -287,3 +294,25 @@ class Cluster():
             return self.soft_clusters.astype('int8')
         except AttributeError:
             return self.clusterer.labels_.astype('int8')
+
+    def break_clusters(self):
+        redo_bins = {}
+
+        for (idx, label) in enumerate(self.clusterer.labels_):
+            if label != -1:
+                if self.cluster_validity[label] <= 0.5:
+                    try:
+                        redo_bins[label.item() + 1]["embeddings"].append(self.embeddings[idx, :])
+                        redo_bins[label.item() + 1]["indices"].append(idx)
+                    except KeyError:
+                        redo_bins[label.item() + 1] = {}
+                        redo_bins[label.item() + 1]["embeddings"] = [self.embeddings[idx, :]]
+                        redo_bins[label.item() + 1]["indices"] = [idx]
+
+        # break up very large bins. Not sure how to threshold this
+        max_bin_id = max(set(self.clusterer.labels_))
+        for (bin, values) in redo_bins.items():
+            new_labels = utils.break_overclustered(np.array(values["embeddings"]), self.threads)
+            for (idx, label) in zip(values["indices"], new_labels):
+                # Update labels
+                self.clusterer.labels_[idx] = label + max_bin_id - 1

@@ -339,8 +339,6 @@ class Binner():
         )
 
 
-
-
     def fit_transform(self):
         ## Calculate the UMAP embeddings
         # logging.info("Running UMAP - %s" % self.snv_reducer)
@@ -357,7 +355,7 @@ class Binner():
             ## Contrast all reducers
             contrast_mapper = depth_mapping + (tnf_mapping * variance_mapping)
         else:
-            contrast_mapper = tnf_mapping - (depth_mapping - variance_mapping)
+            contrast_mapper = tnf_mapping #- (depth_mapping - variance_mapping)
         self.embeddings = contrast_mapper.embedding_
 
     def cluster(self):
@@ -385,34 +383,6 @@ class Binner():
         self.soft_clusters = hdbscan.all_points_membership_vectors(
             self.clusterer)
         self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
-
-    @staticmethod
-    def break_overclustered(embeddings, threads):
-        ## Break up suspected regions of overclustering
-        logging.info("Running HDBSCAN")
-        tuned = utils.hyperparameter_selection(embeddings, threads)
-        best = utils.best_validity(tuned)
-        if best is not None:
-            clusterer = hdbscan.HDBSCAN(
-                algorithm='best',
-                alpha=1.0,
-                approx_min_span_tree=True,
-                gen_min_span_tree=True,
-                leaf_size=40,
-                cluster_selection_method='eom',
-                metric='euclidean',
-                min_cluster_size=int(best['min_cluster_size']),
-                min_samples=int(best['min_samples']),
-                allow_single_cluster=False,
-                core_dist_n_jobs=threads,
-                prediction_data=True
-            )
-            clusterer.fit(embeddings)
-            return clusterer.labels_
-
-        else:
-            return np.array([-1 for i in range(len(embeddings))])
-
 
     def cluster_unbinned(self):
         ## Cluster on the unbinned contigs, attempt to create fine grained clusters that were missed
@@ -523,7 +493,7 @@ class Binner():
                     redo_binning[soft_label + 1]["indices"] = [idx]
 
             for (original_label, values) in redo_binning.items():
-                new_labels = self.break_overclustered(np.array(values["embeddings"]), self.threads)
+                new_labels = utils.break_overclustered(np.array(values["embeddings"]), self.threads)
                 try:
                     max_bin_id = max(self.bins.keys()) + 1
                 except ValueError:
@@ -543,7 +513,7 @@ class Binner():
 
         # break up very large bins. Not sure how to threshold this
         for (bin, values) in redo_bins.items():
-            new_labels = self.break_overclustered(np.array(values["embeddings"]), self.threads)
+            new_labels = utils.break_overclustered(np.array(values["embeddings"]), self.threads)
             try:
                 max_bin_id = max(self.bins.keys()) + 1
             except ValueError:

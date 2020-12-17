@@ -327,8 +327,11 @@ def fit(args):
                            )
         clusterer.fit_transform()
         clusterer.cluster()
+        clusterer.break_clusters()
         clusterer.plot()
+
         np.save(prefix + '_labels.npy', clusterer.labels())
+        np.save(prefix + '_separation.np', clusterer.cluster_separation())
     else:
         clusterer = Cluster(args.input,
                            prefix,
