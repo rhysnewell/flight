@@ -97,8 +97,12 @@ def best_validity(source):
     """
     Retrieves best clustering result based on the relative validity metric
     """
-    cols = ['min_cluster_size', 'min_samples', 'validity_score', 'n_clusters']
-    df =  pd.DataFrame(source, columns = cols)
-    df['validity_score'] = df['validity_score'].fillna(0)
-    best_validity = df.loc[df['validity_score'].idxmax()]
+    try:
+        cols = ['min_cluster_size', 'min_samples', 'validity_score', 'n_clusters']
+        df =  pd.DataFrame(source, columns = cols)
+        df['validity_score'] = df['validity_score'].fillna(0)
+        best_validity = df.loc[df['validity_score'].idxmax()]
+    except TypeError:
+        best_validity = None
+        
     return best_validity

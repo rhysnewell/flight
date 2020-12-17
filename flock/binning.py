@@ -350,13 +350,14 @@ class Binner():
         depth_mapping = self.depth_reducer.fit(self.depths)
         logging.info("Running UMAP - %s" % self.tnf_reducer)
         tnf_mapping = self.tnf_reducer.fit(self.tnfs)
-        # if self.n_samples >=3:
         logging.info("Running UMAP - %s" % self.variance_reducer)
         variance_mapping = self.variance_reducer.fit(self.variance)
-        ## Contrast all reducers
-        contrast_mapper = depth_mapping + (tnf_mapping * variance_mapping)
-        # else:
-            # contrast_mapper = depth_mapping + tnf_mapping
+        if self.n_samples >=3:
+            
+            ## Contrast all reducers
+            contrast_mapper = depth_mapping + (tnf_mapping * variance_mapping)
+        else:
+            contrast_mapper = tnf_mapping - (depth_mapping - variance_mapping)
         self.embeddings = contrast_mapper.embedding_
 
     def cluster(self):
@@ -391,23 +392,27 @@ class Binner():
         logging.info("Running HDBSCAN")
         tuned = utils.hyperparameter_selection(embeddings, threads)
         best = utils.best_validity(tuned)
-        clusterer = hdbscan.HDBSCAN(
-            algorithm='best',
-            alpha=1.0,
-            approx_min_span_tree=True,
-            gen_min_span_tree=True,
-            leaf_size=40,
-            cluster_selection_method='eom',
-            metric='euclidean',
-            min_cluster_size=int(best['min_cluster_size']),
-            min_samples=int(best['min_samples']),
-            allow_single_cluster=False,
-            core_dist_n_jobs=threads,
-            prediction_data=True
-        )
-        clusterer.fit(embeddings)
+        if best is not None:
+            clusterer = hdbscan.HDBSCAN(
+                algorithm='best',
+                alpha=1.0,
+                approx_min_span_tree=True,
+                gen_min_span_tree=True,
+                leaf_size=40,
+                cluster_selection_method='eom',
+                metric='euclidean',
+                min_cluster_size=int(best['min_cluster_size']),
+                min_samples=int(best['min_samples']),
+                allow_single_cluster=False,
+                core_dist_n_jobs=threads,
+                prediction_data=True
+            )
+            clusterer.fit(embeddings)
+            return clusterer.labels_
 
-        return clusterer.labels_
+        else:
+            return np.array([-1 for i in range(len(embeddings))])
+
 
     def cluster_unbinned(self):
         ## Cluster on the unbinned contigs, attempt to create fine grained clusters that were missed
@@ -434,15 +439,15 @@ class Binner():
     def plot(self):
         logging.info("Generating UMAP plot with labels")
 
-        label_set = set(self.clusterer.labels_)
-        color_palette = sns.color_palette('Paired', len(label_set))
-        cluster_colors = [
-            color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.clusterer.labels_
-        ]
-
-        cluster_member_colors = [
-            sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
-        ]
+        # label_set = set(self.clusterer.labels_)
+        # color_palette = sns.color_palette('Paired', len(label_set))
+        # cluster_colors = [
+            # color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.clusterer.labels_ if x != -1
+        # ]
+# 
+        # cluster_member_colors = [
+            # sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
+        # ]
         fig = plt.figure()
         ax = fig.add_subplot(111)
 
@@ -451,7 +456,7 @@ class Binner():
                    self.embeddings[:, 1],
                    s=7,
                    linewidth=0,
-                   c=cluster_member_colors,
+                   c=self.clusterer.labels_,
                    alpha=0.7)
 
         plt.gca().set_aspect('equal', 'datalim')
@@ -502,13 +507,8 @@ class Binner():
                             redo_bins[label.item() + 1]["indices"] = [idx]
                         
                 else:
-                    try:
-                        self.bins[label.item() + 1].append(
-                            self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
-                    except KeyError:
-                        self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
-                    
-
+                    self.unbinned_indices.append(idx)
+                    self.unbinned_embeddings.append(self.embeddings[idx, :])
         else:
             redo_binning = {}
             for (idx, label) in enumerate(self.clusterer.labels_):
@@ -568,6 +568,7 @@ class Binner():
 
         for (unbinned_idx, label) in enumerate(self.unbinned_clusterer.labels_):
             idx = self.unbinned_indices[unbinned_idx]
+            self.clusterer.labels_[idx] = label.item() + max_bin_id
             if label != -1:
                 try:
                     self.bins[label.item() + max_bin_id].append(
