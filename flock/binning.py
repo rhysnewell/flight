@@ -371,8 +371,11 @@ class Binner():
             prediction_data=True
         )
         self.clusterer.fit(self.embeddings)
-
-        self.validity, self.cluster_validity = hdbscan.validity.validity_index(self.embeddings.astype(np.float64), self.clusterer.labels_, per_cluster_scores=True)
+        try:
+            self.validity, self.cluster_validity = hdbscan.validity.validity_index(self.embeddings.astype(np.float64), self.clusterer.labels_, per_cluster_scores=True)
+        except ValueError:
+            self.validity = 0
+            self.cluster_validity = [0.5 for i in range(len(set(self.clusterer.labels_)))]
         self.soft_clusters = hdbscan.all_points_membership_vectors(
             self.clusterer)
         self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
