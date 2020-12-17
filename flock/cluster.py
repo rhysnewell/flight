@@ -313,6 +313,10 @@ class Cluster():
         max_bin_id = max(set(self.clusterer.labels_))
         for (bin, values) in redo_bins.items():
             new_labels = utils.break_overclustered(np.array(values["embeddings"]), self.threads)
+            max_bin_id = max(set(self.clusterer.labels_))
             for (idx, label) in zip(values["indices"], new_labels):
-                # Update labels
-                self.clusterer.labels_[idx] = label + max_bin_id - 1
+                if label != -1:
+                    # Update labels
+                    self.clusterer.labels_[idx] = label + max_bin_id
+                else:
+                    self.clusterer.labels_[idx] = label
