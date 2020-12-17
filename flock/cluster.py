@@ -235,9 +235,11 @@ class Cluster():
                                                                                per_cluster_scores=True)
         self.soft_clusters = hdbscan.all_points_membership_vectors(
             self.clusterer)
+        self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
 
     def cluster_separation(self):
         dist_mat = utils.cluster_distances(self.embeddings, self.clusterer, self.threads)
+        return dist_mat
 
 
     def cluster_distances(self):
@@ -264,18 +266,18 @@ class Cluster():
     def plot(self):
         color_palette = sns.color_palette('Paired', 200)
         cluster_colors = [
-            color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.soft_clusters
+            color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.clusterer.labels_
         ]
-        cluster_member_colors = [
-            sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
-        ]
+        # cluster_member_colors = [
+            # sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
+        # ]
         fig = plt.figure()
         ax = fig.add_subplot(111)
         ax.scatter(self.embeddings[:, 0],
                    self.embeddings[:, 1],
                    s=7,
                    linewidth=0,
-                   c=cluster_member_colors,
+                   c=cluster_colors,
                    alpha=0.7)
         # ax.add_artist(legend)
         plt.gca().set_aspect('equal', 'datalim')
@@ -291,7 +293,7 @@ class Cluster():
 
     def labels(self):
         try:
-            return self.soft_clusters.astype('int8')
+            return self.soft_clusters_capped.astype('int8')
         except AttributeError:
             return self.clusterer.labels_.astype('int8')
 
@@ -316,3 +318,4 @@ class Cluster():
             for (idx, label) in zip(values["indices"], new_labels):
                 # Update labels
                 self.clusterer.labels_[idx] = label + max_bin_id - 1
+                self.soft_clusters_capped[idx] = label + max_bin_id - 1

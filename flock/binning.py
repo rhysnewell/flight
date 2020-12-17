@@ -258,7 +258,7 @@ class Binner():
 
 
         # clr transformations
-        self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if 'N' not in name]]
+        self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if utils.special_match(name)]]
                                                 .iloc[:, 1:].astype(np.float64) + 1)
 
         if self.n_samples < 3:
@@ -269,7 +269,7 @@ class Binner():
 
             self.depths = np.nan_to_num(RobustScaler().fit_transform(self.depths), nan=0.0, posinf=0.0, neginf=0.0)
             self.variance = RobustScaler().fit_transform(np.nan_to_num(self.variance, nan=0.0, posinf=0.0, neginf=0.0))
-            # self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.depths, self.tnfs), axis=1))
+            self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.depths, self.tnfs), axis=1))
 
             # self.snv_rates = RobustScaler().fit_transform(np.nan_to_num(self.snv_rates, nan=0.0, posinf=0.0, neginf=0.0))
             # self.variance = RobustScaler().fit_transform(np.nan_to_num(self.variance, nan=0.0, posinf=0.0, neginf=0.0))
@@ -279,17 +279,18 @@ class Binner():
             self.variance = RobustScaler().fit_transform(np.nan_to_num(self.variance, nan=0.0, posinf=0.0, neginf=0.0))
 
 
-        # Three UMAP reducers for each input type
-        self.tnf_reducer = umap.UMAP(
-            metric=metrics.rho,
-            metric_kwds={"n_samples": self.n_samples},
-            n_neighbors=n_neighbors,
-            n_components=n_components,
-            min_dist=0,
-            random_state=random_state,
-            spread=1,
-        )
+        
         if self.n_samples >= 3:
+            # Three UMAP reducers for each input type
+            self.tnf_reducer = umap.UMAP(
+                metric=metrics.rho,
+                metric_kwds={"n_samples": self.n_samples},
+                n_neighbors=n_neighbors,
+                n_components=n_components,
+                min_dist=0,
+                random_state=random_state,
+                spread=1,
+            )
             self.depth_reducer = umap.UMAP(
                 metric=metrics.rho,
                 metric_kwds={"n_samples": self.n_samples},
@@ -311,8 +312,8 @@ class Binner():
             
         else:
             self.depth_reducer = umap.UMAP(
-                metric="euclidean",
-                # metric_kwds={"n_samples": self.n_samples},
+                metric=metrics.aggregate_tnf,
+                metric_kwds={"n_samples": self.n_samples},
                 n_neighbors=n_neighbors,
                 n_components=n_components,
                 min_dist=min_dist,
@@ -320,14 +321,6 @@ class Binner():
                 spread=1,
             )
 
-            self.variance_reducer = umap.UMAP(
-                metric='euclidean',
-                n_neighbors=n_neighbors,
-                n_components=n_components,
-                min_dist=min_dist,
-                random_state=random_state,
-                spread=1,
-            )
 
         self.snv_reducer = umap.UMAP(
             metric='euclidean',
@@ -346,16 +339,16 @@ class Binner():
         
         logging.info("Running UMAP - %s" % self.depth_reducer)
         depth_mapping = self.depth_reducer.fit(self.depths)
-        logging.info("Running UMAP - %s" % self.tnf_reducer)
-        tnf_mapping = self.tnf_reducer.fit(self.tnfs)
-        logging.info("Running UMAP - %s" % self.variance_reducer)
-        variance_mapping = self.variance_reducer.fit(self.variance)
+        
         if self.n_samples >=3:
-            
+            logging.info("Running UMAP - %s" % self.tnf_reducer)
+            tnf_mapping = self.tnf_reducer.fit(self.tnfs)
+            logging.info("Running UMAP - %s" % self.variance_reducer)
+            variance_mapping = self.variance_reducer.fit(self.variance)
             ## Contrast all reducers
-            contrast_mapper = depth_mapping + (tnf_mapping * variance_mapping)
+            contrast_mapper = (tnf_mapping - variance_mapping) + depth_mapping
         else:
-            contrast_mapper = tnf_mapping #- (depth_mapping - variance_mapping)
+            contrast_mapper = depth_mapping #- (depth_mapping - variance_mapping)
         self.embeddings = contrast_mapper.embedding_
 
     def cluster(self):
@@ -444,7 +437,7 @@ class Binner():
 
     def labels(self):
         try:
-            return self.soft_clusters.astype('int8')
+            return self.soft_clusters_capped.astype('int8')
         except AttributeError:
             return self.clusterer.labels_.astype('int8')
 
@@ -501,6 +494,7 @@ class Binner():
                 for (idx, label) in zip(values["indices"], new_labels):
                     # Update labels
                     self.clusterer.labels_[idx] = label + max_bin_id - 1
+                    self.soft_clusters_capped[idx] = label + max_bin_id - 1
                     if label != -1:
                         try:
                             self.bins[label.item() + max_bin_id].append(
@@ -521,6 +515,7 @@ class Binner():
             for (idx, label) in zip(values["indices"], new_labels):
                 # Update labels
                 self.clusterer.labels_[idx] = label + max_bin_id - 1
+                self.soft_clusters_capped[idx] = label + max_bin_id - 1
                 try:
                     self.bins[label.item() + max_bin_id].append(
                         self.large_contigs.iloc[idx, 0:2].name.item())  # inputs values as tid
