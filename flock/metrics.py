@@ -138,8 +138,13 @@ def rho(a, b, n_samples):
     rho = 1 - vlr / (var_a + var_b)
     rho += 1
     rho = 2 - rho
+    # Since these compositonal arrays are CLR transformed
+    # This is the equivalent to the aitchinson distance but we calculat the l2 norm
+    euc_dist = np.linalg.norm(a[:n_samples] - b[:n_samples])
+
+    dist = min(euc_dist, rho)
     
-    return rho
+    return dist
 
 
 @numba.njit()
