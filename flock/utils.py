@@ -39,12 +39,13 @@ import pandas as pd
 import multiprocessing as mp
 import hdbscan
 import itertools
+import threadpoolctl
 
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
 
-def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean'):
+def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_cluster=False):
     """
     Asynchronous parallel function for use with hyperparameter_selection function
     """
@@ -56,7 +57,7 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean'):
                                 metric=metric,
                                 min_cluster_size=int(gamma),
                                 min_samples=ms,
-                                allow_single_cluster=False,
+                                allow_single_cluster=allow_single_cluster,
                                 core_dist_n_jobs=20).fit(df)
 
     min_cluster_size = clust_alg.min_cluster_size
@@ -67,7 +68,7 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean'):
     return (min_cluster_size, min_samples, validity_score, n_clusters)
 
 
-def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean'):
+def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', allow_single_cluster=False):
     """
     Input:
     df - embeddings from UMAP
@@ -82,7 +83,7 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean'):
     results = []
     n = df.shape[0]
     for gamma in range(2, int(np.log(n))):
-        mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric)) for ms in
+        mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
                       range(1, int(2 * np.log(n)))]
         for result in mp_results:
             result = result.get()
@@ -90,6 +91,8 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean'):
             if result[2] >= .5:
                 logging.info(
                     f'min_cluster_size = {result[0]},  min_samples = {result[1]}, validity_score = {result[2]} n_clusters = {result[3]}')
+    pool.close()
+    pool.join()
 
     return results
 
@@ -111,24 +114,29 @@ def best_validity(source):
 
 # Calculates distances between clusters using minimum spanning trees
 def cluster_distances(embeddings, cluster_result, threads):
-    pool = mp.Pool(threads)
-    labels = set(cluster_result.labels_)
-    try:
-        labels.remove(-1)
-    except KeyError:
-        None
+    with threadpoolctl.threadpool_limits(limits=threads, user_api='blas'):
+        pool = mp.Pool(int(threads / 5))
+        labels = set(cluster_result.labels_)
+        logging.info(labels)
+        try:
+            labels.remove(-1)
+        except KeyError:
+            None
 
-    dist_mat = np.zeros((len(labels), len(labels)))
+        dist_mat = np.zeros((len(labels), len(labels)))
 
-    dist_results = [pool.apply_async(get_dist, args=(first, second, embeddings, cluster_result)) for (first, second) in
-                    itertools.combinations(labels, 2)]
+        dist_results = [pool.apply_async(get_dist, args=(first, second, embeddings, cluster_result)) for (first, second) in
+                        itertools.combinations(labels, 2)]
 
-    for result in dist_results:
-        result = result.get()
-        dist_mat[result[0], result[1]] = result[2]
-        dist_mat[result[1], result[0]] = result[2]
+        for result in dist_results:
+            result = result.get()
+            dist_mat[result[0], result[1]] = result[2]
+            dist_mat[result[1], result[0]] = result[2]
 
-    return dist_mat
+        pool.close()
+        pool.join()
+
+        return dist_mat
 
 
 def get_dist(first, second, embeddings, cluster_result):
@@ -142,8 +150,11 @@ def get_dist(first, second, embeddings, cluster_result):
     (second_nodes, second_edges) = hdbscan.validity.internal_minimum_spanning_tree(second_mr.astype(np.float64))
 
     # Calculates the density separation between two clusters using the above results
-    sep = hdbscan.validity.density_separation(embeddings, cluster_result.labels_, first, second, first_nodes,
-                                              second_nodes, first_core, second_core)
+    try:
+        sep = hdbscan.validity.density_separation(embeddings, cluster_result.labels_, first, second, first_nodes,
+                                                  second_nodes, first_core, second_core)
+    except ValueError:
+        sep = 1.0
 
     return first, second, sep
 

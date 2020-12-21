@@ -230,9 +230,13 @@ class Cluster():
         )
         logging.info("Running HDBSCAN - %s" % self.clusterer)
         self.clusterer.fit(self.embeddings)
-        self.validity, self.cluster_validity = hdbscan.validity.validity_index(self.embeddings.astype(np.float64),
-                                                                               self.clusterer.labels_,
-                                                                               per_cluster_scores=True)
+        try:
+            self.validity, self.cluster_validity = hdbscan.validity.validity_index(self.embeddings.astype(np.float64),
+                                                                                   self.clusterer.labels_,
+                                                                                   per_cluster_scores=True)
+        except ValueError:
+            self.validity = None
+            self.cluster_validity = [0.5 for i in range(len(set(self.clusterer.labels_)))]
         self.soft_clusters = hdbscan.all_points_membership_vectors(
             self.clusterer)
         self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
@@ -264,7 +268,7 @@ class Cluster():
         self.clusterer.fit(self.embeddings)
 
     def plot(self):
-        color_palette = sns.color_palette('Paired', 200)
+        color_palette = sns.color_palette('Paired', max(self.clusterer.labels_) + 1)
         cluster_colors = [
             color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.clusterer.labels_
         ]
@@ -287,35 +291,38 @@ class Cluster():
     def plot_distances(self):
         self.clusterer.condensed_tree_.plot(
             select_clusters=True,
-            selection_palette=sns.color_palette('deep', 20))
+            selection_palette=sns.color_palette('deep', len(set(self.clusterer.labels_))))
         plt.title('Hierarchical tree of clusters', fontsize=24)
         plt.savefig(self.path + '_UMAP_projection_with_clusters.png')
 
     def labels(self):
         try:
-            return self.soft_clusters_capped.astype('int8')
+            return self.soft_clusters_capped.astype('int32')
         except AttributeError:
-            return self.clusterer.labels_.astype('int8')
+            return self.clusterer.labels_.astype('int32')
 
     def break_clusters(self):
         redo_bins = {}
 
         for (idx, label) in enumerate(self.clusterer.labels_):
             if label != -1:
-                if self.cluster_validity[label] <= 0.5:
+                if self.cluster_validity[label] < 0.0:
                     try:
-                        redo_bins[label.item() + 1]["embeddings"].append(self.embeddings[idx, :])
-                        redo_bins[label.item() + 1]["indices"].append(idx)
+                        redo_bins[label.item()]["embeddings"].append(self.embeddings[idx, :])
+                        redo_bins[label.item()]["indices"].append(idx)
                     except KeyError:
-                        redo_bins[label.item() + 1] = {}
-                        redo_bins[label.item() + 1]["embeddings"] = [self.embeddings[idx, :]]
-                        redo_bins[label.item() + 1]["indices"] = [idx]
+                        redo_bins[label.item()] = {}
+                        redo_bins[label.item()]["embeddings"] = [self.embeddings[idx, :]]
+                        redo_bins[label.item()]["indices"] = [idx]
 
+        removed_labels = redo_bins.keys()
+        self.clusterer.labels_[:] = [label - sum(i < label for i in removed_labels) if label not in removed_labels else label for label in self.clusterer.labels_]
+        
+        
         # break up very large bins. Not sure how to threshold this
-        max_bin_id = max(set(self.clusterer.labels_))
+        max_bin_id = max([label for label in set(self.clusterer.labels_) if label not in removed_labels]) + 1
         for (bin, values) in redo_bins.items():
             new_labels = utils.break_overclustered(np.array(values["embeddings"]), self.threads)
-            max_bin_id = max(set(self.clusterer.labels_))
             for (idx, label) in zip(values["indices"], new_labels):
                 if label != -1:
                     # Update labels
