@@ -21,18 +21,18 @@ def get_version(relpath):
 
 
 setup(
-    name='flock',
-    version=get_version("flock/__init__.py"),
+    name='flight',
+    version=get_version("flight/__init__.py"),
     url='https://github.com/rhysnewell/rosella',
     license='BSD-3',
     author='Rhys Newell',
     author_email='rhys.newell@hdr.qut.edu.au',
-    description='flock - metagenomic binner and variant clusterer.',
+    description='flight - metagenomic binner and variant clusterer.',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    packages=['flock'],
+    packages=['flight'],
     package_data={'': [
-            "flock/*",
+            "flight/*",
                        ]},
     data_files=[(".", ["README.md", "LICENSE"])],
     include_package_data=True,
@@ -41,7 +41,7 @@ setup(
     # install via conda: click, pandas, pyyaml, snakemake
     entry_points={
           'console_scripts': [
-              'flock = flock.flock:main'
+              'flight = flight.flight:main'
           ]
     },
     classifiers=["Topic :: Scientific/Engineering :: Bio-Informatics"],

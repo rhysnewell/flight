@@ -56,8 +56,8 @@ from itertools import product
 import pynndescent
 
 # self imports
-import flock.metrics as metrics
-import flock.utils as utils
+import flight.metrics as metrics
+import flight.utils as utils
 
 # Set plotting style
 sns.set(style='white', context='notebook', rc={'figure.figsize': (14, 10)})
@@ -208,6 +208,8 @@ class Binner():
             hdbscan_metric="euclidean",
             metric = 'aggregate_tnf',
             threads=8,
+            a=1.58,
+            b=0.5,
     ):
         self.threads = threads
         set_num_threads(threads)
@@ -296,8 +298,8 @@ class Binner():
                 random_state=random_state,
                 n_epochs=500,
                 # spread=0.5,
-                a=1.58,
-                b=0.5,
+                a=a,
+                b=b,
             )
             
             self.depth_reducer = umap.UMAP(
@@ -309,8 +311,8 @@ class Binner():
                 random_state=random_state,
                 n_epochs=500,
                 # spread=0.5,
-                a=1.58,
-                b=0.5,
+                a=a,
+                b=b,
             )
             
             self.variance_reducer = umap.UMAP(
@@ -321,8 +323,8 @@ class Binner():
                 random_state=random_state,
                 n_epochs=500,
                 spread=0.5,
-                a=5,
-                b=0.25,
+                a=a,
+                b=b,
             )
             
         else:
@@ -348,8 +350,8 @@ class Binner():
                 random_state=random_state,
                 n_epochs=500,
                 # spread=0.5,
-                a=1.58,
-                b=0.5,
+                a=a,
+                b=b,
             )
 
 

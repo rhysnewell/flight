@@ -51,8 +51,8 @@ from numba import set_num_threads
 import pynndescent
 
 # self imports
-import flock.utils as utils
-import flock.metrics as metrics
+import flight.utils as utils
+import flight.metrics as metrics
 
 # Set plotting style
 sns.set(style='white', context='notebook', rc={'figure.figsize': (14, 10)})

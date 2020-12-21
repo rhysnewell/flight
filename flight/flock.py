@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 ###############################################################################
-# flock.py - A fast binning algorithm spinning off of the methodology of
+# flight.py - A fast binning algorithm spinning off of the methodology of
 #              Lorikeet
 ###############################################################################
 #                                                                             #
@@ -64,7 +64,7 @@ class BadTreeFileException(Exception):
 ################################ - Functions - ################################
 def main():
     ############################ ~ Main Parser ~ ##############################
-    main_parser = argparse.ArgumentParser(prog='flock',
+    main_parser = argparse.ArgumentParser(prog='flight',
                                           formatter_class=CustomHelpFormatter,
                                           add_help=False)
     main_parser.add_argument('--version',
@@ -91,7 +91,7 @@ def main():
                                     ~ fit ~
         How to use fit:
 
-        flock fit --depths depths.npy
+        flight fit --depths depths.npy
 
         ''')
     ## Main input array. Depths or Distances
@@ -164,7 +164,7 @@ def main():
                                 ~ bin ~
     How to use bin:
 
-    flock bin --input coverm_output.tsv --assembly scaffolds.fasta
+    flight bin --input coverm_output.tsv --assembly scaffolds.fasta
 
     ''')
     ## Main input array. Coverages from CoverM contig
@@ -233,6 +233,27 @@ def main():
                              help='Number of neighbors considered in UMAP',
                              dest="n_neighbors",
                              default=100)
+
+    bin_options.add_argument(
+        '--min_dist',
+        help=
+        'Minimum distance used by UMAP during construction of high dimensional graph',
+        dest="min_dist",
+        default=0.1)
+
+    bin_options.add_argument(
+        '--a_spread',
+        help=
+        'The spread of UMAP embeddings. Directly manipulates the "a" parameter',
+        dest="a",
+        default=1.58)
+
+    bin_options.add_argument(
+        '--b_tail',
+        help=
+        'Similar to the heavy-tail parameter sometimes used in t-SNE. Directly manipulates the "b" parameter',
+        dest="b",
+        default=0.5)
 
     bin_options.add_argument(
         '--min_dist',
@@ -368,6 +389,8 @@ def bin(args):
                            n_components=int(args.n_components),
                            cluster_selection_method=args.cluster_selection_method,
                            threads=int(args.threads),
+                           a=float(args.a_spread),
+                           b=float(args.b_tail),
                            )
 
         clusterer.fit_transform()
@@ -387,7 +410,7 @@ def bin(args):
 def phelp():
     print("""
 Usage:
-flock [SUBCOMMAND] ..
+flight [SUBCOMMAND] ..
 
 Subcommands:
 bin - Bin sets of metagenomic contigs into MAGs
