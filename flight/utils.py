@@ -22,7 +22,6 @@ __author__ = "Rhys Newell"
 __copyright__ = "Copyright 2020"
 __credits__ = ["Rhys Newell"]
 __license__ = "GPL3"
-__version__ = "0.0.1"
 __maintainer__ = "Rhys Newell"
 __email__ = "rhys.newell near hdr.qut.edu.au"
 __status__ = "Development"
@@ -32,6 +31,8 @@ __status__ = "Development"
 import warnings
 import logging
 import re
+import io
+from os.path import dirname, join
 
 # Function imports
 import numpy as np
@@ -44,6 +45,7 @@ import threadpoolctl
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
+
 
 def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_cluster=False):
     """

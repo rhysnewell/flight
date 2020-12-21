@@ -18,12 +18,11 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.        #
 #                                                                             #
 ###############################################################################
-
+from flock.__init__ import __version__
 __author__ = "Rhys Newell"
 __copyright__ = "Copyright 2020"
 __credits__ = ["Rhys Newell"]
 __license__ = "GPL3"
-__version__ = "0.0.1"
 __maintainer__ = "Rhys Newell"
 __email__ = "rhys.newell near hdr.qut.edu.au"
 __status__ = "Development"
@@ -234,12 +233,6 @@ def main():
                              dest="n_neighbors",
                              default=100)
 
-    bin_options.add_argument(
-        '--min_dist',
-        help=
-        'Minimum distance used by UMAP during construction of high dimensional graph',
-        dest="min_dist",
-        default=0.1)
 
     bin_options.add_argument(
         '--a_spread',
@@ -389,8 +382,8 @@ def bin(args):
                            n_components=int(args.n_components),
                            cluster_selection_method=args.cluster_selection_method,
                            threads=int(args.threads),
-                           a=float(args.a_spread),
-                           b=float(args.b_tail),
+                           a=float(args.a),
+                           b=float(args.b),
                            )
 
         clusterer.fit_transform()
