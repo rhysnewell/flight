@@ -347,9 +347,9 @@ class Binner():
                 min_dist=min_dist,
                 random_state=random_state,
                 n_epochs=500,
-                spread=0.5,
+                # spread=0.5,
                 a=1.58,
-                b=0.1,
+                b=0.5,
             )
 
 

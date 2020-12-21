@@ -149,7 +149,7 @@ def rho_tnf(a, b, n_samples):
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
     l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
     
-    covariance_mat = np.cov(a[1:n_samples], b[1:n_samples], rowvar=True)
+    covariance_mat = np.cov(a[1:], b[1:], rowvar=True)
     covariance = covariance_mat[0, 1]
     var_a = covariance_mat[0, 0]
     var_b = covariance_mat[1, 1]
