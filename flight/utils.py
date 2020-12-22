@@ -90,9 +90,7 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
         for result in mp_results:
             result = result.get()
             results.append(result)
-            if result[2] >= .5:
-                logging.info(
-                    f'min_cluster_size = {result[0]},  min_samples = {result[1]}, validity_score = {result[2]} n_clusters = {result[3]}')
+
     pool.close()
     pool.join()
 
@@ -163,7 +161,6 @@ def get_dist(first, second, embeddings, cluster_result):
 
 def break_overclustered(embeddings, threads):
     ## Break up suspected regions of overclustering
-    logging.info("Running HDBSCAN")
     tuned = hyperparameter_selection(embeddings, threads)
     best = best_validity(tuned)
     if best is not None:

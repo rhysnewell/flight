@@ -391,7 +391,7 @@ class Binner():
 
     def cluster(self):
         ## Cluster on the UMAP embeddings and return soft clusters
-        logging.info("Running HDBSCAN")
+        logging.info("Clustering contigs...")
         tuned = utils.hyperparameter_selection(self.embeddings, self.threads, allow_single_cluster=True)
         best = utils.best_validity(tuned)
         self.clusterer = hdbscan.HDBSCAN(
@@ -421,7 +421,7 @@ class Binner():
     def cluster_unbinned(self):
         ## Cluster on the unbinned contigs, attempt to create fine grained clusters that were missed
 
-        logging.info("Running HDBSCAN")
+        logging.info("Clustering unbinned contigs...")
         tuned = utils.hyperparameter_selection(self.unbinned_embeddings, self.threads)
         best = utils.best_validity(tuned)
         self.unbinned_clusterer = hdbscan.HDBSCAN(
@@ -478,9 +478,9 @@ class Binner():
 
     def labels(self):
         try:
-            return self.soft_clusters_capped.astype('int8')
+            return self.soft_clusters_capped.astype('int32')
         except AttributeError:
-            return self.clusterer.labels_.astype('int8')
+            return self.clusterer.labels_.astype('int32')
 
     def bin_contigs(self, assembly_file, min_bin_size=200000):
         logging.info("Binning contigs...")
@@ -499,16 +499,7 @@ class Binner():
                             self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
                     except KeyError:
                         self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
-                    # else:
-                        # try:
-                            # redo_bins[label.item() + 1]["size"] += self.large_contigs.iloc[idx, 1]
-                            # redo_bins[label.item() + 1]["embeddings"].append(self.embeddings[idx, :])
-                            # redo_bins[label.item() + 1]["indices"].append(idx)
-                        # except KeyError:
-                            # redo_bins[label.item() + 1] = {}
-                            # redo_bins[label.item() + 1]["size"] = self.large_contigs.iloc[idx, 1]
-                            # redo_bins[label.item() + 1]["embeddings"] = [self.embeddings[idx, :]]
-                            # redo_bins[label.item() + 1]["indices"] = [idx]
+
                         
                 else:
                     self.unbinned_indices.append(idx)
