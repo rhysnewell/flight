@@ -107,11 +107,7 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def write_contig(contig, assembly, f):
-    seq = assembly[contig]
-    fasta = ">" + seq.id + '\n'
-    fasta += str(seq.seq) + '\n'
-    f.write(fasta)
+
 
 @njit
 def index(array, item):

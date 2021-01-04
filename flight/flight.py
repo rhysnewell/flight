@@ -18,6 +18,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.        #
 #                                                                             #
 ###############################################################################
+from Bio import SeqIO
 from flock.__init__ import __version__
 __author__ = "Rhys Newell"
 __copyright__ = "Copyright 2020"
@@ -37,6 +38,7 @@ import datetime
 
 # Function imports
 import numpy as np
+import pandas as pd
 
 # Self imports
 from .binning import Binner
@@ -297,6 +299,35 @@ def main():
                              default=8)
     bin_options.set_defaults(func=bin)
 
+    vamb_options = subparsers.add_parser(
+        'vamb',
+        description='Bin out the results of vamb',
+        formatter_class=CustomHelpFormatter,
+        epilog='''
+                                        ~ vamb ~
+            How to use vamb:
+
+            flight vamb --reference assembly.fasta --coverages coverm.tsv --clusters vamb_clusters.tsv
+
+            ''')
+
+    vamb_options.add_argument('--reference',
+                              help='The assembly file to be binned',
+                              dest='reference')
+
+    vamb_options.add_argument('--clusters',
+                              help='The vamb clusters',
+                              dest='clusters')
+
+    vamb_options.add_argument('--min_size',
+                              help='Minimum bin size',
+                              dest='min_size',
+                              default=200000)
+
+    vamb_options.add_argument('--output',
+                              help='The output directory',
+                              dest='output',
+                              default='vamb_bins/')
     ###########################################################################
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Parsing input ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
@@ -400,6 +431,49 @@ def bin(args):
 
         clusterer.write_bins(int(args.min_bin_size))
 
+def vamb(args):
+    min_bin_size = int(args.min_size)
+    prefix = args.output
+    if not os.path.exists(prefix):
+        os.makedirs(prefix)
+
+    bins = {}
+    with open(args.clusters, 'rb') as vamb_file:
+        for line in vamb_file:
+            line = line.split()
+            try:
+                bins[line[0]].append(line[1])
+            except KeyError:
+                bins[line[0]] = [line[1]]
+
+    assembly = SeqIO.to_dict(SeqIO.parse(args.assembly, "fasta"))
+
+    logging.info("Writing bins...")
+    max_cluster_id = max(bins.keys())
+    for (bin, contigs) in bins.items():
+        if bin != -1:
+            # Calculate total bin size and check if it is larger than min_bin_size
+            bin_length = sum([len(assembly[contig].seq) for contig in contigs])
+            if bin_length >= min_bin_size:
+                with open(prefix + '/vamb_bin.' + str(bin) + '.fna', 'w') as f:
+                    for contig in contigs:
+                        write_contig(contig, assembly, f)
+
+        else:
+            # Get final bin value
+            max_cluster_id += 1
+            # Rescue any large unbinned contigs and put them in their own cluster
+            for contig in contigs:
+                if len(assembly[contig].seq) >= min_bin_size:
+                    with open(prefix + '/vamb_bin.' + str(max_cluster_id) + '.fna', 'w') as f:
+                        write_contig(contig, assembly, f)
+
+
+def write_contig(contig, assembly, f):
+    seq = assembly[contig]
+    fasta = ">" + seq.id + '\n'
+    fasta += str(seq.seq) + '\n'
+    f.write(fasta)
 
 def phelp():
     print("""
