@@ -84,7 +84,7 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
     warnings.filterwarnings('ignore')
     results = []
     n = df.shape[0]
-    for gamma in range(2, int(np.log(n))):
+    for gamma in range(2, int(np.log(max(n, 3)))):
         mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
                       range(1, int(2 * np.log(n)))]
         for result in mp_results:

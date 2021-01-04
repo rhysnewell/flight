@@ -38,7 +38,7 @@ from operator import itemgetter
 
 # Function imports
 import numpy as np
-from numba import njit, set_num_threads
+from numba import njit, config, set_num_threads
 import multiprocessing as mp
 import pandas as pd
 import hdbscan
@@ -209,7 +209,11 @@ class Binner():
             threads=8,
             a=1.58,
             b=0.5,
+            min_bin_size=200000,
     ):
+        # config.THREADING_LAYER = 'tbb'
+        # config.NUMBA_NUM_THREADS = threads
+        self.min_bin_size = min_bin_size
         self.threads = threads
         set_num_threads(threads)
         # Open up assembly
@@ -280,7 +284,7 @@ class Binner():
         else:
             self.depths = skbio.stats.composition.clr(self.depths.T.astype(np.float64) + 1).T
             # self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.depths, self.tnfs), axis=1))
-            self.tnf = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.tnfs), axis=1))
+            # self.tnf = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.tnfs), axis=1))
             # self.snv_rates = RobustScaler().fit_transform(np.nan_to_num(self.snv_rates, nan=0.0, posinf=0.0, neginf=0.0))
             # self.variance = RobustScaler().fit_transform(np.nan_to_num(self.variance, nan=0.0, posinf=0.0, neginf=0.0))
 
@@ -314,8 +318,8 @@ class Binner():
                 b=b,
             )
             
-            self.variance_reducer = umap.UMAP(
-                metric='correlation',
+            self.distance_reducer = umap.UMAP(
+                metric='euclidean',
                 n_neighbors=n_neighbors,
                 n_components=n_components,
                 min_dist=min_dist,
@@ -379,6 +383,8 @@ class Binner():
         if self.n_samples >=3:
             logging.info("Running UMAP - %s" % self.tnf_reducer)
             tnf_mapping = self.tnf_reducer.fit(self.tnfs)
+            # logging.info("Running UMAP - %s" % self.distance_reducer)
+            # distance_mapping = self.distance_reducer.fit(self.depths)
             # logging.info("Running UMAP - %s" % self.variance_reducer)
             # variance_mapping = self.variance_reducer.fit(self.variance)
             ## Contrast all reducers
@@ -404,7 +410,7 @@ class Binner():
             metric='euclidean',
             min_cluster_size=int(best['min_cluster_size']),
             min_samples=int(best['min_samples']),
-            allow_single_cluster=True,
+            allow_single_cluster=False,
             core_dist_n_jobs=self.threads,
             prediction_data=True
         )
@@ -490,7 +496,10 @@ class Binner():
         self.unbinned_indices = []
         self.unbinned_embeddings = []
 
-        if len(set(self.clusterer.labels_)) > 5:
+        set_labels = set(self.clusterer.labels_)
+        max_bin_id = max(set_labels)
+
+        if len(set_labels) > 5:
             for (idx, label) in enumerate(self.clusterer.labels_):
                 if label != -1:
                     # if self.cluster_validity[label] >= 0.0:
@@ -501,6 +510,13 @@ class Binner():
                         self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
 
                         
+                elif self.large_contigs.iloc[idx, 1] >= self.min_bin_size:
+                    max_bin_id += 1
+                    try:
+                        self.bins[max_bin_id.item()].append(
+                            self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                    except KeyError:
+                        self.bins[max_bin_id.item()] = [self.large_contigs.iloc[idx, 0:2].name.item()]
                 else:
                     self.unbinned_indices.append(idx)
                     self.unbinned_embeddings.append(self.embeddings[idx, :])
@@ -519,6 +535,8 @@ class Binner():
 
             for (original_label, values) in redo_binning.items():
                 new_labels = utils.break_overclustered(np.array(values["embeddings"]), self.threads)
+                inner_bin_id = max(set(new_labels))
+                
                 try:
                     max_bin_id = max(self.bins.keys()) + 1
                 except ValueError:
@@ -533,6 +551,14 @@ class Binner():
                                 self.large_contigs.iloc[idx, 0:2].name.item())  # inputs values as tid
                         except KeyError:
                             self.bins[label.item() + max_bin_id] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+                    elif self.large_contigs.iloc[idx, 1] >= self.min_bin_size:
+                        inner_bin_id += 1
+
+                        try:
+                            self.bins[inner_bin_id.item() + max_bin_id].append(
+                                self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                        except KeyError:
+                            self.bins[inner_bin_id.item() + max_bin_id] = [self.large_contigs.iloc[idx, 0:2].name.item()]
                     else:
                         self.unbinned_indices.append(idx)
                         self.unbinned_embeddings.append(self.embeddings[idx, :])
@@ -544,6 +570,7 @@ class Binner():
         # break up very large bins. Not sure how to threshold this
         for (bin, values) in redo_bins.items():
             new_labels = utils.break_overclustered(np.array(values["embeddings"]), self.threads)
+            inner_bin_id = max(set(new_labels))
             try:
                 max_bin_id = max([label.item() for label in set(self.clusterer.labels_) if label not in removed_bins]) + 1
             except ValueError:
@@ -558,6 +585,16 @@ class Binner():
                             self.large_contigs.iloc[idx, 0:2].name.item())  # inputs values as tid
                     except KeyError:
                         self.bins[label.item() + max_bin_id] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+                elif self.large_contigs.iloc[idx, 1] >= self.min_bin_size:
+                    inner_bin_id += 1
+
+                    self.clusterer.labels_[idx] = inner_bin_id + max_bin_id
+                    self.soft_clusters_capped[idx] = inner_bin_id + max_bin_id
+                    try:
+                        self.bins[inner_bin_id.item() + max_bin_id].append(
+                            self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                    except KeyError:
+                        self.bins[inner_bin_id.item() + max_bin_id] = [self.large_contigs.iloc[idx, 0:2].name.item()]
                 else:
                     # unbinned contigs
                     try:

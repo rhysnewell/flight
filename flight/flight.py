@@ -390,8 +390,9 @@ def bin(args):
         clusterer.cluster()
         # clusterer.plot_distances()
         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-        clusterer.cluster_unbinned()
-        clusterer.bin_unbinned_contigs()
+        if len(clusterer.unbinned_embeddings) > 2:
+            clusterer.cluster_unbinned()
+            clusterer.bin_unbinned_contigs()
         clusterer.plot()
 
         # clusterer.merge_bins(int(args.min_bin_size)) # Merges bins when n_samples is < 3
