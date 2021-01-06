@@ -307,13 +307,13 @@ def main():
                                         ~ vamb ~
             How to use vamb:
 
-            flight vamb --reference assembly.fasta --coverages coverm.tsv --clusters vamb_clusters.tsv
+            flight vamb --reference assembly.fasta --clusters vamb_clusters.tsv
 
             ''')
 
     vamb_options.add_argument('--reference',
                               help='The assembly file to be binned',
-                              dest='reference')
+                              dest='assembly')
 
     vamb_options.add_argument('--clusters',
                               help='The vamb clusters',
@@ -328,6 +328,8 @@ def main():
                               help='The output directory',
                               dest='output',
                               default='vamb_bins/')
+
+    vamb_options.set_defaults(func=vamb)
     ###########################################################################
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Parsing input ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
@@ -421,9 +423,9 @@ def bin(args):
         clusterer.cluster()
         # clusterer.plot_distances()
         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-        if len(clusterer.unbinned_embeddings) > 2:
-            clusterer.cluster_unbinned()
-            clusterer.bin_unbinned_contigs()
+        # if len(clusterer.unbinned_embeddings) > 2:
+            # clusterer.cluster_unbinned()
+            # clusterer.bin_unbinned_contigs()
         clusterer.plot()
 
         # clusterer.merge_bins(int(args.min_bin_size)) # Merges bins when n_samples is < 3
@@ -438,7 +440,7 @@ def vamb(args):
         os.makedirs(prefix)
 
     bins = {}
-    with open(args.clusters, 'rb') as vamb_file:
+    with open(args.clusters, 'r') as vamb_file:
         for line in vamb_file:
             line = line.split()
             try:

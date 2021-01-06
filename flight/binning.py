@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 ###############################################################################
-# binning.py - A fast binning algorithm spinning off of the methodology of
+# binning.py - A binning algorithm spinning off of the methodology of
 #              Lorikeet
 ###############################################################################
 #                                                                             #
@@ -137,15 +137,6 @@ def spawn_merge_low_n(idx, soft_clusters):
     return next_label, idx
 
 
-def read_variant_rates(variant_rates, contig_names, min_contig_size=1000):
-    rates = pd.read_csv(variant_rates, sep='\t')
-    rates = rates[rates["contigLen"] >= min_contig_size]
-    if list(rates['contigName']) != list(contig_names):
-        sys.exit("Contig ordering incorrect for variant rate table")
-    snv_rates = rates.iloc[:, 2::2]
-    sv_rates = rates.iloc[:, 3::2]
-    return snv_rates, sv_rates
-
 
 ###############################################################################
 ################################ - Classes - ##################################
@@ -213,7 +204,9 @@ class Binner():
         self.threads = threads
         set_num_threads(threads)
         # Open up assembly
-        self.assembly = SeqIO.to_dict(SeqIO.parse(assembly, "fasta"))
+        self.assembly = {} 
+        for (tid, rec) in enumerate(SeqIO.parse(assembly, "fasta")):
+            self.assembly[rec.id] = tid
 
         # initialize bin dictionary Label: Vec<Contig>
         self.bins = {}
@@ -259,38 +252,28 @@ class Binner():
 
 
         # clr transformations
-        self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if utils.special_match(name)]]
-                                                .iloc[:, 1:].astype(np.float64) + 1)
+        self.tnfs = RobustScaler().fit_transform(self.tnfs[[name for name in self.tnfs.columns if utils.special_match(name)]]
+                                                .iloc[:, 1:].astype(np.float64))
 
-        if self.n_samples < 3:
-            # RobustScaler requires rows as samples
-            # self.depths = self.depths.values.T.reshape(1, -1)
-            # self.variance = self.variance.values.T.reshape(1, -1)
-            # self.snv_rates = self.snv_rates.values.reshape(1, -1)
+        if self.n_samples == 1:
             self.depths = skbio.stats.composition.clr(self.depths.T.astype(np.float64) + 1).T
-            self.variance = skbio.stats.composition.clr(self.variance.T.astype(np.float64) + 1).T
-            if self.n_samples == 1:
-                self.depths = self.depths[:, None]
-                # self.variance = RobustScaler().fit_transform(np.nan_to_num(self.variance.T, nan=0.0, posinf=0.0, neginf=0.0)).T
-            # self.tnf = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.tnfs), axis=1))
+            # Extra dimension for when there is only one sample to allow concatenation
+            self.depths = self.depths[:, None]
             self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.depths, self.tnfs), axis=1))
 # 
-            # self.snv_rates = RobustScaler().fit_transform(np.nan_to_num(self.snv_rates, nan=0.0, posinf=0.0, neginf=0.0))
-            # self.variance = RobustScaler().fit_transform(np.nan_to_num(self.variance, nan=0.0, posinf=0.0, neginf=0.0))
+        # elif self.n_samples <= 3:
+            # self.depths = RobustScaler().fit_transform(np.nan_to_num(self.depths, nan=0.0, posinf=0.0, neginf=0.0))
+
         else:
-            self.depths = skbio.stats.composition.clr(self.depths.T.astype(np.float64) + 1).T
-            # self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.depths, self.tnfs), axis=1))
-            # self.tnf = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.tnfs), axis=1))
-            # self.snv_rates = RobustScaler().fit_transform(np.nan_to_num(self.snv_rates, nan=0.0, posinf=0.0, neginf=0.0))
-            # self.variance = RobustScaler().fit_transform(np.nan_to_num(self.variance, nan=0.0, posinf=0.0, neginf=0.0))
+            # self.depths = skbio.stats.composition.clr(self.depths.T.astype(np.float64) + 1).T
+            self.depths = RobustScaler().fit_transform(np.nan_to_num(self.depths, nan=0.0, posinf=0.0, neginf=0.0))
 
-
-        
-        if self.n_samples >= 3:
+       
+        if self.n_samples > 1:
             # Three UMAP reducers for each input type
             self.tnf_reducer = umap.UMAP(
-                metric=metrics.rho_tnf,
-                metric_kwds={"n_samples": self.n_samples},
+                metric='cosine',
+                # metric_kwds={"n_samples": self.n_samples},
                 n_neighbors=n_neighbors,
                 n_components=n_components,
                 min_dist=0,
@@ -302,8 +285,8 @@ class Binner():
             )
             
             self.depth_reducer = umap.UMAP(
-                metric=metrics.rho,
-                metric_kwds={"n_samples": self.n_samples},
+                metric='cosine',
+                # metric_kwds={"n_samples": self.n_samples},
                 n_neighbors=n_neighbors,
                 n_components=n_components,
                 min_dist=min_dist,
@@ -314,9 +297,9 @@ class Binner():
                 b=b,
             )
             
-            self.distance_reducer = umap.UMAP(
-                metric='euclidean',
-                n_neighbors=n_neighbors,
+            self.aggregate_reducer = umap.UMAP(
+                metric='cosine',
+                # metric_kwds={"n_samples": self.n_samples},
                 n_components=n_components,
                 min_dist=min_dist,
                 random_state=random_state,
@@ -326,7 +309,7 @@ class Binner():
                 b=b,
             )
             
-        else:
+        elif self.n_samples == 1:
             # self.tnf_reducer = umap.UMAP(
                 # metric=metrics.rho_tnf,
                 # metric_kwds={"n_samples": self.n_samples},
@@ -354,38 +337,40 @@ class Binner():
             )
 
 
-        self.snv_reducer = umap.UMAP(
-            metric='euclidean',
-            n_neighbors=n_neighbors,
-            n_components=n_components,
-            min_dist=min_dist,
-            random_state=random_state,
-            spread=1,
-        )
-
-
     def fit_transform(self):
         ## Calculate the UMAP embeddings
         # logging.info("Running UMAP - %s" % self.snv_reducer)
         # snv_mapping = self.snv_reducer.fit(self.snv_rates)
         
-        logging.info("Running UMAP - %s" % self.depth_reducer)
-        try:
-            depth_mapping = self.depth_reducer.fit(self.depths)
-        except ValueError: # Sparse or low coverage contigs can cause high n_neighbour values to kark it
-            self.depth_reducer.n_neighbors = 30
-            depth_mapping = self.depth_reducer.fit(self.depths)
         
-        if self.n_samples >=3:
+        
+        if self.n_samples > 1:
+            logging.info("Running UMAP - %s" % self.depth_reducer)
+            try:
+                depth_mapping = self.depth_reducer.fit(self.depths)
+            except ValueError: # Sparse or low coverage contigs can cause high n_neighbour values to kark it
+                self.depth_reducer.n_neighbors = 30
+                depth_mapping = self.depth_reducer.fit(self.depths)
+                
             logging.info("Running UMAP - %s" % self.tnf_reducer)
             tnf_mapping = self.tnf_reducer.fit(self.tnfs)
-            # logging.info("Running UMAP - %s" % self.distance_reducer)
-            # distance_mapping = self.distance_reducer.fit(self.depths)
+            logging.info("Running UMAP - %s" % self.aggregate_reducer)
+            # aggregate_mapping = self.aggregate_reducer.fit(np.nan_to_num(np.concatenate((self.depths, self.tnfs), axis=1)))
             # logging.info("Running UMAP - %s" % self.variance_reducer)
             # variance_mapping = self.variance_reducer.fit(self.variance)
             ## Contrast all reducers
-            contrast_mapper = depth_mapping - (tnf_mapping) #- (variance_mapping)
+            contrast_mapper = tnf_mapping - depth_mapping
+        # elif self.n_samples >=2:
+            # logging.info("Running UMAP - %s" % self.tnf_reducer)
+            # tnf_mapping = self.tnf_reducer.fit(self.tnfs)
+            # contrast_mapper = (depth_mapping - tnf_mapping) * tnf_mapping #- (variance_mapping)
         else:
+            logging.info("Running UMAP - %s" % self.depth_reducer)
+            try:
+                depth_mapping = self.depth_reducer.fit(self.depths)
+            except ValueError: # Sparse or low coverage contigs can cause high n_neighbour values to kark it
+                self.depth_reducer.n_neighbors = 30
+                depth_mapping = self.depth_reducer.fit(self.depths)
             # logging.info("Running UMAP - %s" % self.tnf_reducer)
             # tnf_mapping = self.tnf_reducer.fit(self.tnfs)
             contrast_mapper = depth_mapping #* (tnf_mapping) #- variance_mapping)
@@ -394,7 +379,7 @@ class Binner():
     def cluster(self):
         ## Cluster on the UMAP embeddings and return soft clusters
         logging.info("Clustering contigs...")
-        tuned = utils.hyperparameter_selection(self.embeddings, self.threads, allow_single_cluster=True)
+        tuned = utils.hyperparameter_selection(self.embeddings, self.threads, allow_single_cluster=False)
         best = utils.best_validity(tuned)
         self.clusterer = hdbscan.HDBSCAN(
             algorithm='best',
@@ -415,7 +400,7 @@ class Binner():
             self.validity, self.cluster_validity = hdbscan.validity.validity_index(self.embeddings.astype(np.float64), self.clusterer.labels_, per_cluster_scores=True)
         except ValueError:
             self.validity = 0
-            self.cluster_validity = [0.0 for i in range(len(set(self.clusterer.labels_)))]
+            self.cluster_validity = [0.5 for i in range(len(set(self.clusterer.labels_)))]
         self.soft_clusters = hdbscan.all_points_membership_vectors(
             self.clusterer)
         self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
@@ -498,14 +483,24 @@ class Binner():
         if len(set_labels) > 5:
             for (idx, label) in enumerate(self.clusterer.labels_):
                 if label != -1:
-                    # if self.cluster_validity[label] >= 0.0:
+                    # if self.cluster_validity[label] >= 0.5:
                     try:
                         self.bins[label.item() + 1].append(
                             self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
                     except KeyError:
                         self.bins[label.item() + 1] = [self.large_contigs.iloc[idx, 0:2].name.item()]
 
-                        
+                    # elif self.large_contigs.iloc[idx, 1] >= self.min_bin_size:
+                        # max_bin_id += 1
+                        # try:
+                            # self.bins[max_bin_id.item()].append(
+                                # self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                        # except KeyError:
+                            # self.bins[max_bin_id.item()] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+                    # else:
+                        # self.unbinned_indices.append(idx)
+                        # self.unbinned_embeddings.append(self.embeddings[idx, :])
+                                             
                 elif self.large_contigs.iloc[idx, 1] >= self.min_bin_size:
                     max_bin_id += 1
                     try:

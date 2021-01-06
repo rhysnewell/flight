@@ -44,7 +44,6 @@ import math
 
 @numba.njit()
 def tnf(a, b, n_samples):
-    # L2 norm is equivalent to euclidean distance
     cov_mat = np.cov(a[n_samples:], b[n_samples:])
     cov = cov_mat[0, 1]
     a_sd = np.sqrt(cov_mat[0,0])
@@ -53,8 +52,11 @@ def tnf(a, b, n_samples):
     rho += 1
     rho = 2 - rho
     return rho
+    # L2 norm is equivalent to euclidean distance
     # euc_dist = np.linalg.norm(a[n_samples:] - b[n_samples:])
+
     # return euc_dist
+
 
 @numba.njit()
 def snv_corr(a, b, n_samples):
@@ -220,7 +222,7 @@ def aggregate_variant_tnf(a, b, n_samples):
     # Need to weigh by differences in contig size. TNF becomes less reliable as contigs diverge in size
     l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
 
-    tnf_dist = tnf(a[1:], b[1:], n_samples*3)
+    tnf_dist = tnf(a[1:], b[1:], n_samples)
     aitchinson = euclidean(a[1:], b[1:], n_samples)
 
     if n_samples >= 3:
