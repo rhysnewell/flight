@@ -38,24 +38,88 @@ import datetime
 import numba
 import numpy as np
 import math
+from statistics import NormalDist
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
 
 @numba.njit()
 def tnf(a, b, n_samples):
-    cov_mat = np.cov(a[n_samples:], b[n_samples:])
-    cov = cov_mat[0, 1]
-    a_sd = np.sqrt(cov_mat[0,0])
-    b_sd = np.sqrt(cov_mat[1,1])
-    rho = cov / (a_sd * b_sd)
-    rho += 1
-    rho = 2 - rho
-    return rho
+    # cov_mat = np.cov(a[n_samples:], b[n_samples:])
+    # cov = cov_mat[0, 1]
+    # a_sd = np.sqrt(cov_mat[0,0])
+    # b_sd = np.sqrt(cov_mat[1,1])
+    # rho = cov / (a_sd * b_sd)
+    # rho += 1
+    # rho = 2 - rho
+    # return rho
     # L2 norm is equivalent to euclidean distance
-    # euc_dist = np.linalg.norm(a[n_samples:] - b[n_samples:])
+    euc_dist = np.linalg.norm(a[n_samples:] - b[n_samples:])
+# 
+    return euc_dist
 
-    # return euc_dist
+@numba.njit()
+def ndtr(x):
+    # CDF for standard normal distribution
+    return (1.0 + math.erf(x / np.sqrt(1.0))) / 2.0
+
+@numba.njit()
+def metabat_distance(a, b, n_samples):
+    """
+    a - The mean and variance vec for contig a over n_samples
+    b - The mean and variance vec for contig b over n_samples
+
+    returns distance as defined in metabat1 paper
+    """
+
+    # generate distirbutions for each sample
+    # and calculate divergence between them
+    # 
+    mb_vec = []
+
+    # Get the means and variances for each contig
+    a_means = a[::2]
+    a_vars = a[1::2]
+    b_means = b[::2]
+    b_vars = b[1::2]
+
+    for i in range(0, n_samples):
+        k1, k2, tmp, d = 0, 0, 0, 0
+        # Use this indexing method as zip does not seem to work so well in njit
+        # Add tiny value to each to avoid division by zero
+        a_mean = a_means[i] + 1e-6
+        a_var = a_vars[i] + 1e-6
+        b_mean = b_means[i] + 1e-6
+        b_var = b_vars[i] + 1e-6
+        if abs(a_var - b_var) < 1e-4:
+            k1 = k2 = (a_mean + b_mean) / 2
+        else:
+            tmp = np.sqrt(a_var * b_var * ((a_mean - b_mean) * (a_mean - b_mean) - 2 * (a_var - b_var) * np.log(np.sqrt(b_var / a_var))))
+            k1 = (tmp - a_mean * b_var + b_mean * a_var) / (a_var - b_var)
+            k2 = (tmp + a_mean * b_var - b_mean * a_var) / (b_var - a_var)
+
+        if k1 > k2:
+            tmp = k1
+            k1 = k2
+            k2 = tmp
+
+        if a_var > b_var:
+            p1 = NormalDist(b_mean, b_var)
+            p2 = NormalDist(a_mean, a_var)
+        else:
+            p1 = NormalDist(a_mean, a_var)
+            p2 = NormalDist(b_mean, b_var)
+
+        if k1 == k2:
+            mb_vec.append(abs(p1.cdf(k1) - p2.cdf(k1)))
+        else:
+            mb_vec.append(p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2))
+
+    # convert to log space to avoid overflow errors
+    mb_vec = np.log(np.array(mb_vec))
+    # return the geometric mean
+    return np.exp(mb_vec.sum() / len(mb_vec))
+    
 
 @numba.njit()
 def kl_divergence(a, b, n_samples):
@@ -65,20 +129,34 @@ def kl_divergence(a, b, n_samples):
 
     returns the geometric mean of the KL divergences for contigs a and b over n_samples
     """
-    a = iter(a)
-    b = iter(b)
+
     # generate distirbutions for each sample
     # and calculate divergence between them
     # https://stats.stackexchange.com/questions/7440/kl-divergence-between-two-univariate-gaussians
     kl_vec = []
-    for a_mean, b_mean in zip(a, b):
-        a_var = next(a)
-        b_var = next(b)
-        kl = np.log(np.sqrt(b_var) / np.sqrt(a_var)) + ((a_var + (a_mean - b_mean)**2) / (2*b_var)) - 1/2
-        kl_vec.append(kl)
+
+    # Get the means and variances for each contig
+    a_means = a[::2]
+    a_vars = a[1::2]
+    b_means = b[::2]
+    b_vars = b[1::2]
+
+    for i in range(0, n_samples):
+        # Use this indexing method as zip does not seem to work so well in njit
+        # Add tiny value to each to avoid division by zero
+        a_mean = a_means[i] + 1e-6
+        a_var = a_vars[i] + 1e-6
+        b_mean = b_means[i] + 1e-6
+        b_var = b_vars[i] + 1e-6
+        
+        kl_1 = np.log(np.sqrt(b_var) / np.sqrt(a_var)) + ((a_var + (a_mean - b_mean)**2) / (2*b_var)) - 1/2
+        kl_2 = np.log(np.sqrt(a_var) / np.sqrt(b_var)) + ((b_var + (b_mean - a_mean)**2) / (2*a_var)) - 1/2
+        kl_sym = (kl_1 + kl_2)/2
+        
+        kl_vec.append(kl_sym)
 
     # convert to log space to avoid overflow errors
-    kl_vec = np.log(kl_vec)
+    kl_vec = np.log(np.array(kl_vec))
     # return the geometric mean
     return np.exp(kl_vec.sum() / len(kl_vec))
 
@@ -120,7 +198,7 @@ def aggregate_tnf(a, b, n_samples):
     l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
 
     tnf_dist = tnf(a[1:], b[1:], n_samples*2)
-    kl = kl_divergence(a[1:n_samples*2 + 1], b[1:n_samples*2 + 1], n_samples)
+    kl = metabat_distance(a[1:n_samples*2 + 1], b[1:n_samples*2 + 1], n_samples)
     agg = (tnf_dist**w) * kl**(1-w)
 
     return agg
