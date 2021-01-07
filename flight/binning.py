@@ -231,13 +231,13 @@ class Binner():
 
 
         # If there are enough contigs of that size
-        if self.large_contigs.shape[0] > 100:
-            # self.depths = self.large_contigs.iloc[:,3::2]
-            # self.variance = self.large_contigs.iloc[:,4::2]
-            # self.small_depths = self.small_contigs.iloc[:,3:]
-        else: # Otherwise we'll just use a smaller value
-            self.large_contigs = self.coverage_table[self.coverage_table["contigLen"] >= 1000]
-            self.small_contigs = self.coverage_table[self.coverage_table["contigLen"] < 1000]
+        # if self.large_contigs.shape[0] > 100:
+        #     # self.depths = self.large_contigs.iloc[:,3::2]
+        #     # self.variance = self.large_contigs.iloc[:,4::2]
+        #     # self.small_depths = self.small_contigs.iloc[:,3:]
+        # else: # Otherwise we'll just use a smaller value
+        #     self.large_contigs = self.coverage_table[self.coverage_table["contigLen"] >= 1000]
+        #     self.small_contigs = self.coverage_table[self.coverage_table["contigLen"] < 1000]
             # self.depths = self.large_contigs.iloc[:,3::2]
             # self.variance = self.large_contigs.iloc[:,4::2]
             # self.small_depths = self.small_contigs.iloc[:,3:]
@@ -287,7 +287,7 @@ class Binner():
             )
             
             self.depth_reducer = umap.UMAP(
-                metric=metrics.distribution,
+                metric=metrics.kl_divergence,
                 metric_kwds={"n_samples": self.n_samples},
                 n_neighbors=n_neighbors,
                 n_components=n_components,
