@@ -27,23 +27,37 @@ __status__ = "Development"
 
 ###############################################################################
 # System imports
-import sys
-import argparse
-import logging
-import os
-import shutil
-import datetime
 
 # Function imports
-import numba
+from numba import njit, float64
+from numba.experimental import jitclass
 import numpy as np
 import math
-from statistics import NormalDist
+
+###############################################################################                                                                                                                      [44/1010]
+################################ - Globals - ##################################
+spec = [
+    ('loc', float64),               # a simple scalar field
+    ('scale', float64),          # an array field
+]
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
 
-@numba.njit()
+@jitclass(spec)
+class NormalDist:
+    def __init__(self, loc=0.0, scale=1.0):
+        self.loc = loc
+        self.scale = scale
+
+    def cdf(self, x):
+        # https: // stackoverflow.com / questions / 809362 / how - to - calculate - cumulative - normal - distribution
+        # 'Cumulative distribution function for the standard normal distribution'
+        # Scale and shift the x value
+        x = (x - self.loc) / self.scale
+        return (1.0 + math.erf(x / np.sqrt(2.0))) / 2.0
+
+@njit()
 def tnf(a, b, n_samples):
     # cov_mat = np.cov(a[n_samples:], b[n_samples:])
     # cov = cov_mat[0, 1]
@@ -58,12 +72,7 @@ def tnf(a, b, n_samples):
 # 
     return euc_dist
 
-@numba.njit()
-def ndtr(x):
-    # CDF for standard normal distribution
-    return (1.0 + math.erf(x / np.sqrt(1.0))) / 2.0
-
-@numba.njit()
+@njit()
 def metabat_distance(a, b, n_samples):
     """
     a - The mean and variance vec for contig a over n_samples
@@ -121,7 +130,7 @@ def metabat_distance(a, b, n_samples):
     return np.exp(mb_vec.sum() / len(mb_vec))
     
 
-@numba.njit()
+@njit()
 def kl_divergence(a, b, n_samples):
     """
     a - The mean and variance vec for contig a over n_samples
@@ -160,7 +169,7 @@ def kl_divergence(a, b, n_samples):
     # return the geometric mean
     return np.exp(kl_vec.sum() / len(kl_vec))
 
-@numba.njit()
+@njit()
 def rho(a, b, n_samples):
     """
     a - CLR transformed coverage distribution vector a
@@ -186,7 +195,7 @@ def rho(a, b, n_samples):
     
     return dist
 
-@numba.njit()
+@njit()
 def aggregate_tnf(a, b, n_samples):
     """
     a, b - concatenated contig depth, variance, and TNF info with contig length at index 0
