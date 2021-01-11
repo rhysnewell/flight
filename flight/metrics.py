@@ -68,9 +68,16 @@ def tnf(a, b, n_samples):
     # rho = 2 - rho
     # return rho
     # L2 norm is equivalent to euclidean distance
-    euc_dist = np.linalg.norm(a[n_samples:] - b[n_samples:])
-# 
-    return euc_dist
+    # euc_dist = np.linalg.norm(a[n_samples:] - b[n_samples:])
+
+    # return euc_dist
+    # Cosine distance
+    a_np = a[n_samples:]
+    b_np = b[n_samples:]
+
+    cosine = np.dot(a_np, b_np) / (np.linalg.norm(a_np) * np.linalg.norm(b_np))
+    cosine = 1 - cosine
+    return cosine
 
 @njit()
 def metabat_distance(a, b, n_samples):
@@ -100,6 +107,7 @@ def metabat_distance(a, b, n_samples):
         a_var = a_vars[i] + 1e-6
         b_mean = b_means[i] + 1e-6
         b_var = b_vars[i] + 1e-6
+
         if abs(a_var - b_var) < 1e-4:
             k1 = k2 = (a_mean + b_mean) / 2
         else:
@@ -113,16 +121,16 @@ def metabat_distance(a, b, n_samples):
             k2 = tmp
 
         if a_var > b_var:
-            p1 = NormalDist(b_mean, b_var)
-            p2 = NormalDist(a_mean, a_var)
+            p1 = NormalDist(b_mean, np.sqrt(b_var))
+            p2 = NormalDist(a_mean, np.sqrt(a_var))
         else:
-            p1 = NormalDist(a_mean, a_var)
-            p2 = NormalDist(b_mean, b_var)
+            p1 = NormalDist(a_mean, np.sqrt(a_var))
+            p2 = NormalDist(b_mean, np.sqrt(b_var))
 
         if k1 == k2:
-            mb_vec.append(abs(p1.cdf(k1) - p2.cdf(k1)))
+            mb_vec.append((abs(p1.cdf(k1) - p2.cdf(k1))))
         else:
-            mb_vec.append(p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2))
+            mb_vec.append((p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)))
 
     # convert to log space to avoid overflow errors
     mb_vec = np.log(np.array(mb_vec))
@@ -196,6 +204,10 @@ def rho(a, b, n_samples):
     return dist
 
 @njit()
+def pearson(a, b):
+    return np.corrcoef(a, b)[0, 1]
+
+@njit()
 def aggregate_tnf(a, b, n_samples):
     """
     a, b - concatenated contig depth, variance, and TNF info with contig length at index 0
@@ -208,6 +220,9 @@ def aggregate_tnf(a, b, n_samples):
 
     tnf_dist = tnf(a[1:], b[1:], n_samples*2)
     kl = metabat_distance(a[1:n_samples*2 + 1], b[1:n_samples*2 + 1], n_samples)
-    agg = (tnf_dist**w) * kl**(1-w)
+    if n_samples < 3:
+        agg = (tnf_dist**(1-w)) * kl**(w)
+    else:
+        agg = np.sqrt((tnf_dist**(1-w)) * (kl**(w)) * pearson(a[1:n_samples*2 + 1][0::2], b[1:n_samples*2 + 1][0::2]))
 
     return agg
