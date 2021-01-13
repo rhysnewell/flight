@@ -19,7 +19,7 @@
 #                                                                             #
 ###############################################################################
 from Bio import SeqIO
-from flock.__init__ import __version__
+from flight.__init__ import __version__
 __author__ = "Rhys Newell"
 __copyright__ = "Copyright 2020"
 __credits__ = ["Rhys Newell"]
