@@ -115,7 +115,7 @@ def best_validity(source):
 # Calculates distances between clusters using minimum spanning trees
 def cluster_distances(embeddings, cluster_result, threads):
     with threadpoolctl.threadpool_limits(limits=threads, user_api='blas'):
-        pool = mp.Pool(int(threads / 5))
+        pool = mp.Pool(max(int(threads / 5), 1))
         labels = set(cluster_result.labels_)
         logging.info(labels)
         try:
@@ -140,17 +140,17 @@ def cluster_distances(embeddings, cluster_result, threads):
 
 
 def get_dist(first, second, embeddings, cluster_result):
-    # Calculate within core mutual reachability and all core distance
-    (first_mr, first_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, cluster_result.labels_, first)
-    # Calcualtes the internal minimum spanning tree for a cluster
-    (first_nodes, first_edges) = hdbscan.validity.internal_minimum_spanning_tree(first_mr.astype(np.float64))
-
-    (second_mr, second_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, cluster_result.labels_,
-                                                                               second)
-    (second_nodes, second_edges) = hdbscan.validity.internal_minimum_spanning_tree(second_mr.astype(np.float64))
-
-    # Calculates the density separation between two clusters using the above results
     try:
+        # Calculate within core mutual reachability and all core distance
+        (first_mr, first_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, cluster_result.labels_, first)
+        # Calcualtes the internal minimum spanning tree for a cluster
+        (first_nodes, first_edges) = hdbscan.validity.internal_minimum_spanning_tree(first_mr.astype(np.float64))
+
+        (second_mr, second_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, cluster_result.labels_,
+                                                                                   second)
+        (second_nodes, second_edges) = hdbscan.validity.internal_minimum_spanning_tree(second_mr.astype(np.float64))
+
+        # Calculates the density separation between two clusters using the above results
         sep = hdbscan.validity.density_separation(embeddings, cluster_result.labels_, first, second, first_nodes,
                                                   second_nodes, first_core, second_core)
     except ValueError:
