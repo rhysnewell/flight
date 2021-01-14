@@ -4,6 +4,7 @@ channels:
   - defaults
 dependencies:
   - python>=3.8
+  - joblib==0.17.0
   - hdbscan
   - matplotlib
   - numpy
