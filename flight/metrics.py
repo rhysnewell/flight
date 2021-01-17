@@ -58,7 +58,7 @@ class NormalDist:
         return (1.0 + math.erf(x / np.sqrt(2.0))) / 2.0
 
 @njit()
-def tnf(a, b, n_samples):
+def tnf_cosine(a, b, n_samples):
     # cov_mat = np.cov(a[n_samples:], b[n_samples:])
     # cov = cov_mat[0, 1]
     # a_sd = np.sqrt(cov_mat[0,0])
@@ -80,6 +80,38 @@ def tnf(a, b, n_samples):
     return cosine
 
 @njit()
+def tnf_correlation(a, b, n_samples):
+    x = a[n_samples:]
+    y = b[n_samples:]
+    mu_x = 0.0
+    mu_y = 0.0
+    norm_x = 0.0
+    norm_y = 0.0
+    dot_product = 0.0
+
+    for i in range(x.shape[0]):
+        mu_x += x[i]
+        mu_y += y[i]
+
+    mu_x /= x.shape[0]
+    mu_y /= x.shape[0]
+
+    for i in range(x.shape[0]):
+        shifted_x = x[i] - mu_x
+        shifted_y = y[i] - mu_y
+        norm_x += shifted_x ** 2
+        norm_y += shifted_y ** 2
+        dot_product += shifted_x * shifted_y
+
+    if norm_x == 0.0 and norm_y == 0.0:
+        return 0.0
+    elif dot_product == 0.0:
+        return 1.0
+    else:
+        return 1.0 - (dot_product / np.sqrt(norm_x * norm_y))
+
+
+@njit(parallel=True)
 def metabat_distance(a, b, n_samples):
     """
     a - The mean and variance vec for contig a over n_samples
@@ -218,7 +250,7 @@ def aggregate_tnf(a, b, n_samples):
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
     l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
 
-    tnf_dist = tnf(a[1:], b[1:], n_samples*2)
+    tnf_dist = tnf_correlation(a[1:], b[1:], n_samples*2)
     kl = metabat_distance(a[1:n_samples*2 + 1], b[1:n_samples*2 + 1], n_samples)
     if n_samples < 3:
         agg = (tnf_dist**(1-w)) * kl**(w)
