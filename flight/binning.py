@@ -260,7 +260,7 @@ class Binner():
         if self.n_samples >= 3:
             # Three UMAP reducers for each input type
             self.tnf_reducer = umap.UMAP(
-                metric='cosine',
+                metric='correlation',
                 # metric_kwds={"n_samples": self.n_samples},
                 n_neighbors=int(n_neighbors),
                 n_components=n_components,
@@ -286,7 +286,7 @@ class Binner():
             )
 
             self.correlation_reducer = umap.UMAP(
-                            metric='cosine',
+                            metric='correlation',
                             # metric_kwds={"n_samples": self.n_samples},
                             n_neighbors=n_neighbors,
                             n_components=n_components,
