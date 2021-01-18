@@ -111,7 +111,7 @@ def tnf_correlation(a, b, n_samples):
         return 1.0 - (dot_product / np.sqrt(norm_x * norm_y))
 
 
-@njit(parallel=True)
+@njit()
 def metabat_distance(a, b, n_samples):
     """
     a - The mean and variance vec for contig a over n_samples
