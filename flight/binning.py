@@ -35,6 +35,7 @@ import logging
 import os
 import datetime
 from operator import itemgetter
+import warnings
 
 # Function imports
 import numpy as np
@@ -307,6 +308,7 @@ class Binner():
                 n_components=n_components,
                 min_dist=min_dist,
                 random_state=random_state,
+                set_op_mix_ratio=1.0,
                 n_epochs=500,
                 spread=0.5,
                 a=a,
@@ -347,33 +349,35 @@ class Binner():
             self.embeddings = depth_mapping.embedding_
 
     def cluster(self):
-        ## Cluster on the UMAP embeddings and return soft clusters
-        logging.info("Clustering contigs...")
-        tuned = utils.hyperparameter_selection(self.embeddings, self.threads, allow_single_cluster=False)
-        best = utils.best_validity(tuned)
-        self.clusterer = hdbscan.HDBSCAN(
-            algorithm='best',
-            alpha=1.0,
-            approx_min_span_tree=True,
-            gen_min_span_tree=True,
-            leaf_size=40,
-            cluster_selection_method='eom',
-            metric='euclidean',
-            min_cluster_size=int(best['min_cluster_size']),
-            min_samples=int(best['min_samples']),
-            allow_single_cluster=False,
-            core_dist_n_jobs=self.threads,
-            prediction_data=True
-        )
-        self.clusterer.fit(self.embeddings)
-        try:
-            self.validity, self.cluster_validity = hdbscan.validity.validity_index(self.embeddings.astype(np.float64), self.clusterer.labels_, per_cluster_scores=True)
-        except ValueError:
-            self.validity = 0
-            self.cluster_validity = [0.5 for i in range(len(set(self.clusterer.labels_)))]
-        self.soft_clusters = hdbscan.all_points_membership_vectors(
-            self.clusterer)
-        self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ## Cluster on the UMAP embeddings and return soft clusters
+            logging.info("Clustering contigs...")
+            tuned = utils.hyperparameter_selection(self.embeddings, self.threads, allow_single_cluster=False)
+            best = utils.best_validity(tuned)
+            self.clusterer = hdbscan.HDBSCAN(
+                algorithm='best',
+                alpha=1.0,
+                approx_min_span_tree=True,
+                gen_min_span_tree=True,
+                leaf_size=40,
+                cluster_selection_method='eom',
+                metric='euclidean',
+                min_cluster_size=int(best['min_cluster_size']),
+                min_samples=int(best['min_samples']),
+                allow_single_cluster=False,
+                core_dist_n_jobs=self.threads,
+                prediction_data=True
+            )
+            self.clusterer.fit(self.embeddings)
+            try:
+                self.validity, self.cluster_validity = hdbscan.validity.validity_index(self.embeddings.astype(np.float64), self.clusterer.labels_, per_cluster_scores=True)
+            except ValueError:
+                self.validity = 0
+                self.cluster_validity = [0.5 for i in range(len(set(self.clusterer.labels_)))]
+            self.soft_clusters = hdbscan.all_points_membership_vectors(
+                self.clusterer)
+            self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
 
     def cluster_unbinned(self):
         ## Cluster on the unbinned contigs, attempt to create fine grained clusters that were missed
