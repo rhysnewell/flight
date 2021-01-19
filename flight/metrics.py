@@ -110,6 +110,78 @@ def tnf_correlation(a, b, n_samples):
     else:
         return 1.0 - (dot_product / np.sqrt(norm_x * norm_y))
 
+@njit()
+def hellinger_distance_normal(a, b, n_samples):
+    """
+    a - The mean and variance vec for contig a over n_samples
+    b - The mean and variance vec for contig b over n_samples
+
+    returns average hellinger distance of multiple normal distributions
+    """
+
+    # generate distirbutions for each sample
+    # and calculate divergence between them
+  
+    # Get the means and variances for each contig
+    a_means = a[::2]
+    a_vars = a[1::2]
+    b_means = b[::2]
+    b_vars = b[1::2]
+    h_geom_mean = []
+    
+    for i in range(0, n_samples):
+        # Use this indexing method as zip does not seem to work so well in njit
+        # Add tiny value to each to avoid division by zero
+        a_mean = a_means[i] + 1e-6
+        a_var = a_vars[i] + 1e-6
+        b_mean = b_means[i] + 1e-6
+        b_var = b_vars[i] + 1e-6
+
+        # First component of hellinger distance
+        h1 = np.sqrt(((2*np.sqrt(a_var)*np.sqrt(b_var)) / (a_var + b_var)))
+
+        h2 = math.exp(-0.25 * ((a_mean - b_mean)**2) / (a_var + b_var))
+
+        h_geom_mean.append(1 - h1 * h2)
+        
+    # convert to log space to avoid overflow errors
+    h_geom_mean = np.log(np.array(h_geom_mean))
+    # return the geometric mean
+    return np.exp(h_geom_mean.sum() / len(h_geom_mean))
+
+
+@njit()
+def hellinger_distance_poisson(a, b, n_samples):
+    """
+    a - The mean and variance vec for contig a over n_samples
+    b - The mean and variance vec for contig b over n_samples
+
+    returns average hellinger distance of multiple normal distributions
+    """
+
+    # generate distirbutions for each sample
+    # and calculate divergence between them
+
+    # Get the means for each contig
+    a_means = a[::2]
+    b_means = b[::2]
+    h_geom_mean = []
+    
+    for i in range(0, n_samples):
+        # Use this indexing method as zip does not seem to work so well in njit
+        # Add tiny value to each to avoid division by zero
+        a_mean = a_means[i] + 1e-6
+        b_mean = b_means[i] + 1e-6
+
+        # First component of hellinger distance
+        h1 = math.exp(-0.5 * ((np.sqrt(a_mean) - np.sqrt(b_mean))**2))
+
+        h_geom_mean.append(1 - h1)
+        
+    # convert to log space to avoid overflow errors
+    h_geom_mean = np.log(np.array(h_geom_mean))
+    # return the geometric mean
+    return np.exp(h_geom_mean.sum() / len(h_geom_mean)) 
 
 @njit()
 def metabat_distance(a, b, n_samples):

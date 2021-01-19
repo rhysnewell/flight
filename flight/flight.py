@@ -418,11 +418,12 @@ def bin(args):
                            a=float(args.a),
                            b=float(args.b),
                            )
-
+        clusterer.filter()
         clusterer.fit_transform()
         clusterer.cluster()
         # clusterer.plot_distances()
         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
+        clusterer.bin_filtered(int(args.min_bin_size))
         # if len(clusterer.unbinned_embeddings) > 2:
             # clusterer.cluster_unbinned()
             # clusterer.bin_unbinned_contigs()

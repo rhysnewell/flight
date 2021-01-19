@@ -223,6 +223,7 @@ class Binner():
         self.tnfs = pd.read_csv(kmer_frequencies, sep='\t')
         # self.tnfs = self.tnfs[self.tnfs["contigLen"] >= min_contig_size]
 
+        # self.genomes = self.coverage_table[(self.coverage_table["contigLen"] >= 3000000)]
         self.large_contigs = self.coverage_table[(self.coverage_table["contigLen"] >= min_contig_size)]
         self.small_contigs = self.coverage_table[(self.coverage_table["contigLen"] < min_contig_size)]
 
@@ -243,20 +244,21 @@ class Binner():
             scaler = "minmax"
 
 
-        # clr transformations
-        self.tnfs = skbio.stats.composition.clr(self.tnfs[[name for name in self.tnfs.columns if utils.special_match(name)]]
-                                                .iloc[:, 1:].astype(np.float64) + 1)
 
-        if self.n_samples < 3:
-            # self.depths = skbio.stats.composition.clr(self.depths.T.astype(np.float64) + 1).T
-            self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.large_contigs.iloc[:, 3:], self.tnfs), axis=1))
-
-        else:
-            # self.depths = skbio.stats.composition.clr(self.depths.T.astype(np.float64) + 1).T
-            # self.depths = np.nan_to_num(np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.large_contigs.iloc[:, 3:], self.tnfs), axis=1))
-            self.depths = self.large_contigs.iloc[:, 3:]
-            # self.depths = RobustScaler().fit_transform(np.nan_to_num(self.depths, nan=0.0, posinf=0.0, neginf=0.0))
-
+        self.filterer = umap.UMAP(
+                        metric='hellinger',
+                        # metric_kwds={"n_samples": self.n_samples},
+                        n_neighbors=int(n_neighbors),
+                        n_components=n_components,
+                        min_dist=0,
+                        disconnection_distance=0.05,
+                        set_op_mix_ratio=0.1,
+                        random_state=random_state,
+                        n_epochs=500,
+                        spread=0.5,
+                        a=a,
+                        b=b,
+                    )
        
         if self.n_samples >= 3:
             # Three UMAP reducers for each input type
@@ -266,6 +268,8 @@ class Binner():
                 n_neighbors=int(n_neighbors),
                 n_components=n_components,
                 min_dist=0,
+                disconnection_distance=0.5,
+                set_op_mix_ratio=0.1,
                 random_state=random_state,
                 n_epochs=500,
                 spread=0.5,
@@ -279,6 +283,8 @@ class Binner():
                 n_neighbors=n_neighbors,
                 n_components=n_components,
                 min_dist=min_dist,
+                disconnection_distance=0.5,
+                set_op_mix_ratio=0.1,
                 random_state=random_state,
                 n_epochs=500,
                 spread=0.5,
@@ -292,6 +298,8 @@ class Binner():
                             n_neighbors=n_neighbors,
                             n_components=n_components,
                             min_dist=0,
+                            disconnection_distance=0.5,
+                            set_op_mix_ratio=0.1,
                             random_state=random_state,
                             n_epochs=500,
                             spread=0.5,
@@ -307,20 +315,28 @@ class Binner():
                 n_neighbors=n_neighbors,
                 n_components=n_components,
                 min_dist=min_dist,
+                disconnection_distance=0.5,
                 random_state=random_state,
-                set_op_mix_ratio=1.0,
+                set_op_mix_ratio=0.1,
                 n_epochs=500,
                 spread=0.5,
                 a=a,
                 b=b,
             )
 
+    def filter(self):
+        self.filterer = self.filterer.fit(self.tnfs.iloc[:, 1:])
+        self.disconnected = umap.utils.disconnected_vertices(self.filterer)
+
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
-
+        # clr transformations
+        self.tnfs = skbio.stats.composition.clr(self.tnfs[~self.disconnected][[name for name in self.tnfs.columns if utils.special_match(name)]]
+                                                                .iloc[:, 1:].astype(np.float64) + 1)
         if self.n_samples >= 3:
             logging.info("Running UMAP - %s" % self.depth_reducer)
+            self.depths = self.large_contigs[~self.disconnected].iloc[:, 3:]
             try:
                 depth_mapping = self.depth_reducer.fit(self.depths)
             except ValueError: # Sparse or low coverage contigs can cause high n_neighbour values to kark it
@@ -331,22 +347,26 @@ class Binner():
             if self.n_samples >= 3:
                 logging.info("Running UMAP - %s" % self.correlation_reducer)
                 correlation_mapping = self.correlation_reducer.fit(skbio.stats.composition.clr(self.depths.iloc[:, 0::2].T.astype(np.float64) + 1).T)
-                intersection_mapper = (depth_mapping * correlation_mapping) * tnf_mapping
+                self.intersection_mapper = (depth_mapping * correlation_mapping) * tnf_mapping
             else:
-                intersection_mapper = depth_mapping * tnf_mapping
+                self.intersection_mapper = depth_mapping * tnf_mapping
 
             ## Embeddings to cluster against
-            self.embeddings = intersection_mapper.embedding_
+            # self.diconnected_vertices = umap.utils.disconnected_vertices(self.intersection_mapper)
+            self.embeddings = self.intersection_mapper.embedding_
 
         else:
             logging.info("Running UMAP - %s" % self.depth_reducer)
+            self.depths = np.nan_to_num(np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 1].values[:, None], self.large_contigs[~self.disconnected].iloc[:, 3:], self.tnfs), axis=1))
             try:
-                depth_mapping = self.depth_reducer.fit(self.depths)
+                self.depth_mapping = self.depth_reducer.fit(self.depths)
             except ValueError: # Sparse or low coverage contigs can cause high n_neighbour values to kark it
                 self.depth_reducer.n_neighbors = 30
-                depth_mapping = self.depth_reducer.fit(self.depths)
+                self.depth_mapping = self.depth_reducer.fit(self.depths)
 
-            self.embeddings = depth_mapping.embedding_
+            # self.disconnected_vertices = umap.utils.disconnected_vertices(self.depth_mapping)
+
+            self.embeddings = self.depth_mapping.embedding_
 
     def cluster(self):
         with warnings.catch_warnings():
@@ -580,6 +600,14 @@ class Binner():
 
         self.unbinned_embeddings = np.array(self.unbinned_embeddings)
 
+
+    def bin_filtered(self, min_bin_size=200000):
+        max_bin_id = max(self.bins.keys()) + 1
+        for (idx, contig) in self.large_contigs[self.disconnected].iterrows():
+            if contig["contigLen"] >= min_bin_size:
+                self.bins[max_bin_id] = [self.assembly[contig["contigName"]]]
+                max_bin_id += 1
+            
     def bin_unbinned_contigs(self):
         if self.unbinned_clusterer is not None:
             logging.info("Binning unbinned contigs...")
