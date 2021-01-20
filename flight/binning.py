@@ -250,7 +250,7 @@ class Binner():
 
         self.filterer_tnf = umap.UMAP(
                         metric="correlation",
-                        metric_kwds={"n_samples": self.n_samples},
+                        # metric_kwds={"n_samples": self.n_samples},
                         n_neighbors=int(n_neighbors),
                         n_components=n_components,
                         min_dist=0,
