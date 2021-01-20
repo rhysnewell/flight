@@ -419,15 +419,19 @@ def bin(args):
                            b=float(args.b),
                            )
         clusterer.filter()
-        clusterer.fit_transform()
-        clusterer.cluster()
-        # clusterer.plot_distances()
-        clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-        clusterer.bin_filtered(int(args.min_bin_size))
-        # if len(clusterer.unbinned_embeddings) > 2:
-            # clusterer.cluster_unbinned()
-            # clusterer.bin_unbinned_contigs()
-        clusterer.plot()
+        if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors):
+            clusterer.fit_transform()
+            clusterer.cluster()
+            clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
+            # if len(clusterer.unbinned_embeddings) > 2:
+                # clusterer.cluster_unbinned()
+                # clusterer.bin_unbinned_contigs()
+            clusterer.bin_filtered(int(args.min_bin_size))
+            clusterer.plot()
+        else:
+            clusterer.rescue_contigs(int(args.min_bin_size))
+            
+
 
         # clusterer.merge_bins(int(args.min_bin_size)) # Merges bins when n_samples is < 3
 

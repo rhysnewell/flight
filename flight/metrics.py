@@ -282,7 +282,7 @@ def kl_divergence(a, b, n_samples):
     return np.exp(kl_vec.sum() / len(kl_vec))
 
 @njit()
-def rho(a, b, n_samples):
+def rho(a, b):
     """
     a - CLR transformed coverage distribution vector a
     b - CLR transformed coverage distribution vector b
@@ -291,7 +291,7 @@ def rho(a, b, n_samples):
     transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
     """
 
-    covariance_mat = np.cov(a[:n_samples], b[:n_samples], rowvar=True)
+    covariance_mat = np.cov(a, b, rowvar=True)
     covariance = covariance_mat[0, 1]
     var_a = covariance_mat[0, 0]
     var_b = covariance_mat[1, 1]
@@ -301,11 +301,11 @@ def rho(a, b, n_samples):
     rho = 2 - rho
     # Since these compositonal arrays are CLR transformed
     # This is the equivalent to the aitchinson distance but we calculat the l2 norm
-    euc_dist = np.linalg.norm(a[:n_samples] - b[:n_samples])
+    # euc_dist = np.linalg.norm(a[:n_samples] - b[:n_samples])
 
-    dist = min(euc_dist, rho)
+    # dist = min(euc_dist, rho)
     
-    return dist
+    return rho
 
 @njit()
 def pearson(a, b):
@@ -324,9 +324,9 @@ def aggregate_tnf(a, b, n_samples):
 
     tnf_dist = tnf_correlation(a[1:], b[1:], n_samples*2)
     kl = metabat_distance(a[1:n_samples*2 + 1], b[1:n_samples*2 + 1], n_samples)
-    if n_samples < 3:
-        agg = (tnf_dist**(1-w)) * kl**(w)
-    else:
-        agg = np.sqrt((tnf_dist**(1-w)) * (kl**(w)) * pearson(a[1:n_samples*2 + 1][0::2], b[1:n_samples*2 + 1][0::2]))
+    # if n_samples < 3:
+    agg = (tnf_dist**(1-w)) * kl**(w)
+    # else:
+        # agg = np.sqrt((tnf_dist**(1-w)) * (kl**(w)) * pearson(a[1:n_samples*2 + 1][0::2], b[1:n_samples*2 + 1][0::2]))
 
     return agg

@@ -229,6 +229,9 @@ class Binner():
 
         self.tnfs = self.tnfs[self.tnfs['contigName'].isin(self.large_contigs['contigName'])]
 
+        ## Divide by row sums to gert frequencies
+        self.tnfs.iloc[:, 1:] = self.tnfs.iloc[:, 1:].div(self.tnfs.sum(axis=1), axis=0)
+
         # self.snv_rates, self.sv_rates = read_variant_rates(variant_rates, self.large_contigs['contigName'], min_contig_size)
 
         ## Check the ordering of the contig names for sanity check
@@ -245,14 +248,14 @@ class Binner():
 
 
 
-        self.filterer = umap.UMAP(
-                        metric='hellinger',
-                        # metric_kwds={"n_samples": self.n_samples},
+        self.filterer_tnf = umap.UMAP(
+                        metric="correlation",
+                        metric_kwds={"n_samples": self.n_samples},
                         n_neighbors=int(n_neighbors),
                         n_components=n_components,
                         min_dist=0,
                         disconnection_distance=0.05,
-                        set_op_mix_ratio=0.1,
+                        set_op_mix_ratio=0.01,
                         random_state=random_state,
                         n_epochs=500,
                         spread=0.5,
@@ -268,8 +271,8 @@ class Binner():
                 n_neighbors=int(n_neighbors),
                 n_components=n_components,
                 min_dist=0,
-                disconnection_distance=0.5,
-                set_op_mix_ratio=0.1,
+                # disconnection_distance=1,
+                set_op_mix_ratio=0.01,
                 random_state=random_state,
                 n_epochs=500,
                 spread=0.5,
@@ -283,8 +286,8 @@ class Binner():
                 n_neighbors=n_neighbors,
                 n_components=n_components,
                 min_dist=min_dist,
-                disconnection_distance=0.5,
-                set_op_mix_ratio=0.1,
+                # disconnection_distance=1,
+                set_op_mix_ratio=0.01,
                 random_state=random_state,
                 n_epochs=500,
                 spread=0.5,
@@ -298,8 +301,8 @@ class Binner():
                             n_neighbors=n_neighbors,
                             n_components=n_components,
                             min_dist=0,
-                            disconnection_distance=0.5,
-                            set_op_mix_ratio=0.1,
+                            # disconnection_distance=0.5,
+                            set_op_mix_ratio=0.01,
                             random_state=random_state,
                             n_epochs=500,
                             spread=0.5,
@@ -315,9 +318,9 @@ class Binner():
                 n_neighbors=n_neighbors,
                 n_components=n_components,
                 min_dist=min_dist,
-                disconnection_distance=0.5,
+                # disconnection_distance=0.5,
                 random_state=random_state,
-                set_op_mix_ratio=0.1,
+                set_op_mix_ratio=0.01,
                 n_epochs=500,
                 spread=0.5,
                 a=a,
@@ -325,7 +328,9 @@ class Binner():
             )
 
     def filter(self):
-        self.filterer = self.filterer.fit(self.tnfs.iloc[:, 1:])
+
+        # np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.large_contigs.iloc[:, 3:], skbio.stats.composition.clr(self.tnfs.iloc[:, 1:].astype(np.float64) + 1)),axis=1)
+        self.filterer = self.filterer_tnf.fit(skbio.stats.composition.clr(self.tnfs.iloc[:, 1:].astype(np.float64) + 1))
         self.disconnected = umap.utils.disconnected_vertices(self.filterer)
 
 
@@ -484,17 +489,17 @@ class Binner():
                     # if self.cluster_validity[label] > 0.0:
                     try:
                         self.bins[label.item() + 1].append(
-                            self.assembly[self.large_contigs.iloc[idx, 0]]) # inputs values as tid
+                            self.assembly[self.large_contigs[~self.disconnected].iloc[idx, 0]]) # inputs values as tid
                     except KeyError:
-                        self.bins[label.item() + 1] = [self.assembly[self.large_contigs.iloc[idx, 0]]]
+                        self.bins[label.item() + 1] = [self.assembly[self.large_contigs[~self.disconnected].iloc[idx, 0]]]
 
-                    # elif self.large_contigs.iloc[idx, 1] >= self.min_bin_size:
+                    # elif self.large_contigs[~self.disconnected].iloc[idx, 1] >= self.min_bin_size:
                         # max_bin_id += 1
                         # try:
                             # self.bins[max_bin_id.item()].append(
-                                # self.large_contigs.iloc[idx, 0:2].name.item()) # inputs values as tid
+                                # self.large_contigs[~self.disconnected].iloc[idx, 0:2].name.item()) # inputs values as tid
                         # except KeyError:
-                            # self.bins[max_bin_id.item()] = [self.large_contigs.iloc[idx, 0:2].name.item()]
+                            # self.bins[max_bin_id.item()] = [self.large_contigs[~self.disconnected].iloc[idx, 0:2].name.item()]
                     # else:
                         # try:
                             # redo_bins[label.item()]["embeddings"].append(self.embeddings[idx, :]) # inputs values as tid
@@ -504,13 +509,13 @@ class Binner():
                             # redo_bins[label.item()]["embeddings"] = [self.embeddings[idx, :]]
                             # redo_bins[label.item()]["indices"] = [idx]
                                              
-                elif self.large_contigs.iloc[idx, 1] >= self.min_bin_size:
+                elif self.large_contigs[~self.disconnected].iloc[idx, 1] >= self.min_bin_size:
                     max_bin_id += 1
                     try:
                         self.bins[max_bin_id.item()].append(
-                            self.assembly[self.large_contigs.iloc[idx, 0]]) # inputs values as tid
+                            self.assembly[self.large_contigs[~self.disconnected].iloc[idx, 0]]) # inputs values as tid
                     except KeyError:
-                        self.bins[max_bin_id.item()] = [self.assembly[self.large_contigs.iloc[idx, 0]]]
+                        self.bins[max_bin_id.item()] = [self.assembly[self.large_contigs[~self.disconnected].iloc[idx, 0]]]
                 else:
                     self.unbinned_indices.append(idx)
                     self.unbinned_embeddings.append(self.embeddings[idx, :])
@@ -542,17 +547,17 @@ class Binner():
                         self.soft_clusters_capped[idx] = label.item() + max_bin_id
                         try:
                             self.bins[label.item() + max_bin_id].append(
-                                self.assembly[self.large_contigs.iloc[idx, 0]])  # inputs values as tid
+                                self.assembly[self.large_contigs[~self.disconnected].iloc[idx, 0]])  # inputs values as tid
                         except KeyError:
-                            self.bins[label.item() + max_bin_id] = [self.assembly[self.large_contigs.iloc[idx, 0]]]
-                    elif self.large_contigs.iloc[idx, 1] >= self.min_bin_size:
+                            self.bins[label.item() + max_bin_id] = [self.assembly[self.large_contigs[~self.disconnected].iloc[idx, 0]]]
+                    elif self.large_contigs[~self.disconnected].iloc[idx, 1] >= self.min_bin_size:
                         inner_bin_id += 1
 
                         try:
                             self.bins[inner_bin_id.item() + max_bin_id].append(
-                                self.assembly[self.large_contigs.iloc[idx, 0]]) # inputs values as tid
+                                self.assembly[self.large_contigs[~self.disconnected].iloc[idx, 0]]) # inputs values as tid
                         except KeyError:
-                            self.bins[inner_bin_id.item() + max_bin_id] = [self.assembly[self.large_contigs.iloc[idx, 0]]]
+                            self.bins[inner_bin_id.item() + max_bin_id] = [self.assembly[self.large_contigs[~self.disconnected].iloc[idx, 0]]]
                     else:
                         self.unbinned_indices.append(idx)
                         self.unbinned_embeddings.append(self.embeddings[idx, :])
@@ -561,49 +566,37 @@ class Binner():
         if len(removed_bins) > 0:
             self.clusterer.labels_[:] = [label - sum(i < label for i in removed_bins) if label not in removed_bins else label for label in self.clusterer.labels_]
             
-        # break up very large bins. Not sure how to threshold this
-        for (bin, values) in redo_bins.items():
-            new_labels = utils.break_overclustered(np.array(values["embeddings"]), self.threads)
-            inner_bin_id = max(set(new_labels))
-            try:
-                max_bin_id = max([label.item() for label in set(self.clusterer.labels_) if label not in removed_bins]) + 1
-            except ValueError:
-                max_bin_id = 1
-            for (idx, label) in zip(values["indices"], new_labels):
-                if label != -1:
-                    # Update labels
-                    self.clusterer.labels_[idx] = label.item() + max_bin_id
-                    self.soft_clusters_capped[idx] = label.item() + max_bin_id
-                    try:
-                        self.bins[label.item() + max_bin_id].append(
-                            self.assembly[self.large_contigs.iloc[idx, 0]])  # inputs values as tid
-                    except KeyError:
-                        self.bins[label.item() + max_bin_id] = [self.assembly[self.large_contigs.iloc[idx, 0]]]
-                elif self.large_contigs.iloc[idx, 1] >= self.min_bin_size:
-                    inner_bin_id += 1
-
-                    self.clusterer.labels_[idx] = inner_bin_id + max_bin_id
-                    self.soft_clusters_capped[idx] = inner_bin_id + max_bin_id
-                    try:
-                        self.bins[inner_bin_id.item() + max_bin_id].append(
-                            self.assembly[self.large_contigs.iloc[idx, 0]]) # inputs values as tid
-                    except KeyError:
-                        self.bins[inner_bin_id.item() + max_bin_id] = [self.assembly[self.large_contigs.iloc[idx, 0]]]
-                else:
-                    # unbinned contigs
-                    try:
-                        self.bins[label.item() + 1].append(
-                            self.assembly[self.large_contigs.iloc[idx, 0]])  # inputs values as tid
-                    except KeyError:
-                        self.bins[label.item() + 1] = [self.assembly[self.large_contigs.iloc[idx, 0]]]
 
 
         self.unbinned_embeddings = np.array(self.unbinned_embeddings)
 
 
     def bin_filtered(self, min_bin_size=200000):
-        max_bin_id = max(self.bins.keys()) + 1
+        """
+        Bins out any disconnected vertices if they are of sufficient size
+        """
+        try:
+            max_bin_id = max(self.bins.keys()) + 1
+        except ValueError:
+            max_bin_id = 1
+        
         for (idx, contig) in self.large_contigs[self.disconnected].iterrows():
+            if contig["contigLen"] >= min_bin_size:
+                self.bins[max_bin_id] = [self.assembly[contig["contigName"]]]
+                max_bin_id += 1
+
+
+    def rescue_contigs(self, min_bin_size=200000):
+        """
+        If entire projection was disconnected or left N < n_neighbors of points
+        Then bin out any contigs greater than min bin size
+        """
+        try:
+            max_bin_id = max(self.bins.keys()) + 1
+        except ValueError:
+            max_bin_id = 1
+        
+        for (idx, contig) in self.large_contigs.iterrows():
             if contig["contigLen"] >= min_bin_size:
                 self.bins[max_bin_id] = [self.assembly[contig["contigName"]]]
                 max_bin_id += 1
@@ -620,39 +613,18 @@ class Binner():
                 if label != -1:
                     try:
                         self.bins[label.item() + max_bin_id].append(
-                            self.assembly[self.large_contigs.iloc[idx, 0]]) # inputs values as tid
+                            self.assembly[self.large_contigs[~self.disconnected].iloc[idx, 0]]) # inputs values as tid
                     except KeyError:
-                        self.bins[label.item() + max_bin_id] = [self.assembly[self.large_contigs.iloc[idx, 0]]]
+                        self.bins[label.item() + max_bin_id] = [self.assembly[self.large_contigs[~self.disconnected].iloc[idx, 0]]]
                 else:
                     ## bin out the unbinned contigs again as label 0. Rosella will try to rescue them if there
                     ## are enough samples
                     try:
                         self.bins[label.item() + 1].append(
-                            self.assembly[self.large_contigs.iloc[idx, 0]])  # inputs values as tid
+                            self.assembly[self.large_contigs[~self.disconnected].iloc[idx, 0]])  # inputs values as tid
                     except KeyError:
-                        self.bins[label.item() + 1] = [self.assembly[self.large_contigs.iloc[idx, 0]]]
+                        self.bins[label.item() + 1] = [self.assembly[self.large_contigs[~self.disconnected].iloc[idx, 0]]]
 
-    def merge_bins(self, min_bin_size=200000):
-        pool = mp.Pool(self.threads)
-
-        if self.n_samples < 3:
-            logging.info("Merging bins...")
-            for bin in list(self.bins):
-                if bin != 0:
-                    contigs = self.bins[bin]
-                    bin_length = sum([len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) for idx in contigs])
-                    if bin_length < min_bin_size:
-                        results = [pool.apply_async(spawn_merge_low_n, args=(idx, self.soft_clusters[idx])) for idx in contigs]
-                        for result in results:
-                            result = result.get()
-                            try:
-                                self.bins[result[0].item()].append(self.assembly[self.large_contigs.iloc[result[1], 0]])
-                                # self.bins[bin].remove(idx)
-                            except KeyError:
-                                self.bins[result[0].item()] = [self.assembly[self.large_contigs.iloc[result[1], 0]]]
-
-        pool.close()
-        pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
 
     def write_bins(self, min_bin_size=200000):
         logging.info("Writing bin JSON...")
