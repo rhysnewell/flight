@@ -79,10 +79,16 @@ def tnf_cosine(a, b, n_samples):
     cosine = 1 - cosine
     return cosine
 
+
 @njit()
-def tnf_correlation(a, b, n_samples):
-    x = a[n_samples:]
-    y = b[n_samples:]
+def length_weighting(a, b):
+    return min(np.log(a), np.log(b)) / (max(np.log(a), np.log(b)) + 1)
+
+@njit()
+def tnf_correlation(a, b):
+    l = length_weighting(a[0], b[0])
+    x = a[1:]
+    y = b[1:]
     mu_x = 0.0
     mu_y = 0.0
     norm_x = 0.0
@@ -108,7 +114,7 @@ def tnf_correlation(a, b, n_samples):
     elif dot_product == 0.0:
         return 1.0
     else:
-        return 1.0 - (dot_product / np.sqrt(norm_x * norm_y))
+        return (1.0 - (dot_product / np.sqrt(norm_x * norm_y)))**l
 
 @njit()
 def hellinger_distance_normal(a, b, n_samples):
@@ -320,13 +326,65 @@ def aggregate_tnf(a, b, n_samples):
     returns - an aggregate distance metric between KL divergence and TNF
     """
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
-    l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
+    # l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
 
-    tnf_dist = tnf_correlation(a[1:], b[1:], n_samples*2)
-    kl = metabat_distance(a[1:n_samples*2 + 1], b[1:n_samples*2 + 1], n_samples)
+    # tnf_dist = tnf_correlation(a[1:], b[1:], n_samples*2)
+    tnf_dist = tnf_correlation(a[n_samples*2:], b[n_samples*2:])
+    kl = metabat_distance(a[0:n_samples*2 + 1], b[0:n_samples*2 + 1], n_samples)
     # if n_samples < 3:
-    agg = (tnf_dist**(1-w)) * kl**(w)
+    agg = ((tnf_dist**(1-w))) * kl**(w)
     # else:
         # agg = np.sqrt((tnf_dist**(1-w)) * (kl**(w)) * pearson(a[1:n_samples*2 + 1][0::2], b[1:n_samples*2 + 1][0::2]))
 
     return agg
+
+
+@njit()
+def metabat_tdp(a, b):
+    """
+    a, b - concatenated TNF info with contig length at index 0    
+    returns - A correlation distance weighted by contig lengths
+    """
+    lw11 = min(a[0], b[0])
+    lw21 = max(a[0], b[0])
+    lw12 = lw11 * lw11
+    lw13 = lw12 * lw11
+    lw14 = lw13 * lw11
+    lw15 = lw14 * lw11
+    lw16 = lw15 * lw11
+    lw17 = lw16 * lw11
+    lw22 = lw21 * lw21
+    lw23 = lw22 * lw21
+    lw24 = lw23 * lw21
+    lw25 = lw24 * lw21
+    lw26 = lw25 * lw21
+
+    param1 = 46349.1624324381 + -76092.3748553155 * lw11 + -639.918334183 * lw21 + 53873.3933743949 * lw12 + -156.6547554844 * lw22 + -21263.6010657275 * lw13 + 64.7719132839 * lw23 + 5003.2646455284 * lw14 + -8.5014386744 * lw24 + -700.5825500292 * lw15 + 0.3968284526 * lw25 + 54.037542743 * lw16 + -1.7713972342 * lw17 + 474.0850141891 * lw11 * lw21 + -23.966597785 * lw12 * lw22 + 0.7800219061 * lw13 * lw23 + -0.0138723693 * lw14 * lw24 + 0.0001027543 * lw15 * lw25
+    param2 = -443565.465710869 + 718862.10804858 * lw11 + 5114.1630934534 * lw21 + -501588.206183097 * lw12 + 784.4442123743 * lw22 + 194712.394138513 * lw13 + -377.9645994741 * lw23 + -45088.7863182741 * lw14 + 50.5960513287 * lw24 + 6220.3310639927 * lw15 + -2.3670776453 * lw25 + -473.269785487 * lw16 + 15.3213264134 * lw17 + -3282.8510348085 * lw11 * lw21 + 164.0438603974 * lw12 * lw22 + -5.2778800755 * lw13 * lw23 + 0.0929379305 * lw14 * lw24 + -0.0006826817 * lw15 * lw25
+
+    
+    # l1 = ((a[0] + b[0]) / 2 )/ max(a[0], b[0])
+    # l2 = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
+
+    
+    # tnf_dist = tnf_correlation(a[1:], b[1:], 0)
+    # L2 norm is equivalent to euclidean distance
+    euc_dist = np.linalg.norm(a[1:] - b[1:])
+    
+    tnf_dist = -(param1 + param2 * euc_dist)
+
+    prob = 1 / (1 + math.exp(tnf_dist))
+
+    floor_preProb = np.log((1.0 / 0.1) - 1.0)
+    
+    if prob >= 0.1:
+        param1 = 6770.9351457442 + -5933.7589419767 * lw11 + -2976.2879986855 * lw21 + 3279.7524685865 * lw12 + 1602.7544794819 * lw22 + -967.2906583423 * lw13 + -462.0149190219 * lw23 + 159.8317289682 * lw14 + 74.4884405822 * lw24 + -14.0267151808 * lw15 + -6.3644917671 * lw25 + 0.5108811613 * lw16  + 0.2252455343 * lw26 + 0.965040193 * lw12 * lw22 + -0.0546309127 * lw13 * lw23 + 0.0012917084 * lw14 * lw24 + -1.14383e-05 * lw15 * lw25
+        param2 = 39406.5712626297 + -77863.1741143294 * lw11 + 9586.8761567725 * lw21 + 55360.1701572325 * lw12 + -5825.2491611377 * lw22 + -21887.8400068324 * lw13 + 1751.6803621934 * lw23 + 5158.3764225203 * lw14 + -290.1765894829 * lw24 + -724.0348081819 * lw15 + 25.364646181 * lw25 + 56.0522105105 * lw16  + -0.9172073892 * lw26 + -1.8470088417 * lw17 + 449.4660736502 * lw11 * lw21 + -24.4141920625 * lw12 * lw22 + 0.8465834103 * lw13 * lw23 + -0.0158943762 * lw14 * lw24 + 0.0001235384 * lw15 * lw25
+        preProb = -(param1 + param2 * euc_dist)
+        if preProb <= floor_preProb:
+            prob = 1.0 / (1 + math.exp(preProb))
+        else:
+            prob = 0.1    
+
+    return prob
+    

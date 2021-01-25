@@ -423,19 +423,19 @@ def bin(args):
             clusterer.fit_transform()
             clusterer.cluster()
             clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-            # if len(clusterer.unbinned_embeddings) > 2:
-                # clusterer.cluster_unbinned()
-                # clusterer.bin_unbinned_contigs()
+            # ##if len(clusterer.unbinned_embeddings) > 2:
+            # ##    clusterer.cluster_unbinned()
+            # ##    clusterer.bin_unbinned_contigs()
             clusterer.bin_filtered(int(args.min_bin_size))
             clusterer.plot()
         else:
             clusterer.rescue_contigs(int(args.min_bin_size))
             
-
+        
 
         # clusterer.merge_bins(int(args.min_bin_size)) # Merges bins when n_samples is < 3
 
-
+        # clusterer.bin_big_contigs(int(args.min_bin_size))
         clusterer.write_bins(int(args.min_bin_size))
 
 def vamb(args):
