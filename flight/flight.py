@@ -172,8 +172,12 @@ def main():
     bin_options.add_argument(
         '--input',
         help='CoverM coverage results',
-        dest="input",
-        required=True)
+        dest="input")
+
+    bin_options.add_argument(
+        '--long_input',
+        help='CoverM coverage results',
+        dest="long_input")
 
     bin_options.add_argument(
         '--assembly',
@@ -396,11 +400,16 @@ def fit(args):
 
 def bin(args):
     prefix = args.output
+    if args.long_input is None and args.input is None:
+        logging.warning("bin requires either short or longread coverage values.")
+        sys.exit()
+
     if not os.path.exists(prefix):
         os.makedirs(prefix)
 
     if not args.precomputed:
         clusterer = Binner(args.input,
+                           args.long_input,
                            args.kmer_frequencies,
                            # args.variant_rates,
                            prefix,

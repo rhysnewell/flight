@@ -177,6 +177,7 @@ class Binner():
     def __init__(
             self,
             count_path,
+            long_count_path,
             kmer_frequencies,
             # variant_rates,
             output_prefix,
@@ -219,27 +220,57 @@ class Binner():
 
         ## These tables should have the same ordering as each other if they came from rosella.
         ## I.e. all the rows match the same contig
-        self.coverage_table = pd.read_csv(count_path, sep='\t')
-        self.tnfs = pd.read_csv(kmer_frequencies, sep='\t')
-        # self.tnfs = self.tnfs[self.tnfs["contigLen"] >= min_contig_size]
+        if count_path is not None and long_count_path is not None:
+            self.coverage_table = pd.read_csv(count_path, sep='\t')
+            self.long_depths = pd.read_csv(long_count_path, sep='\t')
+            self.tnfs = pd.read_csv(kmer_frequencies, sep='\t')
 
-        # self.genomes = self.coverage_table[(self.coverage_table["contigLen"] >= 2500000)]
-        self.large_contigs = self.coverage_table[(self.coverage_table["contigLen"] >= min_contig_size)]
-        self.small_contigs = self.coverage_table[(self.coverage_table["contigLen"] < min_contig_size)]
+            self.large_contigs = self.coverage_table[(self.coverage_table["contigLen"] >= min_contig_size)]
+            self.small_contigs = self.coverage_table[(self.coverage_table["contigLen"] < min_contig_size)]
+            self.long_depths = self.long_depths[self.long_depths['contigName'].isin(self.large_contigs['contigName'])]
 
-        self.tnfs = self.tnfs[self.tnfs['contigName'].isin(self.large_contigs['contigName'])]
+            self.tnfs = self.tnfs[self.tnfs['contigName'].isin(self.large_contigs['contigName'])]
 
-        ## Divide by row sums to get frequencies
-        self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
+            ## Divide by row sums to get frequencies
+            self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
+            self.n_samples = len(self.large_contigs.columns[3::2])
+            self.long_samples = len(self.long_depths.columns[3::2])
 
-        # self.snv_rates, self.sv_rates = read_variant_rates(variant_rates, self.large_contigs['contigName'], min_contig_size)
+        elif count_path is not None:
+            self.coverage_table = pd.read_csv(count_path, sep='\t')
+            self.tnfs = pd.read_csv(kmer_frequencies, sep='\t')
+
+            self.large_contigs = self.coverage_table[(self.coverage_table["contigLen"] >= min_contig_size)]
+            self.small_contigs = self.coverage_table[(self.coverage_table["contigLen"] < min_contig_size)]
+
+            self.tnfs = self.tnfs[self.tnfs['contigName'].isin(self.large_contigs['contigName'])]
+
+            ## Divide by row sums to get frequencies
+            self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
+            self.n_samples = len(self.large_contigs.columns[3::2])
+            self.long_samples = 0
+
+        else:
+            ## Treat long coverages as the default set
+            self.coverage_table = pd.read_csv(long_count_path, sep='\t')
+            self.tnfs = pd.read_csv(kmer_frequencies, sep='\t')
+
+            self.large_contigs = self.coverage_table[(self.coverage_table["contigLen"] >= min_contig_size)]
+            self.small_contigs = self.coverage_table[(self.coverage_table["contigLen"] < min_contig_size)]
+
+            self.tnfs = self.tnfs[self.tnfs['contigName'].isin(self.large_contigs['contigName'])]
+
+            ## Divide by row sums to get frequencies
+            self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
+            self.n_samples = 0
+            self.long_samples = len(self.long_depths.columns[3::2])
+
 
         ## Check the ordering of the contig names for sanity check
         if list(self.large_contigs['contigName']) != list(self.tnfs['contigName']):
             sys.exit("Contig ordering incorrect for kmer table or coverage table")
 
         # if self.depths.shape[1] > 2:
-        self.n_samples = len(self.large_contigs.columns[3::2])
         # self.small_depths = self.small_depths[self.small_depths.columns[::2]]
 
         ## Scale the data but first check if we have an appropriate amount of samples
@@ -264,25 +295,25 @@ class Binner():
                         a=a,
                         b=b,
                     )
-       
+        self.tnf_reducer = umap.UMAP(
+            metric=metrics.tnf_correlation,
+            # metric = "correlation",
+            # metric_kwds={"n_samples": self.n_samples},
+            n_neighbors=int(n_neighbors),
+            n_components=n_components,
+            min_dist=0,
+            # local_connectivity=5,
+            # disconnection_distance=1,
+            set_op_mix_ratio=0.01,
+            random_state=random_state,
+            n_epochs=500,
+            spread=0.5,
+            a=a,
+            b=b,
+        )
         if self.n_samples >= 3:
             # Three UMAP reducers for each input type
-            self.tnf_reducer = umap.UMAP(
-                metric=metrics.tnf_correlation,
-                # metric = "correlation",
-                # metric_kwds={"n_samples": self.n_samples},
-                n_neighbors=int(n_neighbors),
-                n_components=n_components,
-                min_dist=0,
-                # local_connectivity=5,
-                # disconnection_distance=1,
-                set_op_mix_ratio=0.01,
-                random_state=random_state,
-                n_epochs=500,
-                spread=0.5,
-                a=a,
-                b=b,
-            )
+
             # 
             self.depth_reducer = umap.UMAP(
                 metric=metrics.metabat_distance,
@@ -316,7 +347,9 @@ class Binner():
                             b=b,
                         )
 
-        elif self.n_samples < 3:
+
+
+        elif self.n_samples > 0:
             
             self.depth_reducer = umap.UMAP(
                 metric=metrics.aggregate_tnf,
@@ -327,7 +360,56 @@ class Binner():
                 # local_connectivity=5,
                 # disconnection_distance=0.5,
                 random_state=random_state,
-                set_op_mix_ratio=1,
+                set_op_mix_ratio=0.01,
+                n_epochs=500,
+                spread=0.5,
+                a=a,
+                b=b,
+            )
+
+        if self.long_samples >= 3:
+            self.long_correlation_reducer = umap.UMAP(
+                metric='correlation',
+                # metric_kwds={"n_samples": self.n_samples},
+                n_neighbors=n_neighbors,
+                n_components=n_components,
+                min_dist=0,
+                # local_connectivity=5,
+                # disconnection_distance=0.5,
+                set_op_mix_ratio=0.01,
+                random_state=random_state,
+                n_epochs=500,
+                spread=0.5,
+                a=a,
+                b=b,
+            )
+
+            self.long_depth_reducer = umap.UMAP(
+                metric=metrics.metabat_distance,
+                metric_kwds={"n_samples": self.n_samples},
+                n_neighbors=n_neighbors,
+                n_components=n_components,
+                min_dist=min_dist,
+                # local_connectivity=5,
+                # disconnection_distance=1,
+                set_op_mix_ratio=0.01,
+                random_state=random_state,
+                n_epochs=500,
+                spread=0.5,
+                a=a,
+                b=b,
+            )
+        elif self.long_samples > 0:
+            self.long_depth_reducer = umap.UMAP(
+                metric=metrics.aggregate_tnf,
+                metric_kwds={"n_samples": self.n_samples},
+                n_neighbors=n_neighbors,
+                n_components=n_components,
+                min_dist=min_dist,
+                # local_connectivity=5,
+                # disconnection_distance=0.5,
+                random_state=random_state,
+                set_op_mix_ratio=0.01,
                 n_epochs=500,
                 spread=0.5,
                 a=a,
@@ -359,29 +441,119 @@ class Binner():
                 depth_mapping = self.depth_reducer.fit(self.depths)               
             logging.info("Running UMAP - %s" % self.tnf_reducer)
             tnf_mapping = self.tnf_reducer.fit(np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 1].values[:, None], self.tnfs), axis=1))
-            if self.n_samples >= 3:
-                logging.info("Running UMAP - %s" % self.correlation_reducer)
-                correlation_mapping = self.correlation_reducer.fit(skbio.stats.composition.clr(self.depths.iloc[:, 0::2].T.astype(np.float64) + 1).T)
-                self.intersection_mapper = (depth_mapping * correlation_mapping) * tnf_mapping
+            logging.info("Running UMAP - %s" % self.correlation_reducer)
+            correlation_mapping = self.correlation_reducer.fit(
+            skbio.stats.composition.clr(self.depths.iloc[:, 0::2].T.astype(np.float64) + 1).T)
+            if self.long_samples >= 3:
+                logging.info("Running UMAP - %s" % self.long_depth_reducer)
+                self.long_depths = self.long_depths[~self.disconnected].iloc[:, 3:]
+                try:
+                    long_depth_mapping = self.long_depth_reducer.fit(self.long_depths)
+                except ValueError:  # Sparse or low coverage contigs can cause high n_neighbour values to kark it
+                    self.long_depth_reducer.n_neighbors = 30
+                    long_depth_mapping = self.depth_reducer.fit(self.long_depths)
+                logging.info("Running UMAP - %s" % self.long_correlation_reducer)
+                long_correlation_mapping = self.long_correlation_reducer.fit(
+                skbio.stats.composition.clr(self.long_depths.iloc[:, 0::2].T.astype(np.float64) + 1).T)
+
+                ## Intersect all of the embeddings
+                self.intersection_mapper = depth_mapping * correlation_mapping * long_depth_mapping * long_correlation_mapping * tnf_mapping
+
+            elif self.long_samples > 0:
+                logging.info("Running UMAP - %s" % self.long_depth_reducer)
+                self.long_depths = self.long_depths[~self.disconnected].iloc[:, 3:]
+                try:
+                    long_depth_mapping = self.long_depth_reducer.fit(self.long_depths)
+                except ValueError:  # Sparse or low coverage contigs can cause high n_neighbour values to kark it
+                    self.long_depth_reducer.n_neighbors = 30
+                    long_depth_mapping = self.depth_reducer.fit(self.long_depths)
+
+                self.intersection_mapper = depth_mapping * correlation_mapping * long_depth_mapping * tnf_mapping
+
             else:
-                self.intersection_mapper = depth_mapping * tnf_mapping
+                self.intersection_mapper = depth_mapping * correlation_mapping * tnf_mapping
 
             ## Embeddings to cluster against
             # self.diconnected_vertices = umap.utils.disconnected_vertices(self.intersection_mapper)
             self.embeddings = self.intersection_mapper.embedding_
 
-        else:
+        elif self.n_samples > 0:
             logging.info("Running UMAP - %s" % self.depth_reducer)
             self.depths = np.nan_to_num(np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 3:], self.large_contigs[~self.disconnected].iloc[:, 1].values[:, None], self.tnfs), axis=1))
             try:
-                self.depth_mapping = self.depth_reducer.fit(self.depths)
+                depth_mapping = self.depth_reducer.fit(self.depths)
             except ValueError: # Sparse or low coverage contigs can cause high n_neighbour values to kark it
                 self.depth_reducer.n_neighbors = 30
-                self.depth_mapping = self.depth_reducer.fit(self.depths)
+                depth_mapping = self.depth_reducer.fit(self.depths)
+
+            if self.long_samples >= 3:
+                logging.info("Running UMAP - %s" % self.tnf_reducer)
+                tnf_mapping = self.tnf_reducer.fit(
+                    np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 1].values[:, None], self.tnfs),
+                                   axis=1))
+                logging.info("Running UMAP - %s" % self.long_depth_reducer)
+                self.long_depths = self.long_depths[~self.disconnected].iloc[:, 3:]
+                try:
+                    long_depth_mapping = self.long_depth_reducer.fit(self.long_depths)
+                except ValueError:  # Sparse or low coverage contigs can cause high n_neighbour values to kark it
+                    self.long_depth_reducer.n_neighbors = 30
+                    long_depth_mapping = self.depth_reducer.fit(self.long_depths)
+                logging.info("Running UMAP - %s" % self.long_correlation_reducer)
+                long_correlation_mapping = self.long_correlation_reducer.fit(
+                    skbio.stats.composition.clr(self.long_depths.iloc[:, 0::2].T.astype(np.float64) + 1).T)
+
+                ## Intersect all of the embeddings
+                self.intersection_mapper = depth_mapping * long_depth_mapping * long_correlation_mapping * tnf_mapping
+
+            elif self.long_samples > 0:
+                logging.info("Running UMAP - %s" % self.long_depth_reducer)
+                self.long_depths = self.long_depths[~self.disconnected].iloc[:, 3:]
+                try:
+                    long_depth_mapping = self.long_depth_reducer.fit(self.long_depths)
+                except ValueError:  # Sparse or low coverage contigs can cause high n_neighbour values to kark it
+                    self.long_depth_reducer.n_neighbors = 30
+                    long_depth_mapping = self.depth_reducer.fit(self.long_depths)
+
+                self.intersection_mapper = depth_mapping * long_depth_mapping
+
+            else:
+                self.intersection_mapper = depth_mapping
 
             # self.disconnected_vertices = umap.utils.disconnected_vertices(self.depth_mapping)
 
-            self.embeddings = self.depth_mapping.embedding_
+            self.embeddings = self.intersection_mapper.embedding_
+        elif self.long_samples >= 3: # Long coverages are the only thing available
+                logging.info("Running UMAP - %s" % self.tnf_reducer)
+                tnf_mapping = self.tnf_reducer.fit(
+                    np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 1].values[:, None], self.tnfs),
+                                   axis=1))
+                logging.info("Running UMAP - %s" % self.long_depth_reducer)
+                self.long_depths = self.large_contigs[~self.disconnected].iloc[:, 3:]
+                try:
+                    long_depth_mapping = self.long_depth_reducer.fit(self.long_depths)
+                except ValueError:  # Sparse or low coverage contigs can cause high n_neighbour values to kark it
+                    self.long_depth_reducer.n_neighbors = 30
+                    long_depth_mapping = self.depth_reducer.fit(self.long_depths)
+                logging.info("Running UMAP - %s" % self.long_correlation_reducer)
+                long_correlation_mapping = self.long_correlation_reducer.fit(
+                    skbio.stats.composition.clr(self.long_depths.iloc[:, 0::2].T.astype(np.float64) + 1).T)
+
+                ## Intersect all of the embeddings
+                self.intersection_mapper = long_depth_mapping * long_correlation_mapping * tnf_mapping
+                self.embeddings = self.intersection_mapper.embedding_
+
+        elif self.long_samples > 0:
+            logging.info("Running UMAP - %s" % self.long_depth_reducer)
+            self.long_depths = self.large_contigs[~self.disconnected].iloc[:, 3:]
+            try:
+                long_depth_mapping = self.long_depth_reducer.fit(self.long_depths)
+            except ValueError:  # Sparse or low coverage contigs can cause high n_neighbour values to kark it
+                self.long_depth_reducer.n_neighbors = 30
+                long_depth_mapping = self.depth_reducer.fit(self.long_depths)
+
+            self.intersection_mapper = long_depth_mapping
+            self.embeddings = self.intersection_mapper.embedding_
+
 
     def cluster(self):
         with warnings.catch_warnings():
