@@ -70,7 +70,7 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
     return (min_cluster_size, min_samples, validity_score, n_clusters)
 
 
-def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', allow_single_cluster=False):
+def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', allow_single_cluster=False, starting_size = 2):
     """
     Input:
     df - embeddings from UMAP
@@ -84,7 +84,7 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
     warnings.filterwarnings('ignore')
     results = []
     n = df.shape[0]
-    for gamma in range(2, int(np.log(max(n, 3)))):
+    for gamma in range(starting_size, int(np.log(max(n, 3)))):
         mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
                       range(1, int(2 * np.log(n)))]
         for result in mp_results:

@@ -218,6 +218,12 @@ def metabat_distance(a, b, n_samples):
         b_mean = b_means[i] + 1e-6
         b_var = b_vars[i] + 1e-6
 
+        if a_var < 1:
+            a_var = 1
+        if b_var < 1:
+            b_var = 1
+        
+        
         if abs(a_var - b_var) < 1e-4:
             k1 = k2 = (a_mean + b_mean) / 2
         else:
@@ -242,10 +248,15 @@ def metabat_distance(a, b, n_samples):
         else:
             mb_vec.append((p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)))
 
-    # convert to log space to avoid overflow errors
-    mb_vec = np.log(np.array(mb_vec))
-    # return the geometric mean
-    return np.exp(mb_vec.sum() / len(mb_vec))
+    if len(mb_vec) >= 1:
+        # convert to log space to avoid overflow errors
+        mb_vec = np.log(np.array(mb_vec))
+        # return the geometric mean
+        d = np.exp(mb_vec.sum() / len(mb_vec))
+    else:
+        d = 1
+        
+    return d
     
 
 @njit()
@@ -330,7 +341,7 @@ def aggregate_tnf(a, b, n_samples):
 
     # tnf_dist = tnf_correlation(a[1:], b[1:], n_samples*2)
     tnf_dist = tnf_correlation(a[n_samples*2:], b[n_samples*2:])
-    kl = metabat_distance(a[0:n_samples*2 + 1], b[0:n_samples*2 + 1], n_samples)
+    kl = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples)
     # if n_samples < 3:
     agg = ((tnf_dist**(1-w))) * kl**(w)
     # else:

@@ -366,6 +366,7 @@ def main():
 
 def fit(args):
     prefix = args.input.replace(".npy", "")
+    os.environ["NUMEXPR_MAX_THREADS"] = args.threads
     if not args.precomputed:
         clusterer = Cluster(args.input,
                            prefix,
@@ -400,6 +401,7 @@ def fit(args):
 
 def bin(args):
     prefix = args.output
+    os.environ["NUMEXPR_MAX_THREADS"] = args.threads
     if args.long_input is None and args.input is None:
         logging.warning("bin requires either short or longread coverage values.")
         sys.exit()
@@ -427,16 +429,17 @@ def bin(args):
                            a=float(args.a),
                            b=float(args.b),
                            )
-        clusterer.filter()
-        if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors):
-            clusterer.fit_transform()
-            clusterer.cluster()
-            clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-            # ##if len(clusterer.unbinned_embeddings) > 2:
-            # ##    clusterer.cluster_unbinned()
-            # ##    clusterer.bin_unbinned_contigs()
-            clusterer.bin_filtered(int(args.min_bin_size))
-            clusterer.plot()
+        if clusterer.tnfs.values.shape[0] > int(args.n_neighbors):
+            clusterer.filter()
+            if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors)*5:
+                clusterer.fit_transform()
+                clusterer.cluster()
+                clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
+                # ##if len(clusterer.unbinned_embeddings) > 2:
+                # ##    clusterer.cluster_unbinned()
+                # ##    clusterer.bin_unbinned_contigs()
+                clusterer.bin_filtered(int(args.min_bin_size))
+                clusterer.plot()
         else:
             clusterer.rescue_contigs(int(args.min_bin_size))
             
