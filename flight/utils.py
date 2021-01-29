@@ -31,8 +31,6 @@ __status__ = "Development"
 import warnings
 import logging
 import re
-import io
-from os.path import dirname, join
 
 # Function imports
 import numpy as np
@@ -41,7 +39,7 @@ import multiprocessing as mp
 import hdbscan
 import itertools
 import threadpoolctl
-
+from sklearn.metrics.pairwise import pairwise_distances
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
@@ -187,3 +185,17 @@ def break_overclustered(embeddings, threads):
 
 def special_match(strg, search=re.compile(r'[^ATGC]').search):
     return not bool(search(strg))
+
+
+def sample_distance(coverage_table):
+    """
+    Input:
+    coverage_table - a coverage and variance table for all contigs passing initial size and min coverage filters
+
+    Output:
+    A sample distance matrix - shared content between samples
+    """
+
+    # Convert coverage table to presence absence table of 1s and 0s
+    presence_absence = (coverage_table.iloc[:, 3::2].values > 0).astype(int).T
+    return 1 - pairwise_distances(presence_absence, metric='hamming')

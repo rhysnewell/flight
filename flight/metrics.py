@@ -33,6 +33,7 @@ from numba import njit, float64
 from numba.experimental import jitclass
 import numpy as np
 import math
+import itertools
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Globals - ##################################
@@ -190,7 +191,7 @@ def hellinger_distance_poisson(a, b, n_samples):
     return np.exp(h_geom_mean.sum() / len(h_geom_mean)) 
 
 @njit()
-def metabat_distance(a, b, n_samples):
+def metabat_distance(a, b, n_samples, sample_distances):
     """
     a - The mean and variance vec for contig a over n_samples
     b - The mean and variance vec for contig b over n_samples
@@ -209,53 +210,69 @@ def metabat_distance(a, b, n_samples):
     b_means = b[::2]
     b_vars = b[1::2]
 
+    both_present = [] # sample indices where both a and b were present
+    # only_a = []
+    # only_b = []
+
     for i in range(0, n_samples):
-        k1, k2, tmp, d = 0, 0, 0, 0
         # Use this indexing method as zip does not seem to work so well in njit
         # Add tiny value to each to avoid division by zero
         a_mean = a_means[i] + 1e-6
         a_var = a_vars[i] + 1e-6
         b_mean = b_means[i] + 1e-6
         b_var = b_vars[i] + 1e-6
+        if a_mean > 1e-6 and b_mean > 1e-6:
+            both_present.append(i)
 
-        if a_var < 1:
-            a_var = 1
-        if b_var < 1:
-            b_var = 1
-        
-        
-        if abs(a_var - b_var) < 1e-4:
-            k1 = k2 = (a_mean + b_mean) / 2
-        else:
-            tmp = np.sqrt(a_var * b_var * ((a_mean - b_mean) * (a_mean - b_mean) - 2 * (a_var - b_var) * np.log(np.sqrt(b_var / a_var))))
-            k1 = (tmp - a_mean * b_var + b_mean * a_var) / (a_var - b_var)
-            k2 = (tmp + a_mean * b_var - b_mean * a_var) / (b_var - a_var)
+        if a_mean > 1e-6 or b_mean > 1e-6:
+            if a_var < 1:
+                a_var = 1
+            if b_var < 1:
+                b_var = 1
 
-        if k1 > k2:
-            tmp = k1
-            k1 = k2
-            k2 = tmp
 
-        if a_var > b_var:
-            p1 = NormalDist(b_mean, np.sqrt(b_var))
-            p2 = NormalDist(a_mean, np.sqrt(a_var))
-        else:
-            p1 = NormalDist(a_mean, np.sqrt(a_var))
-            p2 = NormalDist(b_mean, np.sqrt(b_var))
+            if abs(a_var - b_var) < 1e-4:
+                k1 = k2 = (a_mean + b_mean) / 2
+            else:
+                tmp = np.sqrt(a_var * b_var * ((a_mean - b_mean) * (a_mean - b_mean) - 2 * (a_var - b_var) * np.log(np.sqrt(b_var / a_var))))
+                k1 = (tmp - a_mean * b_var + b_mean * a_var) / (a_var - b_var)
+                k2 = (tmp + a_mean * b_var - b_mean * a_var) / (b_var - a_var)
 
-        if k1 == k2:
-            mb_vec.append((abs(p1.cdf(k1) - p2.cdf(k1))))
-        else:
-            mb_vec.append((p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)))
+            if k1 > k2:
+                tmp = k1
+                k1 = k2
+                k2 = tmp
+
+            if a_var > b_var:
+                p1 = NormalDist(b_mean, np.sqrt(b_var))
+                p2 = NormalDist(a_mean, np.sqrt(a_var))
+            else:
+                p1 = NormalDist(a_mean, np.sqrt(a_var))
+                p2 = NormalDist(b_mean, np.sqrt(b_var))
+
+            if k1 == k2:
+                mb_vec.append((abs(p1.cdf(k1) - p2.cdf(k1))))
+            else:
+                mb_vec.append((p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)))
 
     if len(mb_vec) >= 1:
         # convert to log space to avoid overflow errors
         mb_vec = np.log(np.array(mb_vec))
         # return the geometric mean
         d = np.exp(mb_vec.sum() / len(mb_vec))
+
+        # Calculate geometric mean of sample distances
+        similarity_vec = []
+        for (i1, i2) in itertools.combinations(both_present, 2):
+            similarity_vec.append(sample_distances[[i1, i2]])
+        if len(similarity_vec) >= 1:
+            geom_sim = np.log(np.array(similarity_vec))
+            geom_sim = np.exp(geom_sim.sum() / len(geom_sim))
+
+            d = d * geom_sim
     else:
         d = 1
-        
+
     return d
     
 
@@ -329,7 +346,7 @@ def pearson(a, b):
     return np.corrcoef(a, b)[0, 1]
 
 @njit()
-def aggregate_tnf(a, b, n_samples):
+def aggregate_tnf(a, b, n_samples, sample_distances):
     """
     a, b - concatenated contig depth, variance, and TNF info with contig length at index 0
     n_samples - the number of samples
@@ -341,7 +358,7 @@ def aggregate_tnf(a, b, n_samples):
 
     # tnf_dist = tnf_correlation(a[1:], b[1:], n_samples*2)
     tnf_dist = tnf_correlation(a[n_samples*2:], b[n_samples*2:])
-    kl = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples)
+    kl = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples, sample_distances)
     # if n_samples < 3:
     agg = ((tnf_dist**(1-w))) * kl**(w)
     # else:
