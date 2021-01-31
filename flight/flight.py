@@ -440,6 +440,8 @@ def bin(args):
                 # ##    clusterer.bin_unbinned_contigs()
                 clusterer.bin_filtered(int(args.min_bin_size))
                 clusterer.plot()
+            else:
+                clusterer.rescue_contigs(int(args.min_bin_size))
         else:
             clusterer.rescue_contigs(int(args.min_bin_size))
             

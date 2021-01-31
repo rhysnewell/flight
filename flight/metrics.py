@@ -33,7 +33,6 @@ from numba import njit, float64
 from numba.experimental import jitclass
 import numpy as np
 import math
-import itertools
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Globals - ##################################
@@ -115,7 +114,7 @@ def tnf_correlation(a, b):
     elif dot_product == 0.0:
         return 1.0
     else:
-        return (1.0 - (dot_product / np.sqrt(norm_x * norm_y)))**l
+        return (1.0 - (dot_product / np.sqrt(norm_x * norm_y)))**(1-l)
 
 @njit()
 def hellinger_distance_normal(a, b, n_samples):
@@ -254,7 +253,7 @@ def metabat_distance(a, b, n_samples, sample_distances):
                 mb_vec.append((abs(p1.cdf(k1) - p2.cdf(k1))))
             else:
                 mb_vec.append((p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)))
-
+    
     if len(mb_vec) >= 1:
         # convert to log space to avoid overflow errors
         mb_vec = np.log(np.array(mb_vec))
@@ -262,19 +261,52 @@ def metabat_distance(a, b, n_samples, sample_distances):
         d = np.exp(mb_vec.sum() / len(mb_vec))
 
         # Calculate geometric mean of sample distances
-        similarity_vec = []
-        for (i1, i2) in itertools.combinations(both_present, 2):
-            similarity_vec.append(sample_distances[[i1, i2]])
-        if len(similarity_vec) >= 1:
-            geom_sim = np.log(np.array(similarity_vec))
-            geom_sim = np.exp(geom_sim.sum() / len(geom_sim))
-
-            d = d * geom_sim
+        geom_sim = geom_sim_calc(both_present, sample_distances)
+        
+        d = d ** (1/geom_sim)
     else:
         d = 1
 
     return d
-    
+
+@njit()
+def geom_sim_calc(both_present, sample_distances):
+    similarity_vec = []
+    result = combinations(both_present, 2)
+    for i in result:
+        similarity_vec.append(sample_distances[i[0], i[1]])
+        
+    if len(similarity_vec) >= 1:
+        geom_sim = np.log(np.array(similarity_vec))
+        geom_sim = np.exp(geom_sim.sum() / len(geom_sim))
+    else:
+        geom_sim = 1
+    return geom_sim
+
+@njit()
+def combinations(pool, r):
+    n = len(pool)
+    indices = list(range(r))
+    empty = not(n and (0 < r <= n))
+    results = []
+    if not empty:
+        result = [pool[i] for i in indices]
+        results.append(result)
+
+    while not empty:
+        i = r - 1
+        while i >= 0 and indices[i] == i + n - r:
+            i -= 1
+        if i < 0:
+            empty = True
+        else:
+            indices[i] += 1
+            for j in range(i+1, r):
+                indices[j] = indices[j-1] + 1
+
+            result = [pool[i] for i in indices]
+            results.append(result)
+    return results
 
 @njit()
 def kl_divergence(a, b, n_samples):
