@@ -82,11 +82,12 @@ def tnf_cosine(a, b, n_samples):
 
 @njit()
 def length_weighting(a, b):
-    return min(np.log(a), np.log(b)) / (max(np.log(a), np.log(b)) + 1)
+    return min(np.log(a), np.log(b)) / (max(np.log(a), np.log(b)))
 
 @njit()
 def tnf_correlation(a, b):
     l = length_weighting(a[0], b[0])
+    # l = 0
     x = a[1:]
     y = b[1:]
     mu_x = 0.0
@@ -262,7 +263,7 @@ def metabat_distance(a, b, n_samples, sample_distances):
 
         # Calculate geometric mean of sample distances
         geom_sim = geom_sim_calc(both_present, sample_distances)
-        
+        # geom_sim = 1
         d = d ** (1/geom_sim)
     else:
         d = 1

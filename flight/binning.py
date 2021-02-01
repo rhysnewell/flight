@@ -290,12 +290,14 @@ class Binner():
 
         if self.long_samples > 0:
             logging.info("Longread samples found, applying strict contig filtering...")
-            filter_level = 0.25
+            filter_level = 0.9
+            disconnect = 0.9
             self.binning_method = 'eom'
             self.min_cluster_size = 2
             b_long = b        
         else:
-            filter_level = 0.5
+            filter_level = 2.0
+            disconnect = 0.9
             self.binning_method = 'eom'
             self.min_cluster_size = 2
             b_long = b
@@ -308,7 +310,7 @@ class Binner():
                         n_components=10,
                         min_dist=0,
                         # local_connectivity=5,
-                        disconnection_distance=filter_level,
+                        disconnection_distance=disconnect,
                         set_op_mix_ratio=0.01,
                         random_state=random_state,
                         n_epochs=500,
@@ -446,11 +448,13 @@ class Binner():
     def filter(self):
 
         # np.concatenate((self.large_contigs.iloc[:, 1].values[:, None], self.large_contigs.iloc[:, 3:], skbio.stats.composition.clr(self.tnfs.iloc[:, 1:].astype(np.float64) + 1)),axis=1)
-        self.filterer = self.filterer_tnf.fit(np.concatenate((np.log10(self.large_contigs.iloc[:, 1]).values[:, None], skbio.stats.composition.clr(self.tnfs.iloc[:, 2:].astype(np.float64) + 1)), axis=1))
-        # self.filterer = self.filterer_tnf.fit(skbio.stats.composition.clr(self.tnfs.iloc[:, 2:].astype(np.float64) + 1))
-        self.disconnected = umap.utils.disconnected_vertices(self.filterer)
-        self.large_contigs[self.disconnected].to_csv(self.path + "/disconnected_contigs.tsv", sep="\t", header=True)
-        # self.disconnected = np.array([False for i in range(self.large_contigs.values.shape[0])])
+        try:
+            self.filterer = self.filterer_tnf.fit(np.concatenate((np.log10(self.large_contigs.iloc[:, 1]).values[:, None], skbio.stats.composition.clr(self.tnfs.iloc[:, 2:].astype(np.float64) + 1)), axis=1))
+            # self.filterer = self.filterer_tnf.fit(skbio.stats.composition.clr(self.tnfs.iloc[:, 2:].astype(np.float64) + 1))
+            self.disconnected = umap.utils.disconnected_vertices(self.filterer)
+            self.large_contigs[self.disconnected].to_csv(self.path + "/disconnected_contigs.tsv", sep="\t", header=True)
+        except ValueError: # Everything was disconnected
+            self.disconnected = np.array([True for i in range(self.large_contigs.values.shape[0])])
 
 
     def fit_transform(self):
@@ -570,7 +574,7 @@ class Binner():
                 # skbio.stats.composition.clr(self.long_depths.iloc[:, 0::2].T.astype(np.float64) + 1).T)
 
             ## Intersect all of the embeddings
-            self.intersection_mapper = tnf_mapping * long_depth_mapping #* long_correlation_mapping * 
+            self.intersection_mapper = tnf_mapping * long_depth_mapping #* long_correlation_mapping  
             self.embeddings = self.intersection_mapper.embedding_
 
         elif self.long_samples > 0:
