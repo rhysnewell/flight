@@ -432,16 +432,20 @@ def bin(args):
                            b=float(args.b),
                            )
         if clusterer.tnfs.values.shape[0] > int(args.n_neighbors):
+            # First pass quick TNF filter to speed up next steps
             clusterer.filter()
             if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors)*5:
-                clusterer.fit_transform()
-                clusterer.cluster()
-                clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-                # ##if len(clusterer.unbinned_embeddings) > 2:
-                # ##    clusterer.cluster_unbinned()
-                # ##    clusterer.bin_unbinned_contigs()
-                clusterer.bin_filtered(int(args.min_bin_size))
-                clusterer.plot()
+                # Second pass intersection filtering
+                clusterer.fit_disconnect()
+                if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[0] > int(args.n_neighbors) * 5:
+                    # Final fully filtered embedding to cluster on
+                    clusterer.fit_transform()
+                    clusterer.cluster()
+                    clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
+                    clusterer.bin_filtered(int(args.min_bin_size))
+                    clusterer.plot()
+                else:
+                    clusterer.rescue_contigs(int(args.min_bin_size))
             else:
                 clusterer.rescue_contigs(int(args.min_bin_size))
         else:
