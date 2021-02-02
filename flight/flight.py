@@ -39,6 +39,7 @@ import datetime
 # Function imports
 import numpy as np
 import pandas as pd
+from numba import config, set_num_threads
 
 # Self imports
 from .binning import Binner
@@ -401,7 +402,8 @@ def fit(args):
 
 def bin(args):
     prefix = args.output
-    os.environ["NUMEXPR_MAX_THREADS"] = args.threads
+    os.environ["NUMEXPR_MAX_THREADS"] = "1"
+    set_num_threads(int(args.threads))
     if args.long_input is None and args.input is None:
         logging.warning("bin requires either short or longread coverage values.")
         sys.exit()

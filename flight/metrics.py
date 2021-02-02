@@ -58,7 +58,7 @@ class NormalDist:
         return (1.0 + math.erf(x / np.sqrt(2.0))) / 2.0
 
 @njit()
-def tnf_cosine(a, b, n_samples):
+def tnf_euclidean(a, b):
     # cov_mat = np.cov(a[n_samples:], b[n_samples:])
     # cov = cov_mat[0, 1]
     # a_sd = np.sqrt(cov_mat[0,0])
@@ -67,17 +67,13 @@ def tnf_cosine(a, b, n_samples):
     # rho += 1
     # rho = 2 - rho
     # return rho
+    l = length_weighting(a[0], b[0])
     # L2 norm is equivalent to euclidean distance
-    # euc_dist = np.linalg.norm(a[n_samples:] - b[n_samples:])
+    result = 0.0
+    for i in range(a.shape[0] - 1):
+        result += (a[i + 1] - b[i + 1]) ** 2
 
-    # return euc_dist
-    # Cosine distance
-    a_np = a[n_samples:]
-    b_np = b[n_samples:]
-
-    cosine = np.dot(a_np, b_np) / (np.linalg.norm(a_np) * np.linalg.norm(b_np))
-    cosine = 1 - cosine
-    return cosine
+    return np.sqrt(result)
 
 
 @njit()
@@ -390,7 +386,7 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
     # l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
 
     # tnf_dist = tnf_correlation(a[1:], b[1:], n_samples*2)
-    tnf_dist = tnf_correlation(a[n_samples*2:], b[n_samples*2:])
+    tnf_dist = tnf_euclidean(a[n_samples*2:], b[n_samples*2:])
     kl = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples, sample_distances)
     # if n_samples < 3:
     agg = ((tnf_dist**(1-w))) * kl**(w)
