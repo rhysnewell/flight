@@ -240,7 +240,7 @@ class Binner():
             self.tnfs = self.tnfs[self.tnfs['contigName'].isin(self.large_contigs['contigName'])]
 
             ## Divide by row sums to get frequencies
-            self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
+            # self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
             self.n_samples = len(self.large_contigs.columns[3::2])
             self.long_samples = len(self.long_depths.columns[3::2])
 
@@ -259,7 +259,7 @@ class Binner():
             self.short_sample_distance = utils.sample_distance(self.large_contigs)
 
             ## Divide by row sums to get frequencies
-            self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
+            # self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
             self.n_samples = len(self.large_contigs.columns[3::2])
             self.long_samples = 0
 
@@ -278,7 +278,7 @@ class Binner():
             self.long_sample_distance = utils.sample_distance(self.large_contigs)
 
             ## Divide by row sums to get frequencies
-            self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
+            # self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
             self.n_samples = 0
             self.long_samples = len(self.long_depths.columns[3::2])
 
@@ -290,20 +290,20 @@ class Binner():
 
         if self.long_samples > 0:
             logging.info("Longread samples found, applying strict contig filtering...")
-            filter_level = 0.9
-            disconnect = 0.9
+            filter_level = 3
+            disconnect = 3
             self.binning_method = 'eom'
             self.min_cluster_size = 2
             b_long = b        
         else:
-            filter_level = 2.0
-            disconnect = 0.9
+            filter_level = 3
+            disconnect = 3
             self.binning_method = 'eom'
             self.min_cluster_size = 2
             b_long = b
         b_tnf = 0.1
         self.filterer_tnf = umap.UMAP(
-                        metric=metrics.tnf_correlation,
+                        metric=metrics.tnf_euclidean,
                         # metric = "correlation",
                         # metric_kwds={"n_samples": self.n_samples},
                         n_neighbors=2,
@@ -319,7 +319,7 @@ class Binner():
                         b=b_tnf,
                     )
         self.tnf_reducer = umap.UMAP(
-            metric=metrics.tnf_correlation,
+            metric=metrics.tnf_euclidean,
             # metric = "correlation",
             # metric_kwds={"n_samples": self.n_samples},
             n_neighbors=int(n_neighbors),
@@ -351,7 +351,7 @@ class Binner():
                 n_components=n_components,
                 min_dist=min_dist,
                 # local_connectivity=5,
-                disconnection_distance=filter_level,
+                disconnection_distance=0.9,
                 set_op_mix_ratio=0.01,
                 random_state=random_state,
                 n_epochs=500,
@@ -387,7 +387,7 @@ class Binner():
                 n_components=n_components,
                 min_dist=min_dist,
                 # local_connectivity=5,
-                disconnection_distance=filter_level,
+                disconnection_distance=0.9,
                 random_state=random_state,
                 set_op_mix_ratio=0.01,
                 n_epochs=500,
@@ -404,7 +404,7 @@ class Binner():
                 n_components=n_components,
                 min_dist=0,
                 # local_connectivity=5,
-                disconnection_distance=filter_level,
+                disconnection_distance=0.9,
                 set_op_mix_ratio=0.01,
                 random_state=random_state,
                 n_epochs=500,
@@ -420,7 +420,7 @@ class Binner():
                 n_components=n_components,
                 min_dist=min_dist,
                 # local_connectivity=5,
-                disconnection_distance=filter_level,
+                disconnection_distance=0.9,
                 set_op_mix_ratio=0.01,
                 random_state=random_state,
                 n_epochs=500,
@@ -436,7 +436,7 @@ class Binner():
                 n_components=n_components,
                 min_dist=min_dist,
                 # local_connectivity=5,
-                disconnection_distance=filter_level,
+                disconnection_distance=0.9,
                 random_state=random_state,
                 set_op_mix_ratio=0.01,
                 n_epochs=500,
@@ -457,7 +457,7 @@ class Binner():
             self.disconnected = np.array([True for i in range(self.large_contigs.values.shape[0])])
 
 
-    def fit_transform(self):
+    def fit_disconnect(self):
         ## Calculate the UMAP embeddings
         # clr transformations
         self.tnfs = skbio.stats.composition.clr(self.tnfs[~self.disconnected]
@@ -485,10 +485,11 @@ class Binner():
                     long_depth_mapping = self.long_depth_reducer.fit(self.long_depths)
                 # logging.info("Running UMAP - %s" % self.long_correlation_reducer)
                 # long_correlation_mapping = self.long_correlation_reducer.fit(
-                # skbio.stats.composition.clr(self.long_depths.iloc[:, 0::2].T.astype(np.float64) + 1).T)
-
+                # skbio.stats.composition.clr(self.long_depths.iloc[:, 0::2].T.astype(np.float64) + 1).T
+                self.disconnected_intersected = umap.utils.disconnected_vertices(depth_mapping) + umap.utils.disconnected_vertices(long_depth_mapping) + umap.utils.disconnected_vertices(tnf_mapping)
+                
                 ## Intersect all of the embeddings
-                self.intersection_mapper = tnf_mapping * depth_mapping * long_depth_mapping #* correlation_mapping * long_correlation_mapping
+                self.intersection_mapper = depth_mapping * long_depth_mapping * tnf_mapping #* correlation_mapping * long_correlation_mapping
 
             elif self.long_samples > 0:
                 logging.info("Running UMAP - %s" % self.long_depth_reducer)
@@ -499,10 +500,10 @@ class Binner():
                     self.long_depth_reducer.n_neighbors = 30
                     long_depth_mapping = self.long_depth_reducer.fit(self.long_depths)
 
-                self.intersection_mapper = tnf_mapping * long_depth_mapping * depth_mapping #* correlation_mapping
+                self.intersection_mapper = long_depth_mapping * depth_mapping * tnf_mapping #* correlation_mapping
 
             else:
-                self.intersection_mapper = tnf_mapping * depth_mapping
+                self.intersection_mapper = depth_mapping * tnf_mapping
 
             ## Embeddings to cluster against
             # self.diconnected_vertices = umap.utils.disconnected_vertices(self.intersection_mapper)
@@ -534,7 +535,7 @@ class Binner():
                     # skbio.stats.composition.clr(self.long_depths.iloc[:, 0::2].T.astype(np.float64) + 1).T)
 
                 ## Intersect all of the embeddings
-                self.intersection_mapper = tnf_mapping * depth_mapping * long_depth_mapping #* long_correlation_mapping
+                self.intersection_mapper = depth_mapping * long_depth_mapping * tnf_mapping #* long_correlation_mapping
 
             elif self.long_samples > 0:
                 logging.info("Running UMAP - %s" % self.tnf_reducer)
@@ -547,12 +548,12 @@ class Binner():
                     self.long_depth_reducer.n_neighbors = 30
                     long_depth_mapping = self.long_depth_reducer.fit(self.long_depths)
 
-                self.intersection_mapper = tnf_mapping * depth_mapping * long_depth_mapping
+                self.intersection_mapper = depth_mapping * long_depth_mapping * tnf_mapping
 
             else:
                 logging.info("Running UMAP - %s" % self.tnf_reducer)
                 tnf_mapping = self.tnf_reducer.fit(np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 1].values[:, None], self.tnfs), axis=1))  
-                self.intersection_mapper = tnf_mapping * depth_mapping
+                self.intersection_mapper = depth_mapping * tnf_mapping
 
             # self.disconnected_vertices = umap.utils.disconnected_vertices(self.depth_mapping)
 
@@ -574,7 +575,7 @@ class Binner():
                 # skbio.stats.composition.clr(self.long_depths.iloc[:, 0::2].T.astype(np.float64) + 1).T)
 
             ## Intersect all of the embeddings
-            self.intersection_mapper = tnf_mapping * long_depth_mapping #* long_correlation_mapping  
+            self.intersection_mapper = long_depth_mapping * tnf_mapping #* long_correlation_mapping  
             self.embeddings = self.intersection_mapper.embedding_
 
         elif self.long_samples > 0:
@@ -591,6 +592,9 @@ class Binner():
             self.intersection_mapper = long_depth_mapping * tnf_mapping
             self.embeddings = self.intersection_mapper.embedding_
 
+    def fit_transform(self):
+        self.tnfs = skbio.stats.composition.clr(self.tnfs[~self.disconnected][~self.disconnected_intersected]
+                                                                        .iloc[:, 2:].astype(np.float64) + 1)
 
     def cluster(self):
         with warnings.catch_warnings():
