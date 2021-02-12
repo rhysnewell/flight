@@ -40,6 +40,7 @@ import datetime
 import numpy as np
 import pandas as pd
 from numba import config, set_num_threads
+import threadpoolctl
 
 # Self imports
 from .binning import Binner
@@ -431,25 +432,38 @@ def bin(args):
                            a=float(args.a),
                            b=float(args.b),
                            )
-        if clusterer.tnfs.values.shape[0] > int(args.n_neighbors):
-            # First pass quick TNF filter to speed up next steps
-            clusterer.filter()
-            if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors)*5:
-                # Second pass intersection filtering
-                clusterer.fit_disconnect()
-                if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[0] > int(args.n_neighbors) * 5:
-                    # Final fully filtered embedding to cluster on
-                    clusterer.fit_transform()
-                    clusterer.cluster()
-                    clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-                    clusterer.bin_filtered(int(args.min_bin_size))
-                    clusterer.plot()
+        with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
+            
+            if clusterer.tnfs.values.shape[0] > int(args.n_neighbors):
+                # First pass quick TNF filter to speed up next steps
+                clusterer.update_parameters()
+                clusterer.filter()
+                if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors)*5:
+                    # Second pass intersection filtering
+                    clusterer.update_parameters()
+                    found_disconnections = clusterer.fit_disconnect()
+                    # found_disconnections = True
+                    if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[0] > int(args.n_neighbors) * 5 and found_disconnections:
+                        # Final fully filtered embedding to cluster on
+                        # clusterer.update_parameters()
+                        clusterer.fit_transform()
+                        clusterer.cluster()
+                        clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
+                        clusterer.pairwise_distances()
+                        clusterer.bin_filtered(int(args.min_bin_size))
+                        clusterer.plot()
+                    elif not found_disconnections: # run clustering based off first round of embeddings
+                        clusterer.cluster()
+                        clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
+                        clusterer.pairwise_distances()
+                        clusterer.bin_filtered(int(args.min_bin_size))
+                        clusterer.plot()
+                    else:
+                        clusterer.rescue_contigs(int(args.min_bin_size))
                 else:
                     clusterer.rescue_contigs(int(args.min_bin_size))
             else:
                 clusterer.rescue_contigs(int(args.min_bin_size))
-        else:
-            clusterer.rescue_contigs(int(args.min_bin_size))
             
         
 

@@ -30,6 +30,7 @@ __status__ = "Development"
 
 # Function imports
 from numba import njit, float64
+from numba.typed import List
 from numba.experimental import jitclass
 import numpy as np
 import math
@@ -57,18 +58,25 @@ class NormalDist:
         x = (x - self.loc) / self.scale
         return (1.0 + math.erf(x / np.sqrt(2.0))) / 2.0
 
-@njit()
+@njit(fastmath=True)
 def tnf_euclidean(a, b):
-    # cov_mat = np.cov(a[n_samples:], b[n_samples:])
-    # cov = cov_mat[0, 1]
-    # a_sd = np.sqrt(cov_mat[0,0])
-    # b_sd = np.sqrt(cov_mat[1,1])
-    # rho = cov / (a_sd * b_sd)
-    # rho += 1
-    # rho = 2 - rho
-    # return rho
-    l = length_weighting(a[0], b[0])
-    # L2 norm is equivalent to euclidean distance
+
+    # l = length_weighting(a[0], b[0])
+    rp = max(a[0], b[0])
+    
+    result = 0.0
+    for i in range(a.shape[0] - 1):
+        result += (a[i + 1] - b[i + 1]) ** 2
+        
+    d = np.sqrt(result)
+    # if rp > 1:
+    d = d * rp
+    
+    return d
+
+@njit(fastmath=True)
+def euclidean(a, b):
+
     result = 0.0
     for i in range(a.shape[0] - 1):
         result += (a[i + 1] - b[i + 1]) ** 2
@@ -76,13 +84,13 @@ def tnf_euclidean(a, b):
     return np.sqrt(result)
 
 
-@njit()
+@njit(fastmath=True)
 def length_weighting(a, b):
     return min(np.log(a), np.log(b)) / (max(np.log(a), np.log(b)))
 
-@njit()
+@njit(fastmath=True)
 def tnf_correlation(a, b):
-    l = length_weighting(a[0], b[0])
+    rp =  max(a[0], b[0]) ** min(a[0], b[0])
     # l = 0
     x = a[1:]
     y = b[1:]
@@ -111,10 +119,88 @@ def tnf_correlation(a, b):
     elif dot_product == 0.0:
         return 1.0
     else:
-        return (1.0 - (dot_product / np.sqrt(norm_x * norm_y)))**(1-l)
+        return rp * (1.0 - (dot_product / np.sqrt(norm_x * norm_y)))
+
+
+@njit(fastmath=True)
+def inverse_correlation(a, b):
+    rp =  max(a[0], b[0]) ** min(a[0], b[0])
+    # l = 0
+    x = a[1:]
+    y = b[1:]
+    mu_x = 0.0
+    mu_y = 0.0
+    norm_x = 0.0
+    norm_y = 0.0
+    dot_product = 0.0
+
+    for i in range(x.shape[0]):
+        mu_x += x[i]
+        mu_y += y[i]
+
+    mu_x /= x.shape[0]
+    mu_y /= x.shape[0]
+
+    for i in range(x.shape[0]):
+        shifted_x = x[i] - mu_x
+        shifted_y = y[i] - mu_y
+        norm_x += shifted_x ** 2
+        norm_y += shifted_y ** 2
+        dot_product += shifted_x * shifted_y
+
+    if norm_x == 0.0 and norm_y == 0.0:
+        return 1.0
+    elif dot_product == 0.0:
+        return 0.0
+    else:
+        return (dot_product / np.sqrt(norm_x * norm_y) + 1) / rp
+
+@njit(fastmath=True)
+def tnf_spearman(a, b):
+    rp = max(a[0], b[0])
+
+    # Sum of sqaured difference between ranks
+    result = 0.0
+    for i in range(a.shape[0] - 1):
+        result += (a[i + 1] - b[i + 1]) ** 2
+
+    n = len(a[1:])
+    
+    spman = 1 -  6 * result / (n*(n**2 - 1))
+    # we would use spman = 1 - spman for actual correlation
+    spman += 1
+    spman = 2 - spman
+    
+    if a[0] > 1 and b[0] > 1:
+       spman = spman * a[0] * b[0]
+    elif rp > 1:
+        spman = spman * rp
+
+    return spman
+    
+@njit(fastmath=True)
+def tnf_kendall_tau(x, y):
+    rp = max(y[0], x[0])
+    values1 = x[1:]
+    values2 = y[1:]
+    
+    n = len(values1)
+    d = 0
+    for i in range(0, n):
+        a = values1[i] - values2[i] # 
+        b = values2[i] - values1[i]
+        if a * b < 0:
+            d += 1
+
+    d = d / (n * (n - 1) / 2)
+    if rp > 1:
+        d = d * rp
+    return d
+      
+
 
 @njit()
-def hellinger_distance_normal(a, b, n_samples):
+def hellinger_distance_normal(a, b, n_samples, sample_distances):
     """
     a - The mean and variance vec for contig a over n_samples
     b - The mean and variance vec for contig b over n_samples
@@ -131,7 +217,8 @@ def hellinger_distance_normal(a, b, n_samples):
     b_means = b[::2]
     b_vars = b[1::2]
     h_geom_mean = []
-    
+    both_present = []
+
     for i in range(0, n_samples):
         # Use this indexing method as zip does not seem to work so well in njit
         # Add tiny value to each to avoid division by zero
@@ -139,22 +226,31 @@ def hellinger_distance_normal(a, b, n_samples):
         a_var = a_vars[i] + 1e-6
         b_mean = b_means[i] + 1e-6
         b_var = b_vars[i] + 1e-6
-
+        if a_mean > 1e-6 and b_mean > 1e-6:
+            both_present.append(i)
         # First component of hellinger distance
         h1 = np.sqrt(((2*np.sqrt(a_var)*np.sqrt(b_var)) / (a_var + b_var)))
 
         h2 = math.exp(-0.25 * ((a_mean - b_mean)**2) / (a_var + b_var))
 
         h_geom_mean.append(1 - h1 * h2)
-        
-    # convert to log space to avoid overflow errors
-    h_geom_mean = np.log(np.array(h_geom_mean))
-    # return the geometric mean
-    return np.exp(h_geom_mean.sum() / len(h_geom_mean))
+
+    if len(h_geom_mean) >= 1:
+    
+        # convert to log space to avoid overflow errors
+        d = np.log(np.array(h_geom_mean))
+        # return the geometric mean
+        d = np.exp(d.sum() / len(d))
+        geom_sim = geom_sim_calc(both_present, sample_distances)
+        d = d ** (1/geom_sim)
+    else:
+        d = 1
+    
+    return d
 
 
 @njit()
-def hellinger_distance_poisson(a, b, n_samples):
+def hellinger_distance_poisson(a, b, n_samples, sample_distances):
     """
     a - The mean and variance vec for contig a over n_samples
     b - The mean and variance vec for contig b over n_samples
@@ -169,24 +265,36 @@ def hellinger_distance_poisson(a, b, n_samples):
     a_means = a[::2]
     b_means = b[::2]
     h_geom_mean = []
+    both_present = []
     
     for i in range(0, n_samples):
         # Use this indexing method as zip does not seem to work so well in njit
         # Add tiny value to each to avoid division by zero
         a_mean = a_means[i] + 1e-6
         b_mean = b_means[i] + 1e-6
-
-        # First component of hellinger distance
-        h1 = math.exp(-0.5 * ((np.sqrt(a_mean) - np.sqrt(b_mean))**2))
-
-        h_geom_mean.append(1 - h1)
         
-    # convert to log space to avoid overflow errors
-    h_geom_mean = np.log(np.array(h_geom_mean))
-    # return the geometric mean
-    return np.exp(h_geom_mean.sum() / len(h_geom_mean)) 
+        if a_mean > 1e-6 and b_mean > 1e-6:
+            both_present.append(i)
 
-@njit()
+        if a_mean > 1e-6 or b_mean > 1e-6:
+            # First component of hellinger distance
+            h1 = math.exp(-0.5 * ((np.sqrt(a_mean) - np.sqrt(b_mean))**2))
+
+            h_geom_mean.append(1 - h1)
+        
+    if len(h_geom_mean) >= 1:
+        # convert to log space to avoid overflow errors
+        d = np.log(np.array(h_geom_mean))
+        # return the geometric mean
+        d = np.exp(d.sum() / len(d))
+        geom_sim = geom_sim_calc(both_present, sample_distances)
+        d = d ** (1/geom_sim)
+    else:
+        d = 1
+    
+    return d
+
+@njit(fastmath=True)
 def metabat_distance(a, b, n_samples, sample_distances):
     """
     a - The mean and variance vec for contig a over n_samples
@@ -220,13 +328,12 @@ def metabat_distance(a, b, n_samples, sample_distances):
         if a_mean > 1e-6 and b_mean > 1e-6:
             both_present.append(i)
 
-        if a_mean > 1e-6 or b_mean > 1e-6:
-            if a_var < 1:
-                a_var = 1
-            if b_var < 1:
-                b_var = 1
-
-
+        if a_mean > 1e-6 or b_mean > 1e-6 and a_mean != b_mean:
+            # if a_var > a_mean:
+                # a_var = a_mean
+            # if b_var > b_mean:
+                # b_var = b_mean
+                
             if abs(a_var - b_var) < 1e-4:
                 k1 = k2 = (a_mean + b_mean) / 2
             else:
@@ -247,26 +354,32 @@ def metabat_distance(a, b, n_samples, sample_distances):
                 p2 = NormalDist(b_mean, np.sqrt(b_var))
 
             if k1 == k2:
-                mb_vec.append((abs(p1.cdf(k1) - p2.cdf(k1))))
+                d = abs(p1.cdf(k1) - p2.cdf(k1))
+                mb_vec.append(max(d, 1e-6))
+                # mb_vec.append(d)
             else:
-                mb_vec.append((p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)))
+                d = p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)
+                mb_vec.append(max(d, 1e-6))
+                # mb_vec.append(d)
+        else:
+            mb_vec.append(max(d, 1e-6))
     
     if len(mb_vec) >= 1:
         # convert to log space to avoid overflow errors
-        mb_vec = np.log(np.array(mb_vec))
+        d = np.log(np.array(mb_vec))
         # return the geometric mean
-        d = np.exp(mb_vec.sum() / len(mb_vec))
+        d = np.exp(d.sum() / len(d))
 
         # Calculate geometric mean of sample distances
         geom_sim = geom_sim_calc(both_present, sample_distances)
         # geom_sim = 1
-        d = d ** (1/geom_sim)
+        d = d * geom_sim
     else:
         d = 1
 
     return d
 
-@njit()
+@njit(fastmath=True)
 def geom_sim_calc(both_present, sample_distances):
     similarity_vec = []
     result = combinations(both_present, 2)
@@ -280,7 +393,8 @@ def geom_sim_calc(both_present, sample_distances):
         geom_sim = 1
     return geom_sim
 
-@njit()
+
+@njit(fastmath=True)
 def combinations(pool, r):
     n = len(pool)
     indices = list(range(r))
@@ -344,7 +458,32 @@ def kl_divergence(a, b, n_samples):
     # return the geometric mean
     return np.exp(kl_vec.sum() / len(kl_vec))
 
-@njit()
+@njit(fastmath=True)
+def symmetric_kl(x, y, sample_distances, z=1e-11):
+    n = x.shape[0]
+    x_sum = 0
+    y_sum = 0
+    kl1 = 0
+    kl2 = 0
+
+    for i in range(n):
+        x[i] += z
+        x_sum += x[i]
+        y[i] += z
+        y_sum += y[i]
+
+    for i in range(n):
+        x[i] /= x_sum
+        y[i] /= y_sum
+
+    for i in range(n):
+        kl1 += x[i] * np.log(x[i] / y[i])
+        kl2 += y[i] * np.log(y[i] / x[i])
+
+    return (kl1 + kl2) / 2
+
+
+@njit(fastmath=True)
 def rho(a, b):
     """
     a - CLR transformed coverage distribution vector a
@@ -353,7 +492,27 @@ def rho(a, b):
     return - This is a transformed, inversed version of rho. Normal those -1 <= rho <= 1
     transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
     """
+    rp = a[0] * b[0]
+    covariance_mat = np.cov(a[1:], b[1:], rowvar=True)
+    covariance = covariance_mat[0, 1]
+    var_a = covariance_mat[0, 0]
+    var_b = covariance_mat[1, 1]
+    vlr = -2 * covariance + var_a + var_b
+    rho = 1 - vlr / (var_a + var_b)
+    rho += 1
+    rho = 2 - rho
+    
+    return rho * rp
 
+@njit(fastmath=True)
+def rho_coverage(a, b):
+    """
+    a - CLR transformed coverage distribution vector a
+    b - CLR transformed coverage distribution vector b
+
+    return - This is a transformed, inversed version of rho. Normal those -1 <= rho <= 1
+    transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
+    """
     covariance_mat = np.cov(a, b, rowvar=True)
     covariance = covariance_mat[0, 1]
     var_a = covariance_mat[0, 0]
@@ -362,11 +521,6 @@ def rho(a, b):
     rho = 1 - vlr / (var_a + var_b)
     rho += 1
     rho = 2 - rho
-    # Since these compositonal arrays are CLR transformed
-    # This is the equivalent to the aitchinson distance but we calculat the l2 norm
-    # euc_dist = np.linalg.norm(a[:n_samples] - b[:n_samples])
-
-    # dist = min(euc_dist, rho)
     
     return rho
 
@@ -374,7 +528,7 @@ def rho(a, b):
 def pearson(a, b):
     return np.corrcoef(a, b)[0, 1]
 
-@njit()
+@njit(fastmath=True)
 def aggregate_tnf(a, b, n_samples, sample_distances):
     """
     a, b - concatenated contig depth, variance, and TNF info with contig length at index 0
@@ -383,20 +537,101 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
     returns - an aggregate distance metric between KL divergence and TNF
     """
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
-    # l = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
 
-    # tnf_dist = tnf_correlation(a[1:], b[1:], n_samples*2)
     tnf_dist = tnf_euclidean(a[n_samples*2:], b[n_samples*2:])
     kl = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples, sample_distances)
-    # if n_samples < 3:
-    agg = ((tnf_dist**(1-w))) * kl**(w)
-    # else:
-        # agg = np.sqrt((tnf_dist**(1-w)) * (kl**(w)) * pearson(a[1:n_samples*2 + 1][0::2], b[1:n_samples*2 + 1][0::2]))
 
-    return agg
+    kl = np.sqrt((kl ** w) * (tnf_dist ** (1 - w)))
+       
+    return kl
+
+@njit(fastmath=True)
+def populate_matrix(depths, n_samples, sample_distances):
+    distances = np.zeros((depths.shape[0], depths.shape[0]))
+    w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
+    tids = List()
+    [tids.append(x) for x in range(depths.shape[0])]
+    pairs = combinations(tids, 2)
+    mean_md = 0
+    mean_tnf = 0
+    mean_agg = 0
+    
+    for i in pairs:
+        md = metabat_distance(depths[i[0], :n_samples*2], depths[i[1], :n_samples*2], n_samples, sample_distances)
+        tnf_dist = rho(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
+
+        agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
+
+        mean_md += md
+        mean_tnf += tnf_dist
+        mean_agg += agg
+        
+        distances[i[0], i[1]] = agg
+        distances[i[1], i[0]] = agg
+        
+    mean_md = mean_md / len(pairs)
+    mean_tnf = mean_tnf / len(pairs)
+    mean_agg = mean_agg / len(pairs)
+    
+    return mean_md, mean_tnf, mean_agg, distances
 
 
-@njit()
+@njit(fastmath=True)
+def populate_dictionary(depths, n_samples, sample_distances):
+    distances = {}
+    w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
+    tids = List()
+    [tids.append(x) for x in range(depths.shape[0])]
+
+    for tid in tids:
+        distances[tid] = List([0.0, 0.0, 0.0])
+    pairs = combinations(tids, 2)
+    mean_md = 0.0
+    mean_tnf = 0.0
+    mean_agg = 0.0
+    
+    for i in pairs:
+        md = metabat_distance(depths[i[0], :n_samples*2], depths[i[1], :n_samples*2], n_samples, sample_distances)
+        tnf_dist = rho(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
+
+        agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
+
+        mean_md += md
+        mean_tnf += tnf_dist
+        mean_agg += agg
+
+
+        distances[i[0]][0] += md
+        distances[i[0]][1] += tnf_dist
+        distances[i[0]][2] += agg
+
+        distances[i[1]][0] += md
+        distances[i[1]][1] += tnf_dist
+        distances[i[1]][2] += agg
+
+        
+    
+    mean_md = mean_md / len(pairs)
+    mean_tnf = mean_tnf / len(pairs)
+    mean_agg = mean_agg / len(pairs)
+    
+    return mean_md, mean_tnf, mean_agg, distances
+
+@njit(fastmath=True)
+def get_mean_metabat(depths, n_samples, sample_distances):
+    tids = List()
+    [tids.append(x) for x in range(depths.shape[0])]
+    pairs = combinations(tids, 2)
+    mean_d = 0
+    for i in pairs:
+        d = metabat_distance(depths[i[0], :], depths[i[1], :], n_samples, sample_distances)
+        mean_d += d
+        
+    mean_d = mean_d / len(pairs)
+    
+    return mean_d
+
+@njit(fastmath=True)
 def metabat_tdp(a, b):
     """
     a, b - concatenated TNF info with contig length at index 0    
@@ -426,7 +661,7 @@ def metabat_tdp(a, b):
     
     # tnf_dist = tnf_correlation(a[1:], b[1:], 0)
     # L2 norm is equivalent to euclidean distance
-    euc_dist = np.linalg.norm(a[1:] - b[1:])
+    euc_dist = euclidean(a[1:], b[1:])
     
     tnf_dist = -(param1 + param2 * euc_dist)
 
