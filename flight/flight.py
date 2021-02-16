@@ -449,13 +449,37 @@ def bin(args):
                         clusterer.fit_transform()
                         clusterer.cluster()
                         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-                        clusterer.pairwise_distances()
+
+                        n = 0
+                        old_tids = []
+                        while n <= 100:
+                            clusterer.pairwise_distances()
+                            if n == 0 or old_tids != clusterer.unbinned_tids:
+                                old_tids = clusterer.unbinned_tids
+                            else:
+                                clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1, bin_unbinned=True)
+                                break  # nothing changed
+                            clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1)
+                            n += 1
+
                         clusterer.bin_filtered(int(args.min_bin_size))
                         clusterer.plot()
                     elif not found_disconnections: # run clustering based off first round of embeddings
                         clusterer.cluster()
                         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-                        clusterer.pairwise_distances()
+
+                        n = 0
+                        old_tids = []
+                        while n <= 100:
+                            clusterer.pairwise_distances()
+                            if n == 0 or old_tids != clusterer.unbinned_tids:
+                                old_tids = clusterer.unbinned_tids
+                            else:
+                                clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1, bin_unbinned=True)
+                                break # nothing changed
+                            clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1)
+                            n += 1
+
                         clusterer.bin_filtered(int(args.min_bin_size))
                         clusterer.plot()
                     else:
@@ -464,12 +488,7 @@ def bin(args):
                     clusterer.rescue_contigs(int(args.min_bin_size))
             else:
                 clusterer.rescue_contigs(int(args.min_bin_size))
-            
-        
 
-        # clusterer.merge_bins(int(args.min_bin_size)) # Merges bins when n_samples is < 3
-
-        # clusterer.bin_big_contigs(int(args.min_bin_size))
         clusterer.write_bins(int(args.min_bin_size))
 
 def vamb(args):

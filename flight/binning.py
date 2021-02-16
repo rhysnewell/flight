@@ -594,15 +594,7 @@ class Binner():
                 contigs = self.large_contigs.loc[tids, :]
                 log_lengths = np.log(contigs['contigLen']) / np.log(self.min_contig_size)
                 tnfs = self.tnfs[self.tnfs['contigName'].isin(contigs['contigName'])]
-                
-                # mean_md, mean_tnf, mean_agg, distances = metrics.populate_matrix(np.concatenate((contigs.iloc[:, 3:].values, log_lengths.values[:, None], tnfs.iloc[:, 2:].values), axis=1),
-                                                                            # n_samples,
-                                                                            # sample_distances)
-                # print(bin, mean_md, mean_tnf, mean_agg, any([mean_md, mean_tnf, mean_agg]))
-                
-                        
-                    
-                # if mean_md >= 0.2 or mean_tnf >= 0.6 or mean_agg >= 0.4 or contigs['contigLen'].sum() >= 5e-6:
+
                 if contigs['contigLen'].sum() >= 3e6:
                     try:
                         max_bin_id = max(new_bins) + 1
@@ -651,7 +643,6 @@ class Binner():
         for k, v in new_bins.items():
             self.bins[max_bin_id + k] = v
 
-        self.reembed_unbinned(self.unbinned_tids, max(self.bins.keys()) + 1)        
 
     
     def recluster(self, distances, metric='euclidean', binning_method='eom', min_cluster_size=5, min_samples=2):
@@ -680,7 +671,7 @@ class Binner():
                 return np.array([-1 for i in range(distances.shape[0])])
 
                 
-    def reembed_unbinned(self, tids, max_bin_id):
+    def reembed_unbinned(self, tids, max_bin_id, bin_unbinned = False):
         if len(tids) > 1:
             contigs = self.large_contigs.loc[tids, :]
             log_lengths = np.log(contigs['contigLen']) / np.log(self.min_contig_size)
@@ -697,7 +688,7 @@ class Binner():
                                                             axis=1))
             agg_mapping = self.depth_reducer.fit(np.concatenate((contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
             if self.n_samples >= 3:
-                self.coverage_mapping.n_neighbors = min(contigs.values.shape[0] // 2, 50)
+                self.coverage_reducer.n_neighbors = min(contigs.values.shape[0] // 2, 50)
                 coverage_mapping = self.coverage_reducer.fit(
                                             np.concatenate((log_lengths.values[:, None],
                                                             skbio.stats.composition.clr(contigs.iloc[:, 3::2].T + 1).T),
@@ -707,31 +698,6 @@ class Binner():
                 intersection = agg_mapping * tnf_mapping         
             labels = self.recluster(intersection.embedding_) 
 
-            logging.info("Generating UMAP plot with labels for unbinned")
-
-            label_set = set(labels)
-            color_palette = sns.color_palette('husl', max(labels) + 1)
-            cluster_colors = [
-                color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in labels
-            ]
-
-            fig = plt.figure()
-            ax = fig.add_subplot(111)
-
-            ## Plot large contig membership
-            ax.scatter(intersection.embedding_[:, 0],
-                       intersection.embedding_[:, 1],
-                       s=7,
-                       linewidth=0,
-                       c=cluster_colors,
-                       alpha=0.7)
-
-            plt.gca().set_aspect('equal', 'datalim')
-            plt.title('UMAP projection of unbinned contigs', fontsize=24)
-            plt.savefig(self.path + '/UMAP_projection_of_unbinned.png')
-
-            # except:
-                # labels = [-1 for i in tids]
 
             self.unbinned_tids = []
             for (idx, label) in enumerate(labels):
@@ -742,8 +708,40 @@ class Binner():
                     except KeyError:
                         self.bins[max_bin_id + label.item() + 1] = [self.assembly[contigs.iloc[idx, 0]]]
 
-                elif contigs.iloc[idx, 1] >= self.min_bin_size:
+                else:
                     self.unbinned_tids.append(idx)
+
+            if bin_unbinned:
+                logging.info("Generating UMAP plot with labels for unbinned")
+
+                color_palette = sns.color_palette('husl', max(labels) + 1)
+                cluster_colors = [
+                    color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in labels
+                ]
+
+                fig = plt.figure()
+                ax = fig.add_subplot(111)
+
+                ## Plot large contig membership
+                ax.scatter(intersection.embedding_[:, 0],
+                           intersection.embedding_[:, 1],
+                           s=7,
+                           linewidth=0,
+                           c=cluster_colors,
+                           alpha=0.7)
+
+                plt.gca().set_aspect('equal', 'datalim')
+                plt.title('UMAP projection of unbinned contigs', fontsize=24)
+                plt.savefig(self.path + '/UMAP_projection_of_unbinned.png')
+                try:
+                    max_bin_id = max(self.bins.keys()) + 1
+                except ValueError:
+                    max_bin_id = 1
+                for idx in self.unbinned_tids:
+                    if contigs.iloc[idx, 1] >= self.min_bin_size:
+                        max_bin_id += 1
+                        self.bins[max_bin_id] = [self.assembly[contigs.iloc[idx, 0]]]
+
 
                     
     def cluster(self):
@@ -1121,30 +1119,6 @@ class Binner():
             if contig["contigLen"] >= min_bin_size:
                 self.bins[max_bin_id] = [self.assembly[contig["contigName"]]]
                 max_bin_id += 1
-            
-    def bin_unbinned_contigs(self):
-        if self.unbinned_clusterer is not None:
-            logging.info("Binning unbinned contigs...")
-            max_bin_id = max(self.bins.keys()) + 1
-
-
-            for (unbinned_idx, label) in enumerate(self.unbinned_clusterer.labels_):
-                idx = self.unbinned_indices[unbinned_idx]
-                self.clusterer.labels_[idx] = label.item() + max_bin_id
-                if label != -1:
-                    try:
-                        self.bins[label.item() + max_bin_id].append(
-                            self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]]) # inputs values as tid
-                    except KeyError:
-                        self.bins[label.item() + max_bin_id] = [self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]]]
-                else:
-                    ## bin out the unbinned contigs again as label 0. Rosella will try to rescue them if there
-                    ## are enough samples
-                    try:
-                        self.bins[label.item() + 1].append(
-                            self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]])  # inputs values as tid
-                    except KeyError:
-                        self.bins[label.item() + 1] = [self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]]]
 
 
     def write_bins(self, min_bin_size=200000):
