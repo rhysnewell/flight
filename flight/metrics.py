@@ -90,7 +90,7 @@ def length_weighting(a, b):
 
 @njit(fastmath=True)
 def tnf_correlation(a, b):
-    rp =  max(a[0], b[0]) ** min(a[0], b[0])
+    rp =  max(a[0], b[0])
     # l = 0
     x = a[1:]
     y = b[1:]
@@ -492,13 +492,41 @@ def rho(a, b):
     return - This is a transformed, inversed version of rho. Normal those -1 <= rho <= 1
     transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
     """
-    rp = a[0] * b[0]
-    covariance_mat = np.cov(a[1:], b[1:], rowvar=True)
-    covariance = covariance_mat[0, 1]
-    var_a = covariance_mat[0, 0]
-    var_b = covariance_mat[1, 1]
-    vlr = -2 * covariance + var_a + var_b
-    rho = 1 - vlr / (var_a + var_b)
+
+    rp =  max(a[0], b[0])
+    # l = 0
+    x = a[1:]
+    y = b[1:]
+    mu_x = 0.0
+    mu_y = 0.0
+    norm_x = 0.0
+    norm_y = 0.0
+    dot_product = 0.0
+
+    for i in range(x.shape[0]):
+        mu_x += x[i]
+        mu_y += y[i]
+
+    mu_x /= x.shape[0]
+    mu_y /= x.shape[0]
+
+    for i in range(x.shape[0]):
+        shifted_x = x[i] - mu_x
+        shifted_y = y[i] - mu_y
+        norm_x += shifted_x ** 2
+        norm_y += shifted_y ** 2
+        dot_product += shifted_x * shifted_y
+    
+    # rp = a[0] * b[0]
+    # covariance_mat = np.cov(a[1:], b[1:], rowvar=True)
+    # covariance = covariance_mat[0, 1]
+    # var_a = covariance_mat[0, 0]
+    # var_b = covariance_mat[1, 1]
+    norm_x = norm_x / (x.shape[0] - 1)
+    norm_y = norm_y / (x.shape[0] - 1)
+    dot_product = dot_product / (x.shape[0] - 1)
+    vlr = -2 * dot_product + norm_x + norm_y
+    rho = 1 - vlr / (norm_x + norm_y)
     rho += 1
     rho = 2 - rho
     
@@ -538,7 +566,7 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
     """
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
 
-    tnf_dist = tnf_euclidean(a[n_samples*2:], b[n_samples*2:])
+    tnf_dist = rho(a[n_samples*2:], b[n_samples*2:])
     kl = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples, sample_distances)
 
     kl = np.sqrt((kl ** w) * (tnf_dist ** (1 - w)))
@@ -547,10 +575,13 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
 
 @njit(fastmath=True)
 def populate_matrix(depths, n_samples, sample_distances):
+    contigs = {}
     distances = np.zeros((depths.shape[0], depths.shape[0]))
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
     tids = List()
     [tids.append(x) for x in range(depths.shape[0])]
+    for tid in tids:
+        contigs[tid] = List([0.0, 0.0, 0.0])
     pairs = combinations(tids, 2)
     mean_md = 0
     mean_tnf = 0
@@ -568,12 +599,21 @@ def populate_matrix(depths, n_samples, sample_distances):
         
         distances[i[0], i[1]] = agg
         distances[i[1], i[0]] = agg
+
+        contigs[i[0]][0] += md
+        contigs[i[0]][1] += tnf_dist
+        contigs[i[0]][2] += agg
+
+        contigs[i[1]][0] += md
+        contigs[i[1]][1] += tnf_dist
+        contigs[i[1]][2] += agg
+        
         
     mean_md = mean_md / len(pairs)
     mean_tnf = mean_tnf / len(pairs)
     mean_agg = mean_agg / len(pairs)
     
-    return mean_md, mean_tnf, mean_agg, distances
+    return mean_md, mean_tnf, mean_agg, distances, contigs
 
 
 @njit(fastmath=True)
