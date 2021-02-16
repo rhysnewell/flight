@@ -39,11 +39,15 @@ import multiprocessing as mp
 import hdbscan
 import itertools
 import threadpoolctl
+import imageio
+import matplotlib as plt
 from sklearn.metrics.pairwise import pairwise_distances
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
 
+
+# def plot_for_offset(embeddings, labels, )
 
 def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_cluster=False):
     """

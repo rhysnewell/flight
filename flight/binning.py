@@ -587,7 +587,7 @@ class Binner():
 
         bins_to_remove = []
         new_bins = {}
-        logging.info("Checking bin internal distances...")
+        logging.debug("Checking bin internal distances...")
 
         for bin, tids in self.bins.items():
             if len(tids) > 1:
@@ -595,7 +595,7 @@ class Binner():
                 log_lengths = np.log(contigs['contigLen']) / np.log(self.min_contig_size)
                 tnfs = self.tnfs[self.tnfs['contigName'].isin(contigs['contigName'])]
 
-                if contigs['contigLen'].sum() >= 3e6:
+                if contigs['contigLen'].sum() >= 4e6 or contigs['contigLen'].sum() <= 1e6:
                     try:
                         max_bin_id = max(new_bins) + 1
                     except ValueError:
@@ -605,13 +605,14 @@ class Binner():
                                                                                                 sample_distances)
 
                     
-                    if contigs['contigLen'].sum() >= 10e6 or mean_md >= 0.3 or mean_tnf >= 0.3 or mean_agg >= 0.3 or contigs['contigLen'].sum() < 2e5:
+                    if contigs['contigLen'].sum() >= 10e6 or mean_md >= 0.25 or mean_tnf >= 0.5 or mean_agg >= 0.3 or contigs['contigLen'].sum() < 2e5:
                         tids_to_remove = []
                         for k, v in per_contig_avg.items():
-                            if (v[0] / contigs.values.shape[0]) >= 0.3 \
-                            or (v[1] / contigs.values.shape[0]) >= 0.3 \
-                            or (v[2] / contigs.values.shape[0]) >= 0.3 \
-                            or self.large_contigs['contigLen'].loc[tids[k]] >= 2e6:
+                            if (v[0] / contigs.values.shape[0]) >= max(mean_md, 0.25) \
+                            or (v[1] / contigs.values.shape[0]) >= max(mean_tnf, 0.3) \
+                            or (v[2] / contigs.values.shape[0]) >= max(mean_agg, 0.3) \
+                            or self.large_contigs['contigLen'].loc[tids[k]] >= 2e6 \
+                            or contigs['contigLen'].sum() < 2e5:
                                 # remove this contig
                                 removed = tids[k]
                                 tids_to_remove.append(removed)
@@ -627,6 +628,11 @@ class Binner():
                             r = tids.remove(tid)
                         if len(tids) == 0:
                             bins_to_remove.append(bin)
+
+            elif self.large_contigs.loc[tids]["contigLen"].sum() <= 2e5:
+                 for tid in tids:
+                      self.unbinned_tids.append(tid)
+                      bins_to_remove.append(bin)
                         
                         
 
@@ -635,13 +641,10 @@ class Binner():
                 del self.bins[k]
             except KeyError:
                 pass
-                
-        try:
-            max_bin_id = max(self.bins.keys()) + 1
-        except ValueError:
-            max_bin_id = 1
+
         for k, v in new_bins.items():
-            self.bins[max_bin_id + k] = v
+             self.bins[k] = v
+                
 
 
     
@@ -672,8 +675,8 @@ class Binner():
 
                 
     def reembed_unbinned(self, tids, max_bin_id, bin_unbinned = False):
-        if len(tids) > 1:
-            contigs = self.large_contigs.loc[tids, :]
+        if len(tids) >= 10:
+            contigs = self.large_contigs.loc[list(set(tids)), :]
             log_lengths = np.log(contigs['contigLen']) / np.log(self.min_contig_size)
             tnfs = self.tnfs[self.tnfs['contigName'].isin(contigs['contigName'])]
             # try:
@@ -698,6 +701,27 @@ class Binner():
                 intersection = agg_mapping * tnf_mapping         
             labels = self.recluster(intersection.embedding_) 
 
+            
+            color_palette = sns.color_palette('husl', max(labels) + 1)
+            cluster_colors = [
+                color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in labels
+            ]
+
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+
+            ## Plot large contig membership
+            ax.scatter(intersection.embedding_[:, 0],
+                       intersection.embedding_[:, 1],
+                       s=7,
+                       linewidth=0,
+                       c=cluster_colors,
+                       alpha=0.7)
+
+            plt.gca().set_aspect('equal', 'datalim')
+            plt.title('UMAP projection of unbinned contigs', fontsize=24)
+            plt.savefig(self.path + '/UMAP_projection_of_unbinned.png')
+
 
             self.unbinned_tids = []
             for (idx, label) in enumerate(labels):
@@ -709,38 +733,21 @@ class Binner():
                         self.bins[max_bin_id + label.item() + 1] = [self.assembly[contigs.iloc[idx, 0]]]
 
                 else:
-                    self.unbinned_tids.append(idx)
-
-            if bin_unbinned:
-                logging.info("Generating UMAP plot with labels for unbinned")
-
-                color_palette = sns.color_palette('husl', max(labels) + 1)
-                cluster_colors = [
-                    color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in labels
-                ]
-
-                fig = plt.figure()
-                ax = fig.add_subplot(111)
-
-                ## Plot large contig membership
-                ax.scatter(intersection.embedding_[:, 0],
-                           intersection.embedding_[:, 1],
-                           s=7,
-                           linewidth=0,
-                           c=cluster_colors,
-                           alpha=0.7)
-
-                plt.gca().set_aspect('equal', 'datalim')
-                plt.title('UMAP projection of unbinned contigs', fontsize=24)
-                plt.savefig(self.path + '/UMAP_projection_of_unbinned.png')
-                try:
-                    max_bin_id = max(self.bins.keys()) + 1
-                except ValueError:
-                    max_bin_id = 1
-                for idx in self.unbinned_tids:
-                    if contigs.iloc[idx, 1] >= self.min_bin_size:
-                        max_bin_id += 1
-                        self.bins[max_bin_id] = [self.assembly[contigs.iloc[idx, 0]]]
+                    self.unbinned_tids.append(tids[idx])
+        else:
+            labels = [-1 for i in tids]
+        
+        if bin_unbinned or len(tids) < 10:
+        
+            
+            try:
+                max_bin_id = max(self.bins.keys()) + 1
+            except ValueError:
+                max_bin_id = 1
+            for idx in self.unbinned_tids:
+                if self.large_contigs.loc[idx, :]['contigLen'] >= self.min_bin_size:
+                    max_bin_id += 1
+                    self.bins[max_bin_id] = [self.assembly[self.large_contigs.loc[idx, :]["contigName"]]]
 
 
                     

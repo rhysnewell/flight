@@ -41,6 +41,7 @@ import numpy as np
 import pandas as pd
 from numba import config, set_num_threads
 import threadpoolctl
+import warnings
 
 # Self imports
 from .binning import Binner
@@ -452,15 +453,19 @@ def bin(args):
 
                         n = 0
                         old_tids = []
-                        while n <= 100:
-                            clusterer.pairwise_distances()
-                            if n == 0 or old_tids != clusterer.unbinned_tids:
-                                old_tids = clusterer.unbinned_tids
-                            else:
-                                clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1, bin_unbinned=True)
-                                break  # nothing changed
-                            clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1)
-                            n += 1
+                        logging.info("Performing iterative clustering...")
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            while n <= 50:
+                                
+                                clusterer.pairwise_distances()
+                                if n == 0 or old_tids != set(clusterer.unbinned_tids):
+                                    old_tids = set(clusterer.unbinned_tids)
+                                else:
+                                    clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1, bin_unbinned=True)
+                                    break  # nothing changed
+                                clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1)
+                                n += 1
 
                         clusterer.bin_filtered(int(args.min_bin_size))
                         clusterer.plot()
@@ -470,15 +475,18 @@ def bin(args):
 
                         n = 0
                         old_tids = []
-                        while n <= 100:
-                            clusterer.pairwise_distances()
-                            if n == 0 or old_tids != clusterer.unbinned_tids:
-                                old_tids = clusterer.unbinned_tids
-                            else:
-                                clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1, bin_unbinned=True)
-                                break # nothing changed
-                            clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1)
-                            n += 1
+                        logging.info("Performing iterative clustering...")
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            while n <= 50:
+                                clusterer.pairwise_distances()
+                                if n == 0 or old_tids != clusterer.unbinned_tids:
+                                    old_tids = clusterer.unbinned_tids
+                                else:
+                                    clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1, bin_unbinned=True)
+                                    break # nothing changed
+                                clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1)
+                                n += 1
 
                         clusterer.bin_filtered(int(args.min_bin_size))
                         clusterer.plot()
