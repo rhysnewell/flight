@@ -42,10 +42,12 @@ import pandas as pd
 from numba import config, set_num_threads
 import threadpoolctl
 import warnings
+import imageio
 
 # Self imports
 from .binning import Binner
 from .cluster import Cluster
+import flight.utils as utils
 
 # Debug
 debug = {
@@ -433,6 +435,9 @@ def bin(args):
                            a=float(args.a),
                            b=float(args.b),
                            )
+
+        kwargs_write = {'fps':1.0, 'quantizer':'nq'}
+        plots = []
         with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
             
             if clusterer.tnfs.values.shape[0] > int(args.n_neighbors):
@@ -449,6 +454,14 @@ def bin(args):
                         # clusterer.update_parameters()
                         clusterer.fit_transform()
                         clusterer.cluster()
+
+                        ## Plot limits
+                        x_min = min(clusterer.embeddings[:, 0])
+                        x_max = min(clusterer.embeddings[:, 0])
+                        y_min = min(clusterer.embeddings[:, 1])
+                        y_max = min(clusterer.embeddings[:, 1])
+
+                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.labels, x_min, x_max, y_min, y_max))
                         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
 
                         n = 0
@@ -462,16 +475,28 @@ def bin(args):
                                 if n == 0 or old_tids != set(clusterer.unbinned_tids):
                                     old_tids = set(clusterer.unbinned_tids)
                                 else:
-                                    clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1, bin_unbinned=True)
+                                    plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1,
+                                                               plots, x_min, x_max, y_min, y_max,
+                                                               bin_unbinned=True)
                                     break  # nothing changed
-                                clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1)
+                                plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1,
+                                                           plots, x_min, x_max, y_min, y_max,)
                                 n += 1
+
+
 
                         clusterer.bin_filtered(int(args.min_bin_size))
                         clusterer.plot()
                     elif not found_disconnections: # run clustering based off first round of embeddings
                         clusterer.cluster()
                         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
+                        ## Plot limits
+                        x_min = min(clusterer.embeddings[:, 0])
+                        x_max = min(clusterer.embeddings[:, 0])
+                        y_min = min(clusterer.embeddings[:, 1])
+                        y_max = min(clusterer.embeddings[:, 1])
+                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.labels, x_min, x_max, y_min, y_max))
+
 
                         n = 0
                         old_tids = []
@@ -479,13 +504,19 @@ def bin(args):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             while n <= 50:
+
                                 clusterer.pairwise_distances()
-                                if n == 0 or old_tids != clusterer.unbinned_tids:
-                                    old_tids = clusterer.unbinned_tids
+                                if n == 0 or old_tids != set(clusterer.unbinned_tids):
+                                    old_tids = set(clusterer.unbinned_tids)
                                 else:
-                                    clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1, bin_unbinned=True)
-                                    break # nothing changed
-                                clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1)
+                                    plots = clusterer.reembed_unbinned(clusterer.unbinned_tids,
+                                                                       max(clusterer.bins.keys()) + 1,
+                                                                       plots, x_min, x_max, y_min, y_max,
+                                                                       bin_unbinned=True)
+                                    break  # nothing changed
+                                plots = clusterer.reembed_unbinned(clusterer.unbinned_tids,
+                                                                   max(clusterer.bins.keys()) + 1,
+                                                                   plots, x_min, x_max, y_min, y_max)
                                 n += 1
 
                         clusterer.bin_filtered(int(args.min_bin_size))
@@ -498,6 +529,7 @@ def bin(args):
                 clusterer.rescue_contigs(int(args.min_bin_size))
 
         clusterer.write_bins(int(args.min_bin_size))
+        imageio.mimsave(clusterer.path + '/UMAP_projections.gif', plots, fps=1)
 
 def vamb(args):
     min_bin_size = int(args.min_size)

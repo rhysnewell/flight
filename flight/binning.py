@@ -674,7 +674,7 @@ class Binner():
                 return np.array([-1 for i in range(distances.shape[0])])
 
                 
-    def reembed_unbinned(self, tids, max_bin_id, bin_unbinned = False):
+    def reembed_unbinned(self, tids, max_bin_id, plots, x_min, x_max, y_min, y_max, bin_unbinned = False):
         if len(tids) >= 10:
             contigs = self.large_contigs.loc[list(set(tids)), :]
             log_lengths = np.log(contigs['contigLen']) / np.log(self.min_contig_size)
@@ -698,10 +698,13 @@ class Binner():
                                                             axis=1))
                 intersection = agg_mapping * tnf_mapping * coverage_mapping
             else:
-                intersection = agg_mapping * tnf_mapping         
+                intersection = agg_mapping * tnf_mapping
+
+
+
             labels = self.recluster(intersection.embedding_) 
 
-            
+            plots.append(utils.plot_for_offset(intersection.embedding_, labels, x_min, x_max, y_min, y_max))
             color_palette = sns.color_palette('husl', max(labels) + 1)
             cluster_colors = [
                 color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in labels
@@ -748,6 +751,8 @@ class Binner():
                 if self.large_contigs.loc[idx, :]['contigLen'] >= self.min_bin_size:
                     max_bin_id += 1
                     self.bins[max_bin_id] = [self.assembly[self.large_contigs.loc[idx, :]["contigName"]]]
+
+        return plots
 
 
                     

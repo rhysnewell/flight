@@ -40,6 +40,7 @@ import hdbscan
 import itertools
 import threadpoolctl
 import imageio
+import seaborn as sns
 import matplotlib as plt
 from sklearn.metrics.pairwise import pairwise_distances
 
@@ -47,7 +48,36 @@ from sklearn.metrics.pairwise import pairwise_distances
 ################################ - Functions - ################################
 
 
-# def plot_for_offset(embeddings, labels, )
+def plot_for_offset(embeddings, labels, x_min, x_max, y_min, y_max):
+    label_set = set(labels)
+    color_palette = sns.color_palette('husl', max(labels) + 1)
+    cluster_colors = [
+        color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in labels
+    ]
+    #
+    # cluster_member_colors = [
+    # sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
+    # ]
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    ## Plot large contig membership
+    ax.scatter(embeddings[:, 0],
+               embeddings[:, 1],
+               s=7,
+               linewidth=0,
+               c=cluster_colors,
+               alpha=0.7)
+    ax.set(xlabel = 'UMAP dimension 1', ylabel = 'UMAP dimension 2',
+           title="UMAP projection and HDBSCAN clustering of contigs")
+
+    ax.set_ylim(y_min, y_max)
+    ax.set_xlim(x_min, x_max)
+
+    fig.canvas_draw()
+    image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
+    image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    return image
 
 def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_cluster=False):
     """
