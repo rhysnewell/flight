@@ -589,8 +589,6 @@ class Binner():
             n_samples = self.long_samples
             sample_distances = self.long_sample_distance
 
-
-
         bins_to_remove = []
         new_bins = {}
         logging.debug("Checking bin internal distances...")
@@ -598,8 +596,6 @@ class Binner():
 
         for bin, tids in self.bins.items():
             if len(tids) > 1 and bin not in self.checked_bins:
-                # if any([elem in tids for elem in [12415, 7570, 7627, 2893]]):
-                    # print(len(tids), tids, bin, self.bins)
                 contigs = self.large_contigs.loc[list(set(tids)), :]
                 log_lengths = np.log(contigs['contigLen']) / np.log(self.large_contigs['contigLen'].mean())
                 tnfs = self.tnfs[self.tnfs['contigName'].isin(contigs['contigName'])]
@@ -622,28 +618,19 @@ class Binner():
                                                                                                     sample_distances)
 
                         
-                        if contigs['contigLen'].sum() >= 13e6: # larger than most bacterial genomes, way larger than archael
-                            # Likely strains getting bunched together. Remebed separately
+                        if contigs['contigLen'].sum() >= 13e6: # larger than most bacterial genomes, way larger than archaeal
+                            # Likely strains getting bunched together. Re-embed separately
                             reembed_separately.append(bin)
                         else:
-                            # if mean_md >= 0.1:
+                            if mean_md >= 0.05:
                                 tids_to_remove = []
                                 for k, v in per_contig_avg.items():
-                                    # if (v[0] / contigs.values.shape[0]) >= 0.25 \
-                                    # or (v[1] / contigs.values.shape[0]) >= 0.5 \
-                                    # or (self.large_contigs['contigLen'].loc[tids[k]] >= 2e6 and contigs['contigLen'].sum() >= 6e6) \
                                     if (v[0] / contigs.values.shape[0]) >= 0.2 \
+                                    or (v[2] / contigs.values.shape[0]) >= 0.4 \
                                     or contigs['contigLen'].sum() < 2e5:
-                                    # or (mean_agg >= 0.4):
                                         # remove this contig
                                         removed = tids[k]
                                         tids_to_remove.append(removed)
-                                        # if self.large_contigs['contigLen'].loc[removed] >= 2e6:
-                                            # max_bin_id += 1
-                                            # try:
-                                                # new_bins[max_bin_id].append(removed) # inputs values as tid
-                                            # except KeyError:
-                                                # new_bins[max_bin_id] = [removed]
                                         # else: # attempt to rebin
                                         self.unbinned_tids.append(removed)
                                 for tid in tids_to_remove:
@@ -664,18 +651,12 @@ class Binner():
                     # if mean_md >= 0.1:
                     tids_to_remove = []
                     for k, v in per_contig_avg.items():
-                        if (v[0] / contigs.values.shape[0]) >= 0.2:
+                        if (v[0] / contigs.values.shape[0]) >= 0.2 \
+                        or (v[2] / contigs.values.shape[0]) >= 0.4:
                         # if True:
                             # remove this contig
                             removed = tids[k]
                             tids_to_remove.append(removed)
-                            # if self.large_contigs['contigLen'].loc[removed] >= 2e6:
-                                # max_bin_id += 1
-                                # try:
-                                    # new_bins[max_bin_id].append(removed) # inputs values as tid
-                                # except KeyError:
-                                    # new_bins[max_bin_id] = [removed]
-                            # else: # attempt to rebin
                             self.unbinned_tids.append(removed)
                     for tid in tids_to_remove:
                         r = tids.remove(tid)
@@ -686,7 +667,7 @@ class Binner():
                     # elif mean_agg <= 0.1:
                         # self.checked_bins.append(bin)
                     
-            elif self.large_contigs.loc[tids]["contigLen"].sum() <= 2e5:
+            elif self.large_contigs.loc[tids]["contigLen"].sum() < self.min_bin_size:
                  for tid in tids:
                       self.unbinned_tids.append(tid)
                       bins_to_remove.append(bin)
@@ -755,8 +736,7 @@ class Binner():
                 
     def reembed_unbinned(self, tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, delete_unbinned = False, bin_unbinned = False):
         big_contigs = []
-        # if any([elem in tids for elem in [12415, 7570, 7627, 2893]]):
-            # print("in re-embed", n, len(tids), tids, delete_unbinned)
+
         if len(tids) >= 2:
             # rescue any large contigs if the clustering is scuffed
             if bin_unbinned:
@@ -843,15 +823,14 @@ class Binner():
 
                 else:
                     self.unbinned_tids.append(tid.item())
-                # if tid == 795:
-                    # print(tids[idx], idx, label, len(tids), len(self.unbinned_tids), big_contigs, self.bins[max_bin_id + label.item() + 1], contigs.loc[tid]['contigName'])
+
         else:
             labels = [-1 for i in tids]
             current_disconnected = np.array([False for i in range(len(tids))])
             if delete_unbinned:
                 self.unbinned_tids = [] 
             for tid in tids:
-               if contigs.loc[tid, :]['contigLen'] >= 1e6:
+               if self.large_contigs.loc[tid, :]['contigLen'] >= self.min_bin_size:
                     big_contigs.append(tid)
 
         try:
@@ -864,7 +843,7 @@ class Binner():
             self.bins[max_bin_id] = [idx]
 
         for idx in np.array(tids)[current_disconnected]:
-            if self.large_contigs.loc[idx, :]['contigLen'] >= 2e6:
+            if self.large_contigs.loc[idx, :]['contigLen'] >= self.min_bin_size:
                 max_bin_id += 1
                 self.bins[max_bin_id] = [idx.item()]
             else:
