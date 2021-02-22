@@ -473,16 +473,21 @@ def bin(args):
                             while n <= 50:
                                 
                                 clusterer.pairwise_distances()
+                                try:
+                                    max_bin_id = max(clusterer.bins.keys()) + 1
+                                except ValueError:
+                                    max_bin_id = 1
+                                    
                                 if n == 0 or old_tids != set(clusterer.unbinned_tids):
                                     old_tids = set(clusterer.unbinned_tids)
                                 else:
-                                    plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1,
+                                    plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
                                                                plots, x_min, x_max, y_min, y_max, n+1,
                                                                delete_unbinned=True,
                                                                bin_unbinned=False) # First pass get bins
-                                    # clusterer.pairwise_distances(bin_unbinned=True)
+                                    clusterer.pairwise_distances(bin_unbinned=True)
                                     break  # nothing changed
-                                plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1,
+                                plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
                                                                 plots, x_min, x_max, y_min, y_max, n+1, delete_unbinned=True)
                                 n += 1
 
@@ -509,18 +514,23 @@ def bin(args):
                             while n <= 50:
 
                                 clusterer.pairwise_distances()
+                                try:
+                                    max_bin_id = max(clusterer.bins.keys()) + 1
+                                except ValueError:
+                                    max_bin_id = 1
+                                    
                                 if n == 0 or old_tids != set(clusterer.unbinned_tids):
                                     old_tids = set(clusterer.unbinned_tids)
                                 else:
                                     plots = clusterer.reembed_unbinned(clusterer.unbinned_tids,
-                                                                       max(clusterer.bins.keys()) + 1,
+                                                                       max_bin_id,
                                                                        plots, x_min, x_max, y_min, y_max, n+1,
                                                                        delete_unbinned=True,
                                                                        bin_unbinned=True)
                                     clusterer.pairwise_distances(bin_unbinned=True)
                                     break  # nothing changed
                                 plots = clusterer.reembed_unbinned(clusterer.unbinned_tids,
-                                                                   max(clusterer.bins.keys()) + 1,
+                                                                   max_bin_id,
                                                                    plots, x_min, x_max, y_min, y_max, n+1, delete_unbinned=True)
                                 n += 1
 
