@@ -14,6 +14,7 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the                #
 # GNU General Public License for more details.                                #
 #                                                                             #
+#                                                                             #
 # You should have received a copy of the GNU General Public License           #
 # along with this program. If not, see <http://www.gnu.org/licenses/>.        #
 #                                                                             #
@@ -457,11 +458,11 @@ def bin(args):
 
                         ## Plot limits
                         x_min = min(clusterer.embeddings[:, 0])
-                        x_max = min(clusterer.embeddings[:, 0])
+                        x_max = max(clusterer.embeddings[:, 0])
                         y_min = min(clusterer.embeddings[:, 1])
-                        y_max = min(clusterer.embeddings[:, 1])
+                        y_max = max(clusterer.embeddings[:, 1])
 
-                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.labels, x_min, x_max, y_min, y_max))
+                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.clusterer.labels_, x_min, x_max, y_min, y_max, 0))
                         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
 
                         n = 0
@@ -476,11 +477,13 @@ def bin(args):
                                     old_tids = set(clusterer.unbinned_tids)
                                 else:
                                     plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1,
-                                                               plots, x_min, x_max, y_min, y_max,
-                                                               bin_unbinned=True)
+                                                               plots, x_min, x_max, y_min, y_max, n+1,
+                                                               delete_unbinned=True,
+                                                               bin_unbinned=False) # First pass get bins
+                                    # clusterer.pairwise_distances(bin_unbinned=True)
                                     break  # nothing changed
                                 plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max(clusterer.bins.keys()) + 1,
-                                                           plots, x_min, x_max, y_min, y_max,)
+                                                                plots, x_min, x_max, y_min, y_max, n+1, delete_unbinned=True)
                                 n += 1
 
 
@@ -495,7 +498,7 @@ def bin(args):
                         x_max = min(clusterer.embeddings[:, 0])
                         y_min = min(clusterer.embeddings[:, 1])
                         y_max = min(clusterer.embeddings[:, 1])
-                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.labels, x_min, x_max, y_min, y_max))
+                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.clusterer.labels_, x_min, x_max, y_min, y_max, 0))
 
 
                         n = 0
@@ -511,12 +514,14 @@ def bin(args):
                                 else:
                                     plots = clusterer.reembed_unbinned(clusterer.unbinned_tids,
                                                                        max(clusterer.bins.keys()) + 1,
-                                                                       plots, x_min, x_max, y_min, y_max,
+                                                                       plots, x_min, x_max, y_min, y_max, n+1,
+                                                                       delete_unbinned=True,
                                                                        bin_unbinned=True)
+                                    clusterer.pairwise_distances(bin_unbinned=True)
                                     break  # nothing changed
                                 plots = clusterer.reembed_unbinned(clusterer.unbinned_tids,
                                                                    max(clusterer.bins.keys()) + 1,
-                                                                   plots, x_min, x_max, y_min, y_max)
+                                                                   plots, x_min, x_max, y_min, y_max, n+1, delete_unbinned=True)
                                 n += 1
 
                         clusterer.bin_filtered(int(args.min_bin_size))

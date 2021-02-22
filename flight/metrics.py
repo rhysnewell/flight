@@ -493,7 +493,7 @@ def rho(a, b):
     transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
     """
 
-    rp =  max(a[0], b[0])
+    rp =  max(max(a[0], b[0]), 1)
     # l = 0
     x = a[1:]
     y = b[1:]
@@ -517,11 +517,6 @@ def rho(a, b):
         norm_y += shifted_y ** 2
         dot_product += shifted_x * shifted_y
     
-    # rp = a[0] * b[0]
-    # covariance_mat = np.cov(a[1:], b[1:], rowvar=True)
-    # covariance = covariance_mat[0, 1]
-    # var_a = covariance_mat[0, 0]
-    # var_b = covariance_mat[1, 1]
     norm_x = norm_x / (x.shape[0] - 1)
     norm_y = norm_y / (x.shape[0] - 1)
     dot_product = dot_product / (x.shape[0] - 1)
@@ -566,17 +561,18 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
     """
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
 
-    tnf_dist = rho(a[n_samples*2:], b[n_samples*2:])
+    
     kl = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples, sample_distances)
-
-    kl = np.sqrt((kl ** w) * (tnf_dist ** (1 - w)))
+    # if n_samples < 3:
+        # tnf_dist = rho(a[n_samples*2:], b[n_samples*2:])
+        # kl = np.sqrt((kl) * (tnf_dist))
        
     return kl
 
 @njit(fastmath=True)
 def populate_matrix(depths, n_samples, sample_distances):
     contigs = {}
-    distances = np.zeros((depths.shape[0], depths.shape[0]))
+    # distances = np.zeros((depths.shape[0], depths.shape[0]))
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
     tids = List()
     [tids.append(x) for x in range(depths.shape[0])]
@@ -591,14 +587,15 @@ def populate_matrix(depths, n_samples, sample_distances):
         md = metabat_distance(depths[i[0], :n_samples*2], depths[i[1], :n_samples*2], n_samples, sample_distances)
         tnf_dist = rho(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
 
-        agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
+        agg = np.sqrt(md * tnf_dist)
 
         mean_md += md
         mean_tnf += tnf_dist
-        mean_agg += agg
+        # mean_agg += agg
+        mean_agg += md
         
-        distances[i[0], i[1]] = agg
-        distances[i[1], i[0]] = agg
+        # distances[i[0], i[1]] = agg
+        # distances[i[1], i[0]] = agg
 
         contigs[i[0]][0] += md
         contigs[i[0]][1] += tnf_dist
@@ -613,7 +610,7 @@ def populate_matrix(depths, n_samples, sample_distances):
     mean_tnf = mean_tnf / len(pairs)
     mean_agg = mean_agg / len(pairs)
     
-    return mean_md, mean_tnf, mean_agg, distances, contigs
+    return mean_md, mean_tnf, mean_agg, contigs
 
 
 @njit(fastmath=True)

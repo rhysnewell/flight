@@ -41,14 +41,16 @@ import itertools
 import threadpoolctl
 import imageio
 import seaborn as sns
-import matplotlib as plt
+import matplotlib
+import matplotlib.pyplot as plt
 from sklearn.metrics.pairwise import pairwise_distances
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
 
 
-def plot_for_offset(embeddings, labels, x_min, x_max, y_min, y_max):
+def plot_for_offset(embeddings, labels, x_min, x_max, y_min, y_max, n):
+    matplotlib.use("agg")
     label_set = set(labels)
     color_palette = sns.color_palette('husl', max(labels) + 1)
     cluster_colors = [
@@ -68,12 +70,13 @@ def plot_for_offset(embeddings, labels, x_min, x_max, y_min, y_max):
                c=cluster_colors,
                alpha=0.7)
     ax.set(xlabel = 'UMAP dimension 1', ylabel = 'UMAP dimension 2',
-           title="UMAP projection and HDBSCAN clustering of contigs")
+           title=format("UMAP projection and HDBSCAN clustering of contigs. Iteration = %d" % (n)))
 
     ax.set_ylim(y_min, y_max)
     ax.set_xlim(x_min, x_max)
+    # plt.gca().set_aspect('equal', 'datalim')
 
-    fig.canvas_draw()
+    fig.canvas.draw()
     image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
     image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
 
