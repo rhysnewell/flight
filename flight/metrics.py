@@ -559,13 +559,13 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
 
     returns - an aggregate distance metric between KL divergence and TNF
     """
-    w = (n_samples + 1) / (n_samples + 1 + 1) # weighting by number of samples same as in metabat2
+    w = (n_samples) / (n_samples + 1) # weighting by number of samples same as in metabat2
 
     
     kl = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples, sample_distances)
     if n_samples < 3:
         tnf_dist = rho(a[n_samples*2:], b[n_samples*2:])
-        kl = np.sqrt((kl**(w)) * (tnf_dist**(1-w)))
+        kl = np.sqrt(kl**w * (tnf_dist**(1-w)))
        
     return kl
 
@@ -573,7 +573,7 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
 def populate_matrix(depths, n_samples, sample_distances):
     contigs = {}
     # distances = np.zeros((depths.shape[0], depths.shape[0]))
-    w = (n_samples + 1) / (n_samples + 1 + 1) # weighting by number of samples same as in metabat2
+    w = (n_samples) / (n_samples + 1) # weighting by number of samples same as in metabat2
     tids = List()
     [tids.append(x) for x in range(depths.shape[0])]
     for tid in tids:
@@ -587,7 +587,7 @@ def populate_matrix(depths, n_samples, sample_distances):
         md = metabat_distance(depths[i[0], :n_samples*2], depths[i[1], :n_samples*2], n_samples, sample_distances)
         tnf_dist = rho(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
 
-        agg = np.sqrt((md**(w)) * (tnf_dist**(1-w)))
+        agg = np.sqrt((md**w) * (tnf_dist**(1-w)))
 
         mean_md += md
         mean_tnf += tnf_dist

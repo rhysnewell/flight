@@ -470,7 +470,7 @@ def bin(args):
                         logging.info("Performing iterative clustering...")
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
-                            while n <= 50:
+                            while n <= 5:
                                 
                                 clusterer.pairwise_distances()
                                 try:
@@ -485,7 +485,7 @@ def bin(args):
                                                                plots, x_min, x_max, y_min, y_max, n+1,
                                                                delete_unbinned=True,
                                                                bin_unbinned=False) # First pass get bins
-                                    clusterer.pairwise_distances(bin_unbinned=True)
+                                    clusterer.pairwise_distances(bin_unbinned=True) # Bin out large unbinned contigs
                                     break  # nothing changed
                                 plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
                                                                 plots, x_min, x_max, y_min, y_max, n+1, delete_unbinned=True)
@@ -511,7 +511,7 @@ def bin(args):
                         logging.info("Performing iterative clustering...")
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
-                            while n <= 50:
+                            while n <= 5:
 
                                 clusterer.pairwise_distances()
                                 try:
@@ -526,7 +526,7 @@ def bin(args):
                                                                        max_bin_id,
                                                                        plots, x_min, x_max, y_min, y_max, n+1,
                                                                        delete_unbinned=True,
-                                                                       bin_unbinned=True)
+                                                                       bin_unbinned=False)
                                     clusterer.pairwise_distances(bin_unbinned=True)
                                     break  # nothing changed
                                 plots = clusterer.reembed_unbinned(clusterer.unbinned_tids,
