@@ -31,8 +31,6 @@ __status__ = "Development"
 import warnings
 import logging
 import re
-import io
-from os.path import dirname, join
 
 # Function imports
 import numpy as np
@@ -41,11 +39,48 @@ import multiprocessing as mp
 import hdbscan
 import itertools
 import threadpoolctl
-
+import imageio
+import seaborn as sns
+import matplotlib
+import matplotlib.pyplot as plt
+from sklearn.metrics.pairwise import pairwise_distances
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
 
+
+def plot_for_offset(embeddings, labels, x_min, x_max, y_min, y_max, n):
+    matplotlib.use("agg")
+    label_set = set(labels)
+    color_palette = sns.color_palette('husl', max(labels) + 1)
+    cluster_colors = [
+        color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in labels
+    ]
+    #
+    # cluster_member_colors = [
+    # sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
+    # ]
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    ## Plot large contig membership
+    ax.scatter(embeddings[:, 0],
+               embeddings[:, 1],
+               s=7,
+               linewidth=0,
+               c=cluster_colors,
+               alpha=0.7)
+    ax.set(xlabel = 'UMAP dimension 1', ylabel = 'UMAP dimension 2',
+           title=format("UMAP projection and HDBSCAN clustering of contigs. Iteration = %d" % (n)))
+
+    ax.set_ylim(y_min, y_max)
+    ax.set_xlim(x_min, x_max)
+    # plt.gca().set_aspect('equal', 'datalim')
+
+    fig.canvas.draw()
+    image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
+    image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    return image
 
 def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_cluster=False):
     """
@@ -70,7 +105,7 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
     return (min_cluster_size, min_samples, validity_score, n_clusters)
 
 
-def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', allow_single_cluster=False):
+def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', allow_single_cluster=False, starting_size = 2):
     """
     Input:
     df - embeddings from UMAP
@@ -84,7 +119,7 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
     warnings.filterwarnings('ignore')
     results = []
     n = df.shape[0]
-    for gamma in range(2, int(np.log(max(n, 3)))):
+    for gamma in range(starting_size, int(np.log(max(n, 3)))):
         mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
                       range(1, int(2 * np.log(n)))]
         for result in mp_results:
@@ -187,3 +222,17 @@ def break_overclustered(embeddings, threads):
 
 def special_match(strg, search=re.compile(r'[^ATGC]').search):
     return not bool(search(strg))
+
+
+def sample_distance(coverage_table):
+    """
+    Input:
+    coverage_table - a coverage and variance table for all contigs passing initial size and min coverage filters
+
+    Output:
+    A sample distance matrix - shared content between samples
+    """
+
+    # Convert coverage table to presence absence table of 1s and 0s
+    presence_absence = (coverage_table.iloc[:, 3::2].values > 0).astype(int).T
+    return 1 - pairwise_distances(presence_absence, metric='hamming')

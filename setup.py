@@ -23,7 +23,7 @@ def get_version(relpath):
 setup(
     name='flight',
     version=get_version("flight/__init__.py"),
-    url='https://github.com/rhysnewell/rosella',
+    url='https://github.com/rhysnewell/flight',
     license='BSD-3',
     author='Rhys Newell',
     author_email='rhys.newell@hdr.qut.edu.au',
