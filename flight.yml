@@ -15,6 +15,7 @@ dependencies:
   - biopython
   - pynndescent
   - threadpoolctl
+  - imageio
   - pip
   pip:
     - umap-learn>=0.5
