@@ -563,9 +563,9 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
 
     
     kl = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples, sample_distances)
-    if n_samples < 3:
-        tnf_dist = rho(a[n_samples*2:], b[n_samples*2:])
-        kl = np.sqrt(kl**w * (tnf_dist**(1-w)))
+    # if n_samples < 3:
+    # tnf_dist = rho(a[n_samples*2:], b[n_samples*2:])
+    # kl = np.sqrt(kl**w * (tnf_dist**(1-w)))
        
     return kl
 
