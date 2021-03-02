@@ -615,7 +615,6 @@ class Binner():
                 log_lengths = np.log(contigs['contigLen']) / np.log(self.large_contigs['contigLen'].mean())
                 tnfs = self.tnfs[self.tnfs['contigName'].isin(contigs['contigName'])]
 
-                # if contigs['contigLen'].sum() >= 5e6 or contigs['contigLen'].sum() <= 2e6:
                 try:
                     max_bin_id = max(self.bins.keys()) + max(new_bins.keys()) + 1
                 except ValueError:
@@ -629,9 +628,6 @@ class Binner():
                     bins_to_remove.append(bin)
                 else:
                     
-                    # if contigs['contigLen'].sum() >= 14e6: # larger than most bacterial genomes, way larger than archaeal
-                        # Likely strains getting bunched together. Re-embed separately
-                        # reembed_separately.append(bin)
                     if contigs['contigLen'].sum() < 1e6:
                         for tid in tids:
                             # remove this contig
@@ -657,14 +653,6 @@ class Binner():
                         if metric >= f_level or contigs['contigLen'].sum() <= 1e6 \
                         or (mean_md >= 0.1 and mean_tnf >= 0.1):
                             tids_to_remove = []
-                            # mean_contig_values = 0
-                            # for k, v in per_contig_avg.items():
-                                # if self.n_samples < 3:
-                                    # mean_contig_values += v[2] / contigs.values.shape[0]
-                                # else:
-                                    # mean_contig_values += v[0] / contigs.values.shape[0]
-#
-                            # mean_contig_values /= len(per_contig_avg.keys())
                             
                             for k, v in per_contig_avg.items():
                                 if self.n_samples < 3:
@@ -672,23 +660,17 @@ class Binner():
                                 else:
                                     contig_m = v[2] / contigs.values.shape[0]
                                             
-                                if True: #contig_m >= f_level:
-                                    # or (v[0] / contigs.values.shape[0] >= 0.1 \
-                                    # and v[1] / contigs.values.shape[0] >= 0.05):
+                                if True: 
                                     # remove this contig
                                     removed = tids[k]
                                     tids_to_remove.append(removed)
                                     self.unbinned_tids.append(removed)
-                                    
-                            # for tid in tids_to_remove:
-                                # r = tids.remove(tid)
-# 
-                            # new_bin_size = self.large_contigs[self.large_contigs['tid'].isin(tids)]['contigLen'].sum()
-                            # if len(tids) == 0:
+
                             bins_to_remove.append(bin)
                         else:
                             self.checked_bins.append(bin)
             elif bin_unbinned and bin != 0 and len(tids) > 1:
+                
                 contigs = self.large_contigs[self.large_contigs['tid'].isin(tids)]
                 contigs = contigs.drop(['tid'], axis=1)
                 log_lengths = np.log(contigs['contigLen']) / np.log(self.large_contigs['contigLen'].mean())
@@ -703,13 +685,10 @@ class Binner():
                         if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
                             big_tids.append(tid)
                             removed.append(tid)
-                        # else:
-                            # self.unbinned_tids.append(tid)
-                            # removed.append(tid)
                     reembed_separately.append(bin)
                     for tid in removed:
                         r = tids.remove(tid)
-                else:
+                elif bin not in self.checked_bins:
                     mean_md, mean_tnf, mean_agg, per_contig_avg = metrics.populate_matrix(np.concatenate((contigs.iloc[:, 3:].values,
                                                                                                             log_lengths.values[:, None],
                                                                                                             tnfs.iloc[:, 2:].values), axis=1),
@@ -728,14 +707,14 @@ class Binner():
                         for tid in tids:
                             if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
                                 big_tids.append(tid)
-                                removed.append(tid)
+                                # removed.append(tid)
                             else:
                                 self.unbinned_tids.append(tid)
-                                removed.append(tid)
-                        for tid in removed:
-                            r = tids.remove(tid)
-                        if len(tids) == 0:
-                            bins_to_remove.append(bin)
+                                # removed.append(tid)
+                        # for tid in removed:
+                            # r = tids.remove(tid)
+                        # if len(tids) == 0:
+                        bins_to_remove.append(bin)
                                 
                     
             elif self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 2e6 and bin != 0:
