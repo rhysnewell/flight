@@ -644,11 +644,11 @@ class Binner():
 
                         
                         if self.n_samples < 3:
-                            metric = mean_agg
-                            f_level = 1
+                            metric = mean_md
+                            f_level = 0.25
                         else:
-                            metric = mean_agg
-                            f_level = 1
+                            metric = mean_md
+                            f_level = 0.25
                         
                         if metric >= f_level or contigs['contigLen'].sum() <= 1e6 \
                         or (mean_md >= 0.1 and mean_tnf >= 0.1):
@@ -695,11 +695,11 @@ class Binner():
                                                                                                             n_samples,
                                                                                                             sample_distances)
                     if self.n_samples < 3:
-                        metric = mean_agg
-                        f_level = 1
+                        metric = mean_md
+                        f_level = 0.25
                     else:
-                        metric = mean_agg
-                        f_level = 1
+                        metric = mean_md
+                        f_level = 0.25
                     
                     if metric >= f_level or contigs['contigLen'].sum() <= 1e6 \
                     or (mean_md >= 0.1 and mean_tnf >= 0.1):
