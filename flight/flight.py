@@ -564,7 +564,7 @@ def bin(args):
         clusterer.write_bins(int(args.min_bin_size))
         try:
             imageio.mimsave(clusterer.path + '/UMAP_projections.gif', plots, fps=1)
-        except RunTimeError: # no plotting has occurred due to no embedding
+        except RuntimeError: # no plotting has occurred due to no embedding
             pass
 
 def vamb(args):
