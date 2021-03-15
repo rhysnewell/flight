@@ -208,9 +208,10 @@ class Binner():
         # Open up assembly
         self.assembly = {} 
         self.assembly_names = {}
-        for (tid, rec) in enumerate(SeqIO.parse(assembly, "fasta")):
-            self.assembly[rec.id] = tid
-            self.assembly_names[tid] = rec.id
+        if assembly is not None:
+            for (tid, rec) in enumerate(SeqIO.parse(assembly, "fasta")):
+                self.assembly[rec.id] = tid
+                self.assembly_names[tid] = rec.id
 
         # initialize bin dictionary Label: Vec<Contig>
         self.bins = {}
@@ -280,6 +281,12 @@ class Binner():
             self.long_samples = 0
             self.n_samples = len(self.large_contigs.columns[3::2])
 
+
+        if assembly is None:
+            for (tid, rec) in enumerate(self.coverage_table['contigName']):
+                self.assembly[rec] = tid
+                self.assembly_names[tid] = rec
+        
         tids = []
         for name in self.large_contigs['contigName']:
             tids.append(self.assembly[name])
@@ -293,7 +300,7 @@ class Binner():
         self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
         self.tnfs.iloc[:, 2:] = skbio.stats.composition.clr(self.tnfs.iloc[:, 2:].astype(np.float64) + 1)
         ## Set custom log base change for lengths
-        self.log_lengths = np.log(self.tnfs['contigLen']) / np.log(self.tnfs['contigLen'].mean())
+        self.log_lengths = np.log(self.tnfs['contigLen']) / np.log(max(self.tnfs['contigLen'].mean(), 10000))
         # self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].max(axis=1), axis=0)
         
         ## Check the ordering of the contig names for sanity check
@@ -490,7 +497,7 @@ class Binner():
         else:
             disconnection_param = min(0.5, 0.9)
         # disconnection_param = 1
-        tnf_disconnect = min(lognorm_cdf.mean(), 0.9)
+        tnf_disconnect = max(min(lognorm_cdf.mean(), 0.9), 0.1)
         self.tnf_reducer.disconnection_distance = tnf_disconnect
         self.coverage_reducer.disconnection_distance = tnf_disconnect
         self.metabat_reducer.disconnection_distance = disconnection_stringent
@@ -501,15 +508,11 @@ class Binner():
  
     def fit_disconnect(self):
         ## Calculate the UMAP embeddings
-
-        
-
         logging.info("Running UMAP - %s" % self.tnf_reducer)
         tnf_mapping = self.tnf_reducer.fit(
                     np.concatenate((self.log_lengths[~self.disconnected].values[:, None],
                                     self.tnfs[~self.disconnected].iloc[:, 2:]),
-                                    axis=1))
-                                                    
+                                    axis=1))                                            
         self.depths = np.nan_to_num(np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 3:].drop(['tid'], axis=1),
                                                     self.log_lengths[~self.disconnected].values[:, None],
                                                     self.tnfs[~self.disconnected].iloc[:, 2:]), axis=1))
@@ -520,10 +523,10 @@ class Binner():
 
         if self.n_samples >= 3:
         
-            # logging.info("Running UMAP - %s" % self.coverage_reducer)
-            # coverage_mapping = self.coverage_reducer.fit(
-                        # np.concatenate((self.log_lengths[~self.disconnected].values[:, None],
-                                # skbio.stats.composition.clr(self.large_contigs[~self.disconnected].iloc[:, 3::2].T + 1).T), axis = 1))
+            logging.info("Running UMAP - %s" % self.coverage_reducer)
+            coverage_mapping = self.coverage_reducer.fit(
+                        np.concatenate((self.log_lengths[~self.disconnected].values[:, None],
+                                skbio.stats.composition.clr(self.large_contigs[~self.disconnected].iloc[:, 3::2].T + 1).T), axis = 1))
 
             logging.info("Finding diconnections...")
             self.disconnected_intersected = umap.utils.disconnected_vertices(depth_mapping) + \
@@ -543,7 +546,7 @@ class Binner():
         
             
         if not self.disconnected_intersected.any() == True:
-            
+
             # union_mapper = tnf_mapping +
             if self.n_samples >= 0:
                 self.intersection_mapper = depth_mapping * tnf_mapping #* coverage_mapping
@@ -558,10 +561,6 @@ class Binner():
         # update parameters to artificially high values to avoid disconnected vertices in the final manifold
         self.tnf_reducer.disconnection_distance = 1
         self.depth_reducer.disconnection_distance = 0.99
-
-        # self.depths = np.nan_to_num(np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 3:],
-                                                            # self.log_lengths[~self.disconnected].values[:, None],
-                                                            # self.tnfs[~self.disconnected].iloc[:, 2:]), axis=1))
         
         logging.info("Running UMAP - %s" % self.tnf_reducer)
         tnf_mapping = self.tnf_reducer.fit(
@@ -579,13 +578,8 @@ class Binner():
             depth_mapping = self.depth_reducer.fit(self.depths)
 
         if self.n_samples >= 0:
-            # coverage_mapping = self.coverage_reducer.fit(
-                                    # np.concatenate((self.log_lengths[~self.disconnected][~self.disconnected_intersected].values[:, None],
-                                        # skbio.stats.composition.clr(self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[:, 3::2].T + 1).T), axis = 1))
-
             ## Intersect all of the embeddings
-            # union_mapping = tnf_mapping # all significant hits
-            self.intersection_mapper = depth_mapping * tnf_mapping #* coverage_mapping # - union_mapping # intersect connections base on significance in at least one metric
+            self.intersection_mapper = depth_mapping * tnf_mapping
         else:
             self.intersection_mapper = depth_mapping * tnf_mapping
 
@@ -707,14 +701,11 @@ class Binner():
                         for tid in tids:
                             if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
                                 big_tids.append(tid)
-                                # removed.append(tid)
-                            else:
-                                self.unbinned_tids.append(tid)
-                                # removed.append(tid)
-                        # for tid in removed:
-                            # r = tids.remove(tid)
-                        # if len(tids) == 0:
-                        bins_to_remove.append(bin)
+                                removed.append(tid)
+                        for tid in removed:
+                            r = tids.remove(tid)
+                        if len(tids) == 0:
+                            bins_to_remove.append(bin)
                                 
                     
             elif self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 2e6 and bin != 0:
@@ -847,12 +838,12 @@ class Binner():
                     self.bins[max_bin_id] = [idx]
         
                 if current_disconnected.any():
-                    for idx in np.array(tids)[current_disconnected]:
-                        if self.large_contigs[self.large_contigs['tid'] == idx]['contigLen'].iloc[0] >= self.min_bin_size:
+                    for contig in contigs[current_disconnected]:
+                        if contig['contigLen'].iloc[0] >= self.min_bin_size:
                             max_bin_id += 1
-                            self.bins[max_bin_id] = [idx.item()]
+                            self.bins[max_bin_id] = [self.assembly[contig['contigName'].iloc[0]]]
                         else:
-                            self.unbinned_tids.append(idx.item())
+                            self.unbinned_tids.append(self.assembly[contig['contigName'].iloc[0]])
                 # plots.append(utils.plot_for_offset(agg_mapping.embedding_, labels, x_min, x_max, y_min, y_max, n))
                 return plots
 
@@ -891,12 +882,12 @@ class Binner():
                     self.bins[max_bin_id] = [idx]
         
                 if current_disconnected.any():
-                    for idx in np.array(tids)[current_disconnected]:
-                        if self.large_contigs[self.large_contigs['tid'] == idx]['contigLen'].iloc[0] >= self.min_bin_size:
+                    for contig in contigs[current_disconnected]:
+                        if contig['contigLen'].iloc[0] >= self.min_bin_size:
                             max_bin_id += 1
-                            self.bins[max_bin_id] = [idx.item()]
+                            self.bins[max_bin_id] = [self.assembly[contig['contigName'].iloc[0]]]
                         else:
-                            self.unbinned_tids.append(idx.item())
+                            self.unbinned_tids.append(self.assembly[contig['contigName'].iloc[0]])
                 plots.append(utils.plot_for_offset(agg_mapping.embedding_, labels, x_min, x_max, y_min, y_max, n))
                 return plots
             elif current_disconnected.any():
@@ -992,14 +983,6 @@ class Binner():
                         self.bins[0].append(idx)
                     except KeyError:
                         self.bins[0] = [idx]
-
-        if current_disconnected.any():
-            for idx in np.array(tids)[current_disconnected]:
-                if self.large_contigs[self.large_contigs['tid'] == idx]['contigLen'].iloc[0] >= self.min_bin_size:
-                    max_bin_id += 1
-                    self.bins[max_bin_id] = [idx.item()]
-                else:
-                    self.unbinned_tids.append(idx.item())
         
         
 
