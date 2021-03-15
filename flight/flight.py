@@ -372,37 +372,42 @@ def main():
 
 def fit(args):
     prefix = args.input.replace(".npy", "")
-    os.environ["NUMEXPR_MAX_THREADS"] = args.threads
-    if not args.precomputed:
-        clusterer = Cluster(args.input,
-                           prefix,
-                           n_neighbors=int(args.n_neighbors),
-                           min_cluster_size=int(args.min_cluster_size),
-                           min_samples=int(args.min_samples),
-                           min_dist=float(args.min_dist),
-                           n_components=int(args.n_components),
-                           threads=int(args.threads),
-                           )
-        clusterer.fit_transform()
-        clusterer.cluster()
-        # clusterer.break_clusters()
-        clusterer.plot()
+    os.environ["NUMEXPR_MAX_THREADS"] = "1"
+    set_num_threads(int(args.threads))
 
-        np.save(prefix + '_labels.npy', clusterer.labels())
-        np.save(prefix + '_separation.npy', clusterer.cluster_separation())
-    else:
-        clusterer = Cluster(args.input,
-                           prefix,
-                           n_neighbors=int(args.n_neighbors),
-                           min_cluster_size=int(args.min_cluster_size),
-                           min_samples=int(args.min_samples),
-                           scaler="none",
-                           precomputed=args.precomputed,
-                           threads=int(args.threads),
-                           )
-        clusterer.cluster_distances()
-        clusterer.plot_distances()
-        np.save(prefix + '_labels.npy', clusterer.labels())
+    with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            if not args.precomputed:
+                clusterer = Cluster(args.input,
+                                   prefix,
+                                   n_neighbors=int(args.n_neighbors),
+                                   min_cluster_size=int(args.min_cluster_size),
+                                   min_samples=int(args.min_samples),
+                                   min_dist=float(args.min_dist),
+                                   n_components=int(args.n_components),
+                                   threads=int(args.threads),
+                                   )
+                clusterer.fit_transform()
+                clusterer.cluster()
+                # clusterer.break_clusters()
+                clusterer.plot()
+
+                np.save(prefix + '_labels.npy', clusterer.labels())
+                np.save(prefix + '_separation.npy', clusterer.cluster_separation())
+            else:
+                clusterer = Cluster(args.input,
+                                   prefix,
+                                   n_neighbors=int(args.n_neighbors),
+                                   min_cluster_size=int(args.min_cluster_size),
+                                   min_samples=int(args.min_samples),
+                                   scaler="none",
+                                   precomputed=args.precomputed,
+                                   threads=int(args.threads),
+                                   )
+                clusterer.cluster_distances()
+                clusterer.plot_distances()
+                np.save(prefix + '_labels.npy', clusterer.labels())
 
 
 def bin(args):
