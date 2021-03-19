@@ -147,7 +147,7 @@ class Cluster():
         prediction_data=True,
         cluster_selection_method="eom",
         precomputed=False,
-        metric='euclidean',
+        metric='rho_variants',
         hdbscan_metric="euclidean",
         threads=8,
         b=0.5,
@@ -176,7 +176,7 @@ class Cluster():
         if n_components > self.depths.shape[1]:
             n_components = self.depths.shape[1]
 
-        if metric in ['rho', 'phi', 'phi_dist']:
+        if metric in ['rho_variants', 'phi', 'phi_dist']:
             self.reducer = umap.UMAP(
                 n_neighbors=n_neighbors,
                 min_dist=min_dist,
@@ -184,9 +184,9 @@ class Cluster():
                 random_state=random_state,
                 spread=1,
                 metric=getattr(metrics, metric),
-                metric_kwds={'n_samples': self.n_samples},
-                a=a,
-                b=b,
+                # metric_kwds={'n_samples': self.n_samples},
+                # a=a,
+                # b=b,
             )
         else:
             self.reducer = umap.UMAP(
@@ -196,8 +196,8 @@ class Cluster():
                 random_state=random_state,
                 spread=1,
                 metric=metric,
-                a=a,
-                b=b,
+                # a=a,
+                # b=b,
             )
 
         if min_cluster_size > self.depths.shape[0] * 0.1:

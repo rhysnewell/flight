@@ -152,7 +152,6 @@ def cluster_distances(embeddings, cluster_result, threads):
     with threadpoolctl.threadpool_limits(limits=threads, user_api='blas'):
         pool = mp.Pool(max(int(threads / 5), 1))
         labels = set(cluster_result.labels_)
-        logging.info(labels)
         try:
             labels.remove(-1)
         except KeyError:
