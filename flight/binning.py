@@ -421,7 +421,8 @@ class Binner():
         self.embeddings = self.intersection_mapper.embedding_ 
 
 
-    def pairwise_distances(self, bin_unbinned=False):
+    def pairwise_distances(self, bin_unbinned=False, reembed=False):
+
         if self.n_samples > 0:
             n_samples = self.n_samples
             sample_distances = self.short_sample_distance
@@ -438,19 +439,10 @@ class Binner():
         for bin, tids in self.bins.items():
             if len(tids) != len(set(tids)):
                 print(bin, tids)
-            if len(tids) > 1 and bin not in self.checked_bins and not bin_unbinned and bin != 0:
-                contigs = self.large_contigs[self.large_contigs['tid'].isin(tids)]
-                contigs = contigs.drop(['tid'], axis=1)
-                log_lengths = np.log(contigs['contigLen']) / np.log(self.large_contigs['contigLen'].mean())
-                tnfs = self.tnfs[self.tnfs['contigName'].isin(contigs['contigName'])]
-
-                try:
-                    max_bin_id = max(self.bins.keys()) + max(new_bins.keys()) + 1
-                except ValueError:
-                    try:
-                        max_bin_id = max(self.bins.keys()) + 1
-                    except ValueError:
-                        max_bin_id = 1
+            if len(tids) > 1 and bin not in self.checked_bins \
+                    and not (bin_unbinned or reembed) \
+                    and bin != 0:
+                contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
                 if contigs['contigLen'].sum() <= 0:
                     [self.unbinned_tids.append(i) for i in tids]
@@ -465,11 +457,15 @@ class Binner():
                         bins_to_remove.append(bin)
                         
                     else:
-                        mean_md, mean_tnf, mean_agg, per_contig_avg = metrics.populate_matrix(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                                                            log_lengths.values[:, None],
-                                                                                                            tnfs.iloc[:, 2:].values), axis=1),
-                                                                                                            n_samples,
-                                                                                                            sample_distances)
+                        mean_md, \
+                        mean_tnf, \
+                        mean_agg, \
+                        per_contig_avg = \
+                            metrics.populate_matrix(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                    log_lengths.values[:, None],
+                                                                    tnfs.iloc[:, 2:].values), axis=1),
+                                                                    n_samples,
+                                                                    sample_distances)
 
                         
                         if self.n_samples < 3:
@@ -477,18 +473,13 @@ class Binner():
                             f_level = 0.25
                         else:
                             metric = mean_md
-                            f_level = 0.25
+                            f_level = 0.20
                         
                         if metric >= f_level or contigs['contigLen'].sum() <= 1e6 \
                         or (mean_md >= 0.1 and mean_tnf >= 0.1):
                             tids_to_remove = []
                             
                             for k, v in per_contig_avg.items():
-                                if self.n_samples < 3:
-                                    contig_m = v[2] / contigs.values.shape[0]
-                                else:
-                                    contig_m = v[2] / contigs.values.shape[0]
-                                            
                                 if True: 
                                     # remove this contig
                                     removed = tids[k]
@@ -498,62 +489,66 @@ class Binner():
                             bins_to_remove.append(bin)
                         else:
                             self.checked_bins.append(bin)
-            elif bin_unbinned and bin != 0 and len(tids) > 1:
+
+            elif bin_unbinned or reembed \
+                    and bin != 0 \
+                    and len(tids) > 1:
                 
-                contigs = self.large_contigs[self.large_contigs['tid'].isin(tids)]
-                contigs = contigs.drop(['tid'], axis=1)
-                log_lengths = np.log(contigs['contigLen']) / np.log(self.large_contigs['contigLen'].mean())
-                tnfs = self.tnfs[self.tnfs['contigName'].isin(contigs['contigName'])]
+                contigs, log_lengths, tnfs = self.extract_contigs(tids)
+
                 if contigs['contigLen'].sum() >= 14e6: # larger than most bacterial genomes, way larger than archaeal
                     # Likely strains getting bunched together. But they won't disentangle, so just dismantle the bin
                     # rescuing any large contigs. Only way I can think  of atm to deal with this.
                     # Besides perhaps looking at variation level?? But this seems to be a problem with
                     # the assembly being TOO good.
-                    removed = []
-                    for tid in tids:
-                        if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
-                            big_tids.append(tid)
-                            removed.append(tid)
-                    reembed_separately.append(bin)
-                    for tid in removed:
-                        r = tids.remove(tid)
-                elif bin not in self.checked_bins:
-                    mean_md, mean_tnf, mean_agg, per_contig_avg = metrics.populate_matrix(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                                                            log_lengths.values[:, None],
-                                                                                                            tnfs.iloc[:, 2:].values), axis=1),
-                                                                                                            n_samples,
-                                                                                                            sample_distances)
-                    if self.n_samples < 3:
-                        metric = mean_md
-                        f_level = 0.25
+                    if reembed:
+                        reembed_separately.append(bin)
                     else:
-                        metric = mean_md
-                        f_level = 0.25
-                    
-                    if metric >= f_level or contigs['contigLen'].sum() <= 1e6 \
-                    or (mean_md >= 0.1 and mean_tnf >= 0.1):
                         removed = []
                         for tid in tids:
                             if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
                                 big_tids.append(tid)
                                 removed.append(tid)
-                        for tid in removed:
-                            r = tids.remove(tid)
-                        if len(tids) == 0:
-                            bins_to_remove.append(bin)
-                                
+
+                elif bin not in self.checked_bins:
+                    mean_md, \
+                    mean_tnf, \
+                    mean_agg, \
+                    per_contig_avg = \
+                        metrics.populate_matrix(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                log_lengths.values[:, None],
+                                                                tnfs.iloc[:, 2:].values), axis=1),
+                                                                n_samples,
+                                                                sample_distances)
+                    if self.n_samples < 3:
+                        metric = mean_md
+                        f_level = 0.25
+                    else:
+                        metric = mean_md
+                        f_level = 0.2
+                    
+                    if metric >= f_level or contigs['contigLen'].sum() <= 1e6 \
+                    or (mean_md >= 0.1 and mean_tnf >= 0.1):
+                        if reembed:
+                            reembed_separately.append(bin)
+                        else:
+                            removed = []
+                            for tid in tids:
+                                if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
+                                    big_tids.append(tid)
+                                    removed.append(tid)
+
+                            if len(tids) == 0:
+                                bins_to_remove.append(bin)
+
                     
             elif self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 2e6 and bin != 0:
                  for tid in tids:
                       self.unbinned_tids.append(tid)
                  bins_to_remove.append(bin)
-                        
-        
-        
 
         for k, v in new_bins.items():
              self.bins[k] = list(set(v))
-
 
         try:
             max_bin_id = max(self.bins.keys()) + 1
@@ -586,7 +581,14 @@ class Binner():
                         self.bins[0] = [idx]
 
 
-    
+    def extract_contigs(self, tids):
+        contigs = self.large_contigs[self.large_contigs['tid'].isin(tids)]
+        contigs = contigs.drop(['tid'], axis=1)
+        log_lengths = np.log(contigs['contigLen']) / np.log(self.large_contigs['contigLen'].mean())
+        tnfs = self.tnfs[self.tnfs['contigName'].isin(contigs['contigName'])]
+
+        return contigs, log_lengths, tnfs
+
     def recluster(self, distances, metric='euclidean', binning_method='eom', min_cluster_size=5, min_samples=2):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -619,15 +621,8 @@ class Binner():
 
         if len(set(tids)) >= 10:
             # rescue any large contigs if the clustering is scuffed
-            
-                        
-            contigs = self.large_contigs[self.large_contigs['tid'].isin(tids)]
-            contigs = contigs.drop(['tid'], axis=1)
-            log_lengths = np.log(contigs['contigLen']) / np.log(self.large_contigs['contigLen'].mean())
-            tnfs = self.tnfs[self.tnfs['contigName'].isin(contigs['contigName'])]
 
-            names = list(contigs['contigName'])
-            indices = []
+            contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
             self.update_umap_params(contigs.shape[0])
 
