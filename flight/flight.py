@@ -407,7 +407,7 @@ def fit(args):
 
 def bin(args):
     prefix = args.output
-    os.environ["NUMEXPR_MAX_THREADS"] = "1"
+    # os.environ["NUMEXPR_MAX_THREADS"] = "1"
     set_num_threads(int(args.threads))
     if args.long_input is None and args.input is None:
         logging.warning("bin requires either short or longread coverage values.")
@@ -435,6 +435,7 @@ def bin(args):
                            threads=int(args.threads),
                            a=float(args.a),
                            b=float(args.b),
+                           initialization='spectral'
                            )
 
         kwargs_write = {'fps':1.0, 'quantizer':'nq'}
@@ -445,10 +446,12 @@ def bin(args):
                 # First pass quick TNF filter to speed up next steps
                 clusterer.update_parameters()
                 clusterer.filter()
+                # clusterer.disconnected = np.array([False for i in range(clusterer.tnfs.values.shape[0])])
                 if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors)*5:
                     # Second pass intersection filtering
                     clusterer.update_parameters()
                     found_disconnections = clusterer.fit_disconnect()
+                    # clusterer.disconnected_intersected = np.array([False for i in range(clusterer.tnfs.values.shape[0])])
                     # found_disconnections = True
                     if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[0] > int(args.n_neighbors) * 5 and found_disconnections:
                         # Final fully filtered embedding to cluster on

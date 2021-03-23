@@ -493,7 +493,7 @@ def rho(a, b):
     transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
     """
 
-    rp =  max(max(a[0], b[0]), 1)
+    # rp =  max(max(a[0], b[0]), 1)
     # l = 0
     x = a[1:]
     y = b[1:]
@@ -525,7 +525,7 @@ def rho(a, b):
     rho += 1
     rho = 2 - rho
     
-    return rho * rp
+    return rho
 
 @njit(fastmath=True)
 def rho_coverage(a, b):

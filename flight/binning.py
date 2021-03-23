@@ -42,7 +42,6 @@ import hdbscan
 import seaborn as sns
 import json
 import matplotlib
-matplotlib.use('pdf')
 import matplotlib.pyplot as plt
 from Bio import SeqIO
 import skbio.stats.composition
@@ -57,6 +56,7 @@ import flight.utils as utils
 
 # Set plotting style
 sns.set(style='white', context='notebook', rc={'figure.figsize': (14, 10)})
+matplotlib.use('pdf')
 
 # Debug
 debug = {
@@ -82,91 +82,14 @@ class BadTreeFileException(Exception):
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
 
-
-def phelp():
-    print("""
-Usage:
-rosella.py [SUBCOMMAND] ..
-
-Subcommands:
-fit
-""")
-
-
-def str2bool(v):
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
-
-
-
-
 @njit
 def index(array, item):
     for idx, val in np.ndenumerate(array):
         if val == item:
             return idx
 
-def spawn_count(idx, seq):
-    tetras = {''.join(p): 0 for p in product('ATCG', repeat=4)}
-    forward = str(seq).upper()
-    reverse = str(seq.reverse_complement()).upper()
-    for s in [forward, reverse]:
-        for i in range(len(s[:-4])):
-            tetra = s[i:i + 4]
-            if all(i in tetra for i in ("A", "T", "C", "G")):
-                tetras[tetra] += 1
-    return pd.Series(tetras, name=idx)
-
-
-def spawn_merge_low_n(idx, soft_clusters):
-    second_max = sorted(soft_clusters, reverse=True)[1]
-    try:
-        next_label = index(soft_clusters, second_max)[0]
-    except IndexError:
-        next_label = -1
-
-    return next_label, idx
-
-
-
 ###############################################################################
 ################################ - Classes - ##################################
-
-
-class CustomHelpFormatter(argparse.HelpFormatter):
-    def _split_lines(self, text, width):
-        return text.splitlines()
-
-    def _get_help_string(self, action):
-        h = action.help
-        if '%(default)' not in action.help:
-            if action.default != '' and \
-               action.default != [] and \
-               action.default != None \
-               and action.default != False:
-                if action.default is not argparse.SUPPRESS:
-                    defaulting_nargs = [
-                        argparse.OPTIONAL, argparse.ZERO_OR_MORE
-                    ]
-
-                    if action.option_strings or action.nargs in defaulting_nargs:
-
-                        if '\n' in h:
-                            lines = h.splitlines()
-                            lines[0] += ' (default: %(default)s)'
-                            h = '\n'.join(lines)
-                        else:
-                            h += ' (default: %(default)s)'
-        return h
-
-    def _fill_text(self, text, width, indent):
-        return ''.join([indent + line for line in text.splitlines(True)])
 
 
 class Binner():
@@ -193,10 +116,11 @@ class Binner():
             metric = 'aggregate_tnf',
             threads=8,
             a=1.58,
-            b=0.5,
+            b=0.4,
             min_bin_size=200000,
             min_coverage=1,
             min_coverage_sum=1,
+            initialization='spectral',
     ):
         # config.THREADING_LAYER = 'tbb'
         # config.NUMBA_NUM_THREADS = threads
@@ -296,12 +220,10 @@ class Binner():
         self.tnfs = pd.read_csv(kmer_frequencies, sep='\t')
         self.tnfs = self.tnfs[self.tnfs['contigName'].isin(self.large_contigs['contigName'])]
         ## Divide by row sums to get frequencies
-        # self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].rank(axis=1)
         self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
         self.tnfs.iloc[:, 2:] = skbio.stats.composition.clr(self.tnfs.iloc[:, 2:].astype(np.float64) + 1)
         ## Set custom log base change for lengths
         self.log_lengths = np.log(self.tnfs['contigLen']) / np.log(max(self.tnfs['contigLen'].mean(), 10000))
-        # self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].max(axis=1), axis=0)
         
         ## Check the ordering of the contig names for sanity check
         if list(self.large_contigs['contigName']) != list(self.tnfs['contigName']):
@@ -321,141 +243,68 @@ class Binner():
             self.binning_method = 'eom'
             self.min_cluster_size = 2
             b_long = b
-        b_tnf = 0.5
 
-        # self.filterer_tnf = umap.UMAP(
-                        # metric=metrics.tnf_euclidean,
-                        # n_neighbors=n_neighbors,
-                        # n_components=10,
-                        # min_dist=0,
-                        # disconnection_distance=5.0,
-                        # set_op_mix_ratio=0.01,
-                        # random_state=random_state,
-                        # n_epochs=500,
-                        # spread=0.5,
-                        # a=a,
-                        # b=b,
-                    # )
+
         if self.n_samples >= 3 or self.long_samples >= 3:
             n_components = min(max(self.n_samples, self.long_samples), 5)
         else:
             n_components = 2
 
         self.tnf_reducer = umap.UMAP(
-                        metric=metrics.rho,
-                        # metric = "correlation",
-                        n_neighbors=int(n_neighbors),
-                        n_components=n_components,
-                        min_dist=0,
-                        # local_connectivity=5,
-                        disconnection_distance=0.9,
-                        set_op_mix_ratio=0.01,
-                        random_state=random_state,
-                        n_epochs=500,
-                        spread=0.5,
-                        a=a,
-                        b=b,
-                    )
+            metric=metrics.rho,
+            n_neighbors=int(n_neighbors),
+            n_components=n_components,
+            min_dist=0,
+            disconnection_distance=0.9,
+            set_op_mix_ratio=0.01,
+            spread=0.5,
+            a=a,
+            b=b,
+            init=initialization,
+        )
 
-        self.inv_reducer = umap.UMAP(
-                        metric=metrics.inverse_correlation,
-                        # metric = "correlation",
-                        n_neighbors=int(n_neighbors),
-                        n_components=15,
-                        min_dist=0,
-                        # local_connectivity=5,
-                        disconnection_distance=0.5,
-                        set_op_mix_ratio=0.01,
-                        random_state=random_state,
-                        n_epochs=500,
-                        spread=0.5,
-                        a=a,
-                        b=b,
-                    )
         
-        if self.n_samples > 0:
-            self.depth_reducer = umap.UMAP(
-                metric=metrics.aggregate_tnf,
-                metric_kwds={"n_samples": self.n_samples, "sample_distances": self.short_sample_distance},
-                n_neighbors=n_neighbors,
-                n_components=n_components,
-                min_dist=min_dist,
-                # local_connectivity=5,
-                disconnection_distance=0.9,
-                random_state=random_state,
-                set_op_mix_ratio=0.01,
-                n_epochs=500,
-                spread=0.5,
-                a=a,
-                b=b,
-            )
+        self.depth_reducer = umap.UMAP(
+            metric=metrics.aggregate_tnf,
+            metric_kwds={"n_samples": self.n_samples, "sample_distances": self.short_sample_distance},
+            n_neighbors=n_neighbors,
+            n_components=n_components,
+            min_dist=min_dist,
+            disconnection_distance=0.9,
+            set_op_mix_ratio=0.01,
+            spread=0.5,
+            a=a,
+            b=b,
+            init=initialization
+        )
 
+        self.update_umap_params(self.large_contigs.shape[0])
 
-            self.metabat_reducer = umap.UMAP(
-                    metric=metrics.metabat_distance,
-                    metric_kwds={"n_samples": self.n_samples, "sample_distances": self.short_sample_distance},
-                    n_neighbors=30,
-                    n_components=n_components,
-                    min_dist=min_dist,
-                    # local_connectivity=5,
-                    # disconnection_distance=0.75,
-                    random_state=random_state,
-                    set_op_mix_ratio=0.01,
-                    n_epochs=500,
-                    spread=0.5,
-                    a=a,
-                    b=b,
-                )
-            
-            if self.n_samples < 3:
-                self.coverage_reducer = umap.UMAP(
-                    metric="euclidean",
-                    # metric_kwds={"n_samples": self.n_samples, "sample_distances": self.short_sample_distance},
-                    n_neighbors=n_neighbors,
-                    n_components=n_components,
-                    min_dist=min_dist,
-                    # local_connectivity=5,
-                    disconnection_distance=3,
-                    random_state=random_state,
-                    set_op_mix_ratio=0.01,
-                    n_epochs=500,
-                    spread=0.5,
-                    a=a,
-                    b=b,
-                )
+    def update_umap_params(self, nrows):
+        if nrows <= 10000: # high gear
+            # Small datasets can have larger n_neighbors without being prohibitively slow
+            if nrows <= 100: # wheels fell off
+                self.tnf_reducer.n_neighbors = nrows // 10
+                self.depth_reducer.n_neighbors = nrows // 10
             else:
-                self.coverage_reducer = umap.UMAP(
-                    metric=metrics.rho,
-                    # metric_kwds={"sample_distances": self.short_sample_distance},
-                    n_neighbors=n_neighbors,
-                    n_components=n_components,
-                    min_dist=min_dist,
-                    # local_connectivity=5,
-                    # disconnection_distance=1,
-                    random_state=random_state,
-                    set_op_mix_ratio=0.01,
-                    n_epochs=500,
-                    spread=0.5,
-                    a=a,
-                    b=b,
-                )
-
-            self.precomputed_reducer = umap.UMAP(
-                    metric='precomputed',
-                    # metric_kwds={"n_samples": self.n_samples, "sample_distances": self.short_sample_distance},
-                    n_neighbors=10,
-                    n_components=n_components,
-                    min_dist=0.0,
-                    # local_connectivity=5,
-                    # disconnection_distance=1,
-                    random_state=random_state,
-                    set_op_mix_ratio=0.01,
-                    n_epochs=500,
-                    spread=0.5,
-                    # a=a,
-                    # b=b,
-                )
-
+                self.tnf_reducer.n_neighbors = 100
+                self.depth_reducer.n_neighbors = 100
+            self.tnf_reducer.n_epochs = 500
+            self.depth_reducer.n_epochs = 500
+        elif nrows <= 50000: # mid gear
+            # Things start to get too slow around here, so scale back params
+            self.tnf_reducer.n_neighbors = 50
+            self.tnf_reducer.n_epochs = 400
+            self.depth_reducer.n_neighbors = 50
+            self.depth_reducer.n_epochs = 400
+        else: # low gear
+            # This is the super slow zone, but don't want to dip values below this
+            # Hopefully pick out easy bins, then scale data down with each iterations
+            # Allowing the params to bump up into other gears
+            self.tnf_reducer.n_neighbors = 30
+            self.tnf_reducer.n_epochs = 300
+            self.depth_reducer.n_neighbors = 30
+            self.depth_reducer.n_epochs = 300
 
     def filter(self):
 
@@ -479,31 +328,31 @@ class Binner():
                                         np.log(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigLen']).std(), # S - shape parameter
                                         np.log(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigLen']).mean(), # loc parameter
                                         1) # scale parameter
+            self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
+
         except AttributeError:
             try:
                 lognorm_cdf = sp_stats.lognorm.cdf(np.log(self.large_contigs[~self.disconnected]['contigLen']), 
                                                         np.log(self.large_contigs[~self.disconnected]['contigLen']).std(), # S - shape parameter
                                                         np.log(self.large_contigs[~self.disconnected]['contigLen']).mean(), # loc parameter
                                                         1) # scale parameter
+                self.update_umap_params(self.large_contigs[~self.disconnected].shape[0])
             except AttributeError:
                 lognorm_cdf = sp_stats.lognorm.cdf(np.log(self.large_contigs['contigLen']), 
                                                         np.log(self.large_contigs['contigLen']).std(), # S - shape parameter
                                                         np.log(self.large_contigs['contigLen']).mean(), # loc parameter
                                                         1) # scale parameter
+                self.update_umap_params(self.large_contigs.shape[0])
+
             
         disconnection_stringent = max(lognorm_cdf.mean(), 0.05)
         if self.n_samples >= 0:
             disconnection_param = min(lognorm_cdf.mean(), 0.99)
         else:
             disconnection_param = min(0.5, 0.9)
-        # disconnection_param = 1
         tnf_disconnect = max(min(lognorm_cdf.mean(), 0.9), 0.1)
         self.tnf_reducer.disconnection_distance = tnf_disconnect
-        self.coverage_reducer.disconnection_distance = tnf_disconnect
-        self.metabat_reducer.disconnection_distance = disconnection_stringent
-
-        if self.n_samples > 0:
-            self.depth_reducer.disconnection_distance = disconnection_param
+        self.depth_reducer.disconnection_distance = disconnection_param
         self.filter_value = disconnection_stringent
  
     def fit_disconnect(self):
@@ -521,21 +370,10 @@ class Binner():
         logging.info("Running UMAP - %s" % self.depth_reducer)
         depth_mapping = self.depth_reducer.fit(self.depths)
 
-        if self.n_samples >= 3:
         
-            logging.info("Running UMAP - %s" % self.coverage_reducer)
-            coverage_mapping = self.coverage_reducer.fit(
-                        np.concatenate((self.log_lengths[~self.disconnected].values[:, None],
-                                skbio.stats.composition.clr(self.large_contigs[~self.disconnected].iloc[:, 3::2].T + 1).T), axis = 1))
-
-            logging.info("Finding diconnections...")
-            self.disconnected_intersected = umap.utils.disconnected_vertices(depth_mapping) + \
-                                            umap.utils.disconnected_vertices(tnf_mapping)# + \
-                                            # umap.utils.disconnected_vertices(coverage_mapping)
-        else:
-            logging.info("Finding diconnections...")
-            self.disconnected_intersected = umap.utils.disconnected_vertices(depth_mapping) + \
-                                            umap.utils.disconnected_vertices(tnf_mapping)
+        logging.info("Finding diconnections...")
+        self.disconnected_intersected = umap.utils.disconnected_vertices(depth_mapping) + \
+                                        umap.utils.disconnected_vertices(tnf_mapping)
 
 
         # Print out all disconnected contigs
@@ -547,11 +385,7 @@ class Binner():
             
         if not self.disconnected_intersected.any() == True:
 
-            # union_mapper = tnf_mapping +
-            if self.n_samples >= 0:
-                self.intersection_mapper = depth_mapping * tnf_mapping #* coverage_mapping
-            else:
-                self.intersection_mapper = depth_mapping * tnf_mapping
+            self.intersection_mapper = depth_mapping * tnf_mapping 
             self.embeddings = self.intersection_mapper.embedding_
             return False
         else:
@@ -561,6 +395,7 @@ class Binner():
         # update parameters to artificially high values to avoid disconnected vertices in the final manifold
         self.tnf_reducer.disconnection_distance = 1
         self.depth_reducer.disconnection_distance = 0.99
+        self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
         
         logging.info("Running UMAP - %s" % self.tnf_reducer)
         tnf_mapping = self.tnf_reducer.fit(
@@ -793,16 +628,8 @@ class Binner():
 
             names = list(contigs['contigName'])
             indices = []
-            findem = ['contig_1096_pilon', 'contig_1199_pilon', 'contig_1333_pilon', 'contig_1334_pilon', 'contig_1337_pilon', 'contig_1346_pilon', 'contig_910_pilon', 'contig_1059_pilon', 'contig_1060_pilon', 'contig_719_pilon']
-            for to_find in findem:
-                try:
-                    indices.append(names.index(to_find))
-                except ValueError:
-                    indices.append(-1)
-            # try:
-            self.depth_reducer.n_neighors = min(contigs.values.shape[0] // 2, 100)
-            # self.tnf_reducer.disconnection_distance = self.filter_value
-            # self.depth_reducer.disconnection_distance = self.filter_value
+
+            self.update_umap_params(contigs.shape[0])
 
             try:
                 agg_mapping = self.depth_reducer.fit(np.concatenate((contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
@@ -854,6 +681,7 @@ class Binner():
                                                 np.concatenate((log_lengths.values[:, None],
                                                                 tnfs.iloc[:, 2:]),
                                                                 axis=1))
+                current_disconnected = np.array([False for i in range(contigs.values.shape[0])])
                 current_disconnected = umap.utils.disconnected_vertices(agg_mapping) + \
                                        umap.utils.disconnected_vertices(tnf_mapping)
             else:
@@ -925,9 +753,9 @@ class Binner():
                        linewidth=0,
                        c=cluster_colors,
                        alpha=0.7)
-            for i, index in enumerate(indices):
-                if index != -1:
-                    ax.annotate(findem[i], xy=(intersection.embedding_[index, 0], intersection.embedding_[index, 1]), xycoords='data')
+            # for i, index in enumerate(indices):
+                # if index != -1:
+                    # ax.annotate(findem[i], xy=(intersection.embedding_[index, 0], intersection.embedding_[index, 1]), xycoords='data')
 
             plt.gca().set_aspect('equal', 'datalim')
             plt.title(format('UMAP projection of unbinned contigs - %d' % (n)), fontsize=24)
