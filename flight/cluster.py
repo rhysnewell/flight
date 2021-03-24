@@ -154,6 +154,7 @@ class Cluster():
         a=1.58,
     ):
         set_num_threads(threads)
+        self.embeddings = []
         self.threads = threads
         ## Set up clusterer and UMAP
         self.path = output_prefix
@@ -164,15 +165,10 @@ class Cluster():
 
         self.clr_depths = skbio.stats.composition.clr((self.depths + 1).T).T
 
-
         self.n_samples = self.depths.shape[1]
 
-
-        if n_neighbors >= int(self.depths.shape[0] * 0.5):
-            n_neighbors = max(int(self.depths.shape[0] * 0.5), 2)
-
         if n_components > self.depths.shape[1]:
-            n_components = max(self.depths.shape[1], 2)
+            n_components = min(max(self.depths.shape[1], 2), 5)
 
         self.rho_reducer = umap.UMAP(
             n_neighbors=n_neighbors,
@@ -197,21 +193,49 @@ class Cluster():
             b=b,
         )
 
-        if min_cluster_size > self.depths.shape[0] * 0.1:
-            min_cluster_size = max(int(self.depths.shape[0] * 0.1), 2)
-            min_samples = max(int(min_cluster_size * 0.1), 2)
-
         if precomputed:
             self.metric = "precomputed"
-            prediction_data = False
         else:
             self.metric = "euclidean"
 
+        self.update_umap_params(self.depths.shape[0])
+
+    def update_umap_params(self, nrows):
+        if nrows <= 10000: # high gear
+            # Small datasets can have larger n_neighbors without being prohibitively slow
+            if nrows <= 1000: # wheels fell off
+                self.rho_reducer.n_neighbors = nrows // 10
+                self.distance_reducer.n_neighbors = nrows // 10
+            else:
+                self.rho_reducer.n_neighbors = 100
+                self.distance_reducer.n_neighbors = 100
+            self.rho_reducer.n_epochs = 500
+            self.distance_reducer.n_epochs = 500
+        elif nrows <= 50000: # mid gear
+            # Things start to get too slow around here, so scale back params
+            self.rho_reducer.n_neighbors = 50
+            self.rho_reducer.n_epochs = 400
+            self.distance_reducer.n_neighbors = 50
+            self.distance_reducer.n_epochs = 400
+        else: # low gear
+            # This is the super slow zone, but don't want to dip values below this
+            # Hopefully pick out easy bins, then scale data down with each iterations
+            # Allowing the params to bump up into other gears
+            self.rho_reducer.n_neighbors = 30
+            self.rho_reducer.n_epochs = 300
+            self.distance_reducer.n_neighbors = 30
+            self.distance_reducer.n_epochs = 300
+
+    def filter(self):
+        # Not sure to include this
+        pass
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
-        self.dist_embeddings = self.distance_reducer.fit_transform(self.depths)
-        self.rho_embeddings = self.rho_reducer.fit_transform(self.clr_depths)
+        dist_embeddings = self.distance_reducer.fit_transform(self.depths)
+        rho_embeddings = self.rho_reducer.fit_transform(self.clr_depths)
+        intersect = dist_embeddings * rho_embeddings
+        self.embeddings = intersect.embeddings_
 
     def cluster(self):
         ## Cluster on the UMAP embeddings and return soft clusters
