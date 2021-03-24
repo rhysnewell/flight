@@ -295,6 +295,50 @@ def hellinger_distance_poisson(a, b, n_samples, sample_distances):
     return d
 
 @njit(fastmath=True)
+def hellinger_distance_poisson_variants(a_means, b_means, n_samples, sample_distances):
+    """
+    a - The coverage vec for a variant over n_samples
+    b - The coverage vec for a variant over n_samples
+
+    returns average hellinger distance of multiple poisson distributions
+    """
+
+    # generate distirbutions for each sample
+    # and calculate divergence between them
+
+    # Get the means for each contig
+    h_geom_mean = []
+    both_present = []
+
+    for i in range(0, n_samples):
+        # Use this indexing method as zip does not seem to work so well in njit
+        # Add tiny value to each to avoid division by zero
+        a_mean = a_means[i] + 1e-6
+        b_mean = b_means[i] + 1e-6
+
+        if a_mean > 1e-6 and b_mean > 1e-6:
+            both_present.append(i)
+
+        if a_mean > 1e-6 or b_mean > 1e-6:
+            # First component of hellinger distance
+            h1 = math.exp(-0.5 * ((np.sqrt(a_mean) - np.sqrt(b_mean))**2))
+
+            h_geom_mean.append(1 - h1)
+
+    if len(h_geom_mean) >= 1:
+        # convert to log space to avoid overflow errors
+        d = np.log(np.array(h_geom_mean))
+        # return the geometric mean
+        d = np.exp(d.sum() / len(d))
+        geom_sim = geom_sim_calc(both_present, sample_distances)
+        d = d ** (1/geom_sim)
+    else:
+        d = 1
+
+    return d
+
+
+@njit(fastmath=True)
 def metabat_distance(a, b, n_samples, sample_distances):
     """
     a - The mean and variance vec for contig a over n_samples

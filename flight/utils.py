@@ -223,7 +223,7 @@ def special_match(strg, search=re.compile(r'[^ATGC]').search):
     return not bool(search(strg))
 
 
-def sample_distance(coverage_table):
+def sample_distance(coverage_table, contigs=True):
     """
     Input:
     coverage_table - a coverage and variance table for all contigs passing initial size and min coverage filters
@@ -233,5 +233,8 @@ def sample_distance(coverage_table):
     """
 
     # Convert coverage table to presence absence table of 1s and 0s
-    presence_absence = (coverage_table.iloc[:, 3::2].values > 0).astype(int).T
+    if contigs is True:
+        presence_absence = (coverage_table.iloc[:, 3::2].values > 0).astype(int).T
+    else:
+        presence_absence = (coverage_table.values > 0).astype(int).T
     return 1 - pairwise_distances(presence_absence, metric='hamming')

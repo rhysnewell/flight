@@ -147,10 +147,10 @@ class Cluster():
         prediction_data=True,
         cluster_selection_method="eom",
         precomputed=False,
-        metric='rho_variants',
+        metric='hellinger_distance_poisson',
         hdbscan_metric="euclidean",
         threads=8,
-        b=0.5,
+        b=0.4,
         a=1.58,
     ):
         set_num_threads(threads)
@@ -160,12 +160,10 @@ class Cluster():
         self.depths = np.load(count_path)
 
         ## Scale the data
-        if scaler.lower() == "minmax":
-            self.depths = MinMaxScaler().fit_transform(self.depths)
-        elif scaler.lower() == "clr":
-            self.depths = skbio.stats.composition.clr((self.depths + 1).T).T
-        elif scaler.lower() == "none":
-            pass
+        self.sample_distance = utils.sample_distance(self.depths)
+
+        self.clr_depths = skbio.stats.composition.clr((self.depths + 1).T).T
+
 
         self.n_samples = self.depths.shape[1]
 
@@ -174,31 +172,30 @@ class Cluster():
             n_neighbors = max(int(self.depths.shape[0] * 0.5), 2)
 
         if n_components > self.depths.shape[1]:
-            n_components = self.depths.shape[1]
+            n_components = max(self.depths.shape[1], 2)
 
-        if metric in ['rho_variants', 'phi', 'phi_dist']:
-            self.reducer = umap.UMAP(
-                n_neighbors=n_neighbors,
-                min_dist=min_dist,
-                n_components=n_components,
-                random_state=random_state,
-                spread=1,
-                metric=getattr(metrics, metric),
-                # metric_kwds={'n_samples': self.n_samples},
-                # a=a,
-                # b=b,
-            )
-        else:
-            self.reducer = umap.UMAP(
-                n_neighbors=n_neighbors,
-                min_dist=min_dist,
-                n_components=n_components,
-                random_state=random_state,
-                spread=1,
-                metric=metric,
-                # a=a,
-                # b=b,
-            )
+        self.rho_reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            n_components=n_components,
+            # random_state=random_state,
+            spread=1,
+            metric=metrics.rho_variants,
+            # metric_kwds={'n_samples': self.n_samples},
+            a=a,
+            b=b,
+        )
+        self.distance_reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            n_components=n_components,
+            # random_state=random_state,
+            spread=1,
+            metric=metrics.hellinger_distance_poisson_variants,
+            metric_kwds={'n_samples': self.n_samples, 'sample_distances': self.sample_distance},
+            a=a,
+            b=b,
+        )
 
         if min_cluster_size > self.depths.shape[0] * 0.1:
             min_cluster_size = max(int(self.depths.shape[0] * 0.1), 2)
@@ -213,7 +210,8 @@ class Cluster():
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
-        self.embeddings = self.reducer.fit_transform(self.depths)
+        self.dist_embeddings = self.distance_reducer.fit_transform(self.depths)
+        self.rho_embeddings = self.rho_reducer.fit_transform(self.clr_depths)
 
     def cluster(self):
         ## Cluster on the UMAP embeddings and return soft clusters
