@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+
 ###############################################################################
 # metrics.py - File containing additonal distance metrics for use with UMAP
 ###############################################################################
@@ -572,13 +573,13 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
 
 @njit(fastmath=True)
 def populate_matrix(depths, n_samples, sample_distances):
-    contigs = {}
+    contigs = List()
+    tids = List()
     # distances = np.zeros((depths.shape[0], depths.shape[0]))
     w = (n_samples) / (n_samples + 1) # weighting by number of samples same as in metabat2
-    tids = List()
-    [tids.append(x) for x in range(depths.shape[0])]
-    for tid in tids:
-        contigs[tid] = List([0.0, 0.0, 0.0])
+
+    [(contigs.append(List([0.0, 0.0, 0.0])), tids.append(x)) for x in range(depths.shape[0])]
+    
     pairs = combinations(tids, 2)
     mean_md = 0
     mean_tnf = 0
@@ -594,9 +595,6 @@ def populate_matrix(depths, n_samples, sample_distances):
         mean_tnf += tnf_dist
         mean_agg += agg
 
-        # distances[i[0], i[1]] = agg
-        # distances[i[1], i[0]] = agg
-
         contigs[i[0]][0] += md
         contigs[i[0]][1] += tnf_dist
         contigs[i[0]][2] += agg
@@ -604,8 +602,12 @@ def populate_matrix(depths, n_samples, sample_distances):
         contigs[i[1]][0] += md
         contigs[i[1]][1] += tnf_dist
         contigs[i[1]][2] += agg
-        
-        
+
+    for i in range(len(contigs)):
+        contigs[i][0] /= len(contigs)
+        contigs[i][1] /= len(contigs)
+        contigs[i][2] /= len(contigs)
+                
     mean_md = mean_md / len(pairs)
     mean_tnf = mean_tnf / len(pairs)
     mean_agg = mean_agg / len(pairs)

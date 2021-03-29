@@ -496,7 +496,6 @@ def bin(args):
                                                                    delete_unbinned=True,
                                                                    bin_unbinned=False) # First pass get bins
                             clusterer.pairwise_distances(reembed=True) # Try re-embedding problem clusters solo
-                            clusterer.pairwise_distances(bin_unbinned=True) # Bin out large unbinned contigs
                             try:
                                 max_bin_id = max(clusterer.bins.keys()) + 1
                             except ValueError:
@@ -504,7 +503,9 @@ def bin(args):
                             plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
                                                                    plots, x_min, x_max, y_min, y_max, n+1,
                                                                    delete_unbinned=True,
-                                                                   bin_unbinned=True) # second pass get bins
+                                                                   bin_unbinned=False) # second pass get bins
+                            clusterer.pairwise_distances(bin_unbinned=True) # Bin out large unbinned contigs
+
 
                         clusterer.bin_filtered(int(args.min_bin_size))
                         clusterer.plot()
@@ -547,16 +548,17 @@ def bin(args):
                                                                                            delete_unbinned=True,
                                                                                            bin_unbinned=False) # First pass get bins
                             clusterer.pairwise_distances(reembed=True)  # Try re-embedding problem clusters solo
-                            clusterer.pairwise_distances(
-                                bin_unbinned=True)  # Bin out large unbinned contigs
+
                             try:
                                 max_bin_id = max(clusterer.bins.keys()) + 1
                             except ValueError:
                                 max_bin_id = 1
+                                
                             plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
                                                                    plots, x_min, x_max, y_min, y_max, n+1,
                                                                    delete_unbinned=True,
-                                                                   bin_unbinned=True) # second pass get bins
+                                                                   bin_unbinned=False) # second pass get bins
+                            clusterer.pairwise_distances(bin_unbinned=True) # Bin out large unbinned contigs
 
                         clusterer.bin_filtered(int(args.min_bin_size))
                         clusterer.plot()
