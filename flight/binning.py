@@ -440,7 +440,7 @@ class Binner():
             tids = self.bins[bin]
             if len(tids) != len(set(tids)):
                 print(bin, tids)
-            if len(tids) > 1 and bin not in self.checked_bins \
+            if len(tids) > 1 \
                     and not (bin_unbinned or reembed) \
                     and bin != 0:
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
@@ -825,6 +825,7 @@ class Binner():
     def read_bin_file(self, bin_json):
         with open(bin_json) as bin_file:
             self.bins = json.load(bin_file)
+            self.bins = {int(k):v for k, v in self.bins.items()}
             
 
     def pairwise_distance_single_bin(self, bin_id):
@@ -879,9 +880,6 @@ class Binner():
                 remove = True
             print("New size: ", current_contigs['contigLen'].sum())
 
-            if len(tids) == 0 or remove:
-                bins_to_remove.append(bin)
-
         print(len(tids))
         print(len(self.bins[bin_id]))
 
@@ -923,10 +921,7 @@ class Binner():
                     removed = []
                     for (tid, contig_values) in zip(tids, per_contig_avg):
                         if contig_values[0] >= 0.2 and contig_values[1] >= 0.2:
-                            # if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
-                                # big_tids.append(tid)
-                                # removed.append(tid)
-                            # else:
+
                             try:
                                 self.unbinned_tids.append(tid)
                             except AttributeError:

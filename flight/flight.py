@@ -474,8 +474,16 @@ def bin(args):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             while n <= 5:
-                                
-                                clusterer.pairwise_distances()
+                                unbinned_length = len(clusterer.unbinned_tids)
+
+                                while True:
+                                    clusterer.pairwise_distances()
+                                    new_length = len(clusterer.unbinned_tids)
+                                    if unbinned_length == new_length:
+                                        break
+                                    else:
+                                        unbinned_length = new_length
+
                                 try:
                                     max_bin_id = max(clusterer.bins.keys()) + 1
                                 except ValueError:
@@ -527,7 +535,16 @@ def bin(args):
                             warnings.simplefilter("ignore")
                             while n <= 5:
 
-                                clusterer.pairwise_distances()
+                                unbinned_length = len(clusterer.unbinned_tids)
+
+                                while True:
+                                    clusterer.pairwise_distances()
+                                    new_length = len(clusterer.unbinned_tids)
+                                    if unbinned_length == new_length:
+                                        break
+                                    else:
+                                        unbinned_length = new_length
+
                                 try:
                                     max_bin_id = max(clusterer.bins.keys()) + 1
                                 except ValueError:
@@ -536,7 +553,6 @@ def bin(args):
                                 if n == 0 or old_tids != set(clusterer.unbinned_tids):
                                     old_tids = set(clusterer.unbinned_tids)
                                 else:
-
                                     break  # nothing changed
                                 plots = clusterer.reembed_unbinned(clusterer.unbinned_tids,
                                                                    max_bin_id,
