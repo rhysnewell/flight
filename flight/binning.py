@@ -651,7 +651,7 @@ class Binner():
 
         return contigs, log_lengths, tnfs
 
-    def recluster(self, distances, metric='euclidean', binning_method='eom', min_cluster_size=2, min_samples=2):
+    def cluster(self, distances, metric='euclidean', binning_method='eom', min_cluster_size=2, min_samples=2):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             ## Cluster on the UMAP embeddings and return soft clusters
@@ -679,9 +679,9 @@ class Binner():
 
 
     def iterative_clustering(self, distances, metric='euclidean', binning_method='eom'):
-        first_labels = self.recluster(distances)
+        first_labels = self.cluster(distances)
         bool_arr = np.array([True if i == -1 else False for i in first_labels])
-        second_labels = self.recluster(distances[bool_arr])
+        second_labels = self.cluster(distances[bool_arr])
     
 
         main_labels = [] # container for complete clustering
@@ -703,7 +703,67 @@ class Binner():
 
         return np.array(main_labels)
         
-                        
+
+    def recluster_unbinned(self, tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, delete_unbinned = False):
+        if len(set(tids)) > 1:
+            unbinned_array = self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'].isin(tids)
+            unbinned_embeddings = self.embeddings[unbinned_array]
+            self.labels = self.iterative_clustering(unbinned_embeddings)
+            contigs = self.large_contigs[unbinned_array]
+
+            findem = ['contig_1096_pilon', 'contig_1199_pilon', 'contig_1333_pilon', 'contig_1334_pilon',
+                      'contig_1337_pilon', 'contig_1346_pilon', 'contig_910_pilon', 'contig_1059_pilon',
+                      'contig_1060_pilon', 'contig_719_pilon']
+            names = list(contigs['contigName'])
+            indices = []
+            for to_find in findem:
+                try:
+                    indices.append(names.index(to_find))
+                except ValueError:
+                    indices.append(-1)
+
+            plots.append(utils.plot_for_offset(unbinned_embeddings, self.labels, x_min, x_max, y_min, y_max, n))
+            color_palette = sns.color_palette('husl', max(self.labels) + 1)
+            cluster_colors = [
+                color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in self.labels
+            ]
+
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+
+            ## Plot large contig membership
+            ax.scatter(unbinned_embeddings[:, 0],
+                       unbinned_embeddings[:, 1],
+                       s=7,
+                       linewidth=0,
+                       c=cluster_colors,
+                       alpha=0.7)
+
+            for i, index in enumerate(indices):
+                if index != -1:
+                    ax.annotate(findem[i], xy=(unbinned_embeddings[index, 0], unbinned_embeddings[index, 1]),
+                                xycoords='data')
+
+            plt.gca().set_aspect('equal', 'datalim')
+            plt.title(format('UMAP projection of unbinned contigs - %d' % (n)), fontsize=24)
+            plt.savefig(self.path + '/UMAP_projection_of_unbinned.png')
+
+            if delete_unbinned:
+                self.unbinned_tids = []
+
+            for (idx, label) in enumerate(self.labels):
+
+                if label != -1:
+                    try:
+                        self.bins[max_bin_id + label.item() + 1].append(self.assembly[contigs[
+                            'contigName'].iloc[idx]])  # inputs values as tid
+                    except KeyError:
+                        self.bins[max_bin_id + label.item() + 1] = [
+                            self.assembly[contigs['contigName'].iloc[idx]]]
+
+                else:
+                    self.unbinned_tids.append(self.assembly[contigs['contigName'].iloc[idx]])
+
     def reembed_unbinned(self, tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, delete_unbinned = False, bin_unbinned = False):
         big_contigs = []
 
@@ -1001,65 +1061,7 @@ class Binner():
 
         for k in bins_to_remove:
             result = self.bins.pop(k)
-                
 
-        
-                                            
-    def cluster(self):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            ## Cluster on the UMAP embeddings and return soft clusters
-            logging.info("Clustering contigs...")
-            tuned = utils.hyperparameter_selection(self.embeddings, self.threads, method=self.binning_method, allow_single_cluster=False, starting_size = self.min_cluster_size)
-            best = utils.best_validity(tuned)
-            self.clusterer = hdbscan.HDBSCAN(
-                algorithm='best',
-                alpha=1.0,
-                approx_min_span_tree=True,
-                gen_min_span_tree=True,
-                leaf_size=40,
-                cluster_selection_method=self.binning_method,
-                metric='euclidean',
-                min_cluster_size=int(best['min_cluster_size']),
-                min_samples=int(best['min_samples']),
-                allow_single_cluster=False,
-                core_dist_n_jobs=self.threads,
-                prediction_data=True
-            )
-            self.clusterer.fit(self.embeddings)
-            try:
-                self.validity, self.cluster_validity = hdbscan.validity.validity_index(self.embeddings.astype(np.float64), self.clusterer.labels_, per_cluster_scores=True)
-            except ValueError:
-                self.validity = 0
-                self.cluster_validity = [0.5 for i in range(len(set(self.clusterer.labels_)))]
-            self.soft_clusters = hdbscan.all_points_membership_vectors(
-                self.clusterer)
-            self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
-
-    def cluster_unbinned(self):
-        ## Cluster on the unbinned contigs, attempt to create fine grained clusters that were missed
-
-        logging.info("Clustering unbinned contigs...")
-        tuned = utils.hyperparameter_selection(self.unbinned_embeddings, self.threads, method=self.binning_method)
-        best = utils.best_validity(tuned)
-        if best is not None:
-            self.unbinned_clusterer = hdbscan.HDBSCAN(
-                algorithm='best',
-                alpha=1.0,
-                approx_min_span_tree=True,
-                gen_min_span_tree=True,
-                leaf_size=40,
-                cluster_selection_method=self.binning_method,
-                metric='euclidean',
-                min_cluster_size=int(best['min_cluster_size']),
-                min_samples=int(best['min_samples']),
-                allow_single_cluster=False,
-                core_dist_n_jobs=self.threads,
-                prediction_data=True
-            )
-            self.unbinned_clusterer.fit(self.unbinned_embeddings)
-        else:
-            self.unbinned_clusterer = None
 
     def compare_contigs(self, contig1, contig2):
         tnf1 = np.concatenate((np.log(self.large_contigs[self.large_contigs['contigName']==contig1]['contigLen'].values[:, None]) / np.log(self.large_contigs['contigLen'].mean()),
@@ -1208,32 +1210,6 @@ class Binner():
         removed_bins = redo_bins.keys()
         if len(removed_bins) > 0:
             self.labels[:] = [label - sum(i < label for i in removed_bins) if label not in removed_bins else label for label in self.clusterer.labels_]
-            
-        # self.unbinned_embeddings = np.array(self.unbinned_embeddings)
-        # self.cluster_unbinned()
-        # try:
-            # new_unbinned = []
-            # max_bin_id = max(self.bins.keys())
-            # bin_counter = 1
-            # for (tid, label) in zip(self.unbinned_tids, self.unbinned_clusterer.labels_):
-                # if label != -1:
-                    # try:
-                        # self.bins[max_bin_id + label.item() + 1].append(tid) # inputs values as tid
-                    # except KeyError:
-                        # self.bins[max_bin_id + label.item() + 1] = [tid]
-# 
-                # #elif self.large_contigs[self.large_contigs['tid']==tid]['contigLen'].values[0] >= 1e6:
-                # #    max_bin_id = max(self.bins.keys()) + 1
-                # #    try:
-                # #        self.bins[max_bin_id.item()].append(tid) # inputs values as tid
-                # #    except KeyError:
-                # #        self.bins[max_bin_id.item()] = [tid]
-                # else:
-                    # new_unbinned.append(tid)
-            # self.unbinned_tids = new_unbinned
-            # self.unbinned_embeddings = []
-        # except ValueError:
-            # pass
 
 
     def bin_filtered(self, min_bin_size=200000):
