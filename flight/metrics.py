@@ -326,8 +326,10 @@ def metabat_distance(a, b, n_samples, sample_distances):
         a_var = a_vars[i] + 1e-6
         b_mean = b_means[i] + 1e-6
         b_var = b_vars[i] + 1e-6
+        d = 0
         if a_mean > 1e-6 and b_mean > 1e-6:
             both_present.append(i)
+        
 
         if a_mean > 1e-6 or b_mean > 1e-6 and a_mean != b_mean:
             # if a_var > a_mean:
@@ -356,14 +358,14 @@ def metabat_distance(a, b, n_samples, sample_distances):
 
             if k1 == k2:
                 d = abs(p1.cdf(k1) - p2.cdf(k1))
-                mb_vec.append(max(d, 1e-6))
+                mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
                 # mb_vec.append(d)
             else:
-                d = p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)
-                mb_vec.append(max(d, 1e-6))
+                d = abs(p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2))
+                mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
                 # mb_vec.append(d)
         else:
-            mb_vec.append(max(d, 1e-6))
+            mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
     
     if len(mb_vec) >= 1:
         # convert to log space to avoid overflow errors

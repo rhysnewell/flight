@@ -452,22 +452,23 @@ def bin(args):
                     clusterer.update_parameters()
                     found_disconnections = clusterer.fit_disconnect()
                     # clusterer.disconnected_intersected = np.array([False for i in range(clusterer.tnfs.values.shape[0])])
-                    # found_disconnections = True
-                    if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[0] > int(args.n_neighbors) * 5 and found_disconnections:
+                    found_disconnections = True
+                    if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[0] > int(args.n_neighbors) * 2:
                         # Final fully filtered embedding to cluster on
                         # clusterer.update_parameters()
                         clusterer.fit_transform()
-                        clusterer.cluster()
+                        clusterer.labels = clusterer.iterative_clustering(clusterer.embeddings)
+                        clusterer.plot()
 
                         ## Plot limits
-                        x_min = min(clusterer.embeddings[:, 0]) - 5
-                        x_max = max(clusterer.embeddings[:, 0]) + 5
-                        y_min = min(clusterer.embeddings[:, 1]) - 5
-                        y_max = max(clusterer.embeddings[:, 1]) + 5
+                        x_min = min(clusterer.embeddings[:, 0]) - 10
+                        x_max = max(clusterer.embeddings[:, 0]) + 10
+                        y_min = min(clusterer.embeddings[:, 1]) - 10
+                        y_max = max(clusterer.embeddings[:, 1]) + 10
 
-                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.clusterer.labels_, x_min, x_max, y_min, y_max, 0))
+                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.labels, x_min, x_max, y_min, y_max, 0))
                         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-
+                        
                         n = 0
                         old_tids = []
                         logging.info("Performing iterative clustering with disconnections...")
@@ -497,12 +498,12 @@ def bin(args):
                                 plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
                                                                 plots, x_min, x_max, y_min, y_max, n+1, delete_unbinned=True)
                                 n += 1
-
-
-                            plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                                                   plots, x_min, x_max, y_min, y_max, n+1,
-                                                                   delete_unbinned=True,
-                                                                   bin_unbinned=False) # First pass get bins
+# 
+# 
+                            # # plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
+                                                                   # # plots, x_min, x_max, y_min, y_max, n+1,
+                                                                   # # delete_unbinned=True,
+                                                                   # # bin_unbinned=False) # First pass get bins
                             clusterer.pairwise_distances(reembed=True) # Try re-embedding problem clusters solo
                             try:
                                 max_bin_id = max(clusterer.bins.keys()) + 1
@@ -511,21 +512,21 @@ def bin(args):
                             plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
                                                                    plots, x_min, x_max, y_min, y_max, n+1,
                                                                    delete_unbinned=True,
-                                                                   bin_unbinned=False) # second pass get bins
-                            clusterer.pairwise_distances(bin_unbinned=True) # Bin out large unbinned contigs
-
+                                                                   bin_unbinned=True) # second pass get bins
+                            # # clusterer.pairwise_distances(bin_unbinned=True) # Bin out large unbinned contigs
+                            
 
                         clusterer.bin_filtered(int(args.min_bin_size))
-                        clusterer.plot()
                     elif not found_disconnections: # run clustering based off first round of embeddings
-                        clusterer.cluster()
+                        clusterer.labels = clusterer.iterative_clustering(clusterer.embeddings)
+                        clusterer.plot()
                         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
                         ## Plot limits
-                        x_min = min(clusterer.embeddings[:, 0]) - 5
-                        x_max = max(clusterer.embeddings[:, 0]) + 5
-                        y_min = min(clusterer.embeddings[:, 1]) - 5
-                        y_max = max(clusterer.embeddings[:, 1]) + 5
-                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.clusterer.labels_, x_min, x_max, y_min, y_max, 0))
+                        x_min = min(clusterer.embeddings[:, 0]) - 10
+                        x_max = max(clusterer.embeddings[:, 0]) + 10
+                        y_min = min(clusterer.embeddings[:, 1]) - 10
+                        y_max = max(clusterer.embeddings[:, 1]) + 10
+                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.labels, x_min, x_max, y_min, y_max, 0))
 
 
                         n = 0
@@ -559,10 +560,10 @@ def bin(args):
                                                                    plots, x_min, x_max, y_min, y_max, n+1, delete_unbinned=True)
                                 n += 1
 
-                            plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                                                                           plots, x_min, x_max, y_min, y_max, n+1,
-                                                                                           delete_unbinned=True,
-                                                                                           bin_unbinned=False) # First pass get bins
+                            # plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
+                                                                                           # plots, x_min, x_max, y_min, y_max, n+1,
+                                                                                           # delete_unbinned=True,
+                                                                                           # bin_unbinned=False) # First pass get bins
                             clusterer.pairwise_distances(reembed=True)  # Try re-embedding problem clusters solo
 
                             try:
@@ -577,7 +578,6 @@ def bin(args):
                             clusterer.pairwise_distances(bin_unbinned=True) # Bin out large unbinned contigs
 
                         clusterer.bin_filtered(int(args.min_bin_size))
-                        clusterer.plot()
                     else:
                         clusterer.rescue_contigs(int(args.min_bin_size))
                 else:
