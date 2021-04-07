@@ -293,17 +293,17 @@ class Binner():
             self.depth_reducer.n_epochs = 500
         elif nrows <= 50000: # mid gear
             # Things start to get too slow around here, so scale back params
-            self.tnf_reducer.n_neighbors = 50
+            self.tnf_reducer.n_neighbors = 100
             self.tnf_reducer.n_epochs = 400
-            self.depth_reducer.n_neighbors = 50
+            self.depth_reducer.n_neighbors = 100
             self.depth_reducer.n_epochs = 400
         else: # low gear
             # This is the super slow zone, but don't want to dip values below this
             # Hopefully pick out easy bins, then scale data down with each iterations
             # Allowing the params to bump up into other gears
-            self.tnf_reducer.n_neighbors = 30
+            self.tnf_reducer.n_neighbors = 100
             self.tnf_reducer.n_epochs = 300
-            self.depth_reducer.n_neighbors = 30
+            self.depth_reducer.n_neighbors = 100
             self.depth_reducer.n_epochs = 300
             self.depth_reducer.n_epochs = 300
 
@@ -431,7 +431,7 @@ class Binner():
         self.embeddings = self.intersection_mapper.embedding_ 
 
 
-    def pairwise_distances(self, bin_unbinned=False, reembed=False):
+    def pairwise_distances(self, plots, n, x_min, x_max, y_min, y_max, bin_unbinned=False, reembed=False):
 
         if self.n_samples > 0:
             n_samples = self.n_samples
@@ -492,11 +492,11 @@ class Binner():
 
                         
                         metric = mean_md
-                        f_level = 0.5
+                        f_level = 0.25
               
                             
-                        if (metric >= f_level and mean_tnf >= 0.05) \
-                        or (mean_md >= 0.25 and mean_tnf >= 0.25):
+                        if (metric >= f_level and mean_md >= 0.1) \
+                        or (mean_md >= 0.05 and mean_tnf >= 0.05):
                             removed = []
                             [(self.unbinned_tids.append(tid), removed.append(tid)) for tid in tids]
                             
@@ -504,8 +504,8 @@ class Binner():
 
                             if len(tids) == 0 or remove:
                                 bins_to_remove.append(bin)
-                        else:
-                            self.checked_bins.append(bin)
+                        # else:
+                            # self.checked_bins.append(bin)
 
             elif (bin_unbinned or reembed) \
                 and bin != 0 \
@@ -554,18 +554,19 @@ class Binner():
                                                                 
                     # Slight higher thresholds since bins that break here are completely dismantled
                     if reembed:
-                        metric = mean_md
+                        metric = mean_agg
                         f_level = 0.5
-                        shared_level = 0.25
+                        shared_level = 0.35
                     else:
-                        metric = mean_md
+                        metric = mean_agg
                         f_level = 0.5
                         shared_level = 0.25
                     
-                    if (metric >= f_level and mean_tnf >= 0.05) \
+                    if (metric >= f_level and mean_md >= 0.1) \
                     or (mean_md >= shared_level and mean_tnf >= shared_level):
                         removed = []
                         if reembed:
+                            # reembed_separately.append(bin)
                             for tid in tids:
                                 if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
                                     big_tids.append(tid)
@@ -578,7 +579,10 @@ class Binner():
                                 if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
                                     big_tids.append(tid)
                                     removed.append(tid)
-                            # This cluster is extra busted. Likely black hole contigs
+                                else:
+                                    self.unbinned_tids.append(tid)
+                                    removed.append(tid)
+                        # This cluster is extra busted. Likely black hole contigs
                         [tids.remove(r) for r in removed]
                         current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
                         remove = False
@@ -592,12 +596,12 @@ class Binner():
 
                     
             elif self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 2e5 and bin != 0:
-                 for tid in tids:
+                for tid in tids:
                     self.unbinned_tids.append(tid)
-                 bins_to_remove.append(bin)
+                bins_to_remove.append(bin)
 
         for k, v in new_bins.items():
-             self.bins[k] = list(set(v))
+            self.bins[k] = list(set(v))
 
         
             
@@ -608,7 +612,8 @@ class Binner():
             except ValueError:
                 max_bin_id = 1
                 
-            self.reembed_unbinned(tids, max_bin_id, [], 1, 1, 1, 1, 1) # don't plot results
+            self.recluster_unbinned(tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n) # don't plot results
+            n += 1
             bins_to_remove.append(bin)
 
         for k in bins_to_remove:
@@ -641,7 +646,7 @@ class Binner():
                         self.bins[0].append(idx)
                     except KeyError:
                         self.bins[0] = [idx]
-
+        return (plots, n)
 
     def extract_contigs(self, tids):
         contigs = self.large_contigs[self.large_contigs['tid'].isin(tids)]
@@ -704,12 +709,12 @@ class Binner():
         return np.array(main_labels)
         
 
-    def recluster_unbinned(self, tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, delete_unbinned = False):
+    def recluster_unbinned(self, tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, delete_unbinned = False, bin_unbinned=False):
         if len(set(tids)) > 1:
             unbinned_array = self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'].isin(tids)
             unbinned_embeddings = self.embeddings[unbinned_array]
             self.labels = self.iterative_clustering(unbinned_embeddings)
-            contigs = self.large_contigs[unbinned_array]
+            contigs = self.large_contigs[~self.disconnected][~self.disconnected_intersected][unbinned_array]
 
             findem = ['contig_1096_pilon', 'contig_1199_pilon', 'contig_1333_pilon', 'contig_1334_pilon',
                       'contig_1337_pilon', 'contig_1346_pilon', 'contig_910_pilon', 'contig_1059_pilon',
@@ -763,6 +768,25 @@ class Binner():
 
                 else:
                     self.unbinned_tids.append(self.assembly[contigs['contigName'].iloc[idx]])
+
+
+        try:
+            max_bin_id = max(self.bins.keys())
+        except ValueError:
+            max_bin_id = 1
+            
+        if bin_unbinned:
+            for idx in self.unbinned_tids:
+                if self.large_contigs[self.large_contigs['tid'] == idx]['contigLen'].iloc[0] >= self.min_bin_size:
+                    max_bin_id += 1
+                    self.bins[max_bin_id] = [idx]
+                else:
+                    try:
+                        self.bins[0].append(idx)
+                    except KeyError:
+                        self.bins[0] = [idx]
+
+        return plots
 
     def reembed_unbinned(self, tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, delete_unbinned = False, bin_unbinned = False):
         big_contigs = []
