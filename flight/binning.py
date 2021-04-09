@@ -139,6 +139,7 @@ class Binner():
 
         # initialize bin dictionary Label: Vec<Contig>
         self.bins = {}
+        self.bin_validity = {}
 
         ## Set up clusterer and UMAP
         self.path = output_prefix
@@ -448,6 +449,7 @@ class Binner():
         bins = self.bins.keys()
         for bin in bins:
             tids = self.bins[bin]
+            validity = self.bin_validity[bin]
             if len(tids) != len(set(tids)):
                 print("Duplicate contigs in: ", bin, " Exitting...")
                 tids = set(tids)
@@ -491,12 +493,12 @@ class Binner():
                             sys.exit()
 
                         
-                        metric = mean_md
-                        f_level = 0.25
-              
+                        metric = mean_agg
+                        f_level = 0.7
                             
-                        if (metric >= f_level and mean_md >= 0.1) \
-                        or (mean_md >= 0.05 and mean_tnf >= 0.05):
+                        # if (mean_md >= 0.5 or mean_tnf >= 0.5) \
+                        if any([mean_agg, mean_md, mean_tnf]) >= 0.75 \
+                        and validity < 0.95:
                             removed = []
                             [(self.unbinned_tids.append(tid), removed.append(tid)) for tid in tids]
                             
@@ -505,9 +507,9 @@ class Binner():
                             if len(tids) == 0 or remove:
                                 bins_to_remove.append(bin)
                         # else:
-                            # self.checked_bins.append(bin)
+                        #     self.checked_bins.append(bin)
 
-            elif (bin_unbinned or reembed) \
+            elif (reembed or bin_unbinned) \
                 and bin != 0 \
                 and len(tids) > 1:
                 
@@ -555,25 +557,26 @@ class Binner():
                     # Slight higher thresholds since bins that break here are completely dismantled
                     if reembed:
                         metric = mean_agg
-                        f_level = 0.5
-                        shared_level = 0.35
+                        f_level = 0.75
+                        shared_level = 0.5
                     else:
                         metric = mean_agg
-                        f_level = 0.5
-                        shared_level = 0.25
+                        f_level = 1
+                        shared_level = 1
                     
-                    if (metric >= f_level and mean_md >= 0.1) \
-                    or (mean_md >= shared_level and mean_tnf >= shared_level):
+                    # if (mean_md >= shared_level or mean_tnf >= shared_level) \
+                    if any([mean_agg, mean_md, mean_tnf]) >= 0.75 \
+                    and validity < 0.95:
                         removed = []
-                        if reembed:
-                            # reembed_separately.append(bin)
-                            for tid in tids:
-                                if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
-                                    big_tids.append(tid)
-                                    removed.append(tid)
-                                else:
-                                    self.unbinned_tids.append(tid)
-                                    removed.append(tid)
+                        if reembed and len(tids) >= 20:
+                            reembed_separately.append(bin)
+                            # for tid in tids:
+                                # if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
+                                    # big_tids.append(tid)
+                                    # removed.append(tid)
+                                # else:
+                                    # self.unbinned_tids.append(tid)
+                                    # removed.append(tid)
                         else:
                             for tid in tids:
                                 if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
@@ -602,8 +605,6 @@ class Binner():
 
         for k, v in new_bins.items():
             self.bins[k] = list(set(v))
-
-        
             
         for bin in reembed_separately:
             tids = self.bins[bin]
@@ -612,12 +613,19 @@ class Binner():
             except ValueError:
                 max_bin_id = 1
                 
-            self.recluster_unbinned(tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n) # don't plot results
+            self.recluster_unbinned(tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, allow_single_cluster=True) # don't plot results
             n += 1
             bins_to_remove.append(bin)
 
         for k in bins_to_remove:
-            result = self.bins.pop(k)
+            try:
+                result = self.bins.pop(k)
+            except KeyError:
+                pass
+            try:
+                result = self.bin_validity.pop(k)
+            except KeyError:
+                pass
             
 
         try:
@@ -656,11 +664,11 @@ class Binner():
 
         return contigs, log_lengths, tnfs
 
-    def cluster(self, distances, metric='euclidean', binning_method='eom', min_cluster_size=2, min_samples=2):
+    def cluster(self, distances, metric='euclidean', binning_method='eom', min_cluster_size=2, min_samples=2, allow_single_cluster=False, prediction_data=False):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             ## Cluster on the UMAP embeddings and return soft clusters
-            tuned = utils.hyperparameter_selection(distances, self.threads, metric=metric, method=binning_method, allow_single_cluster=False, starting_size = self.min_cluster_size)
+            tuned = utils.hyperparameter_selection(distances, self.threads, metric=metric, method=binning_method, allow_single_cluster=allow_single_cluster, starting_size = self.min_cluster_size)
             best = utils.best_validity(tuned)
             # print(best['min_cluster_size'], best['min_samples'])
             try:
@@ -674,20 +682,22 @@ class Binner():
                     metric=metric,
                     min_cluster_size=int(best['min_cluster_size']),
                     min_samples=int(best['min_samples']),
-                    allow_single_cluster=False,
+                    allow_single_cluster=allow_single_cluster,
                     core_dist_n_jobs=self.threads,
-                    prediction_data=False
+                    prediction_data=prediction_data
                 )
-                return clusterer.fit(distances).labels_
+                clusterer.fit(distances)
+                if prediction_data:
+                    self.soft_clusters = hdbscan.all_points_membership_vectors(clusterer)
+                return clusterer.labels_
             except TypeError:
                 return np.array([-1 for i in range(distances.shape[0])])
 
 
-    def iterative_clustering(self, distances, metric='euclidean', binning_method='eom'):
-        first_labels = self.cluster(distances)
+    def iterative_clustering(self, distances, metric='euclidean', binning_method='eom', allow_single_cluster=False, prediction_data=False):
+        first_labels = self.cluster(distances, allow_single_cluster=allow_single_cluster, prediction_data=prediction_data)
         bool_arr = np.array([True if i == -1 else False for i in first_labels])
-        second_labels = self.cluster(distances[bool_arr])
-    
+        # second_labels = self.cluster(distances[bool_arr])
 
         main_labels = [] # container for complete clustering
         max_label = max(first_labels) + 1 # value to shift second labels by
@@ -696,29 +706,44 @@ class Binner():
         for first, second_bool in zip(first_labels, bool_arr): 
             if first != -1: # use main label
                 main_labels.append(first)
-            elif second_bool: # check what the cluster is
-                second = second_labels[second_idx]
-                if second != -1:
-                    main_labels.append(max_label + second)
-                else:
-                    main_labels.append(-1)
-                second_idx += 1
+            # elif second_bool: # check what the cluster is
+                # second = second_labels[second_idx]
+                # if second != -1:
+                    # main_labels.append(max_label + second)
+                # else:
+                    # main_labels.append(-1)
+                # second_idx += 1
             else: # Should never get here but just have it here in case
                 main_labels.append(-1)
 
         return np.array(main_labels)
         
 
-    def recluster_unbinned(self, tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, delete_unbinned = False, bin_unbinned=False):
+    def validity(self, labels, distances):
+        if len(set(labels)) > 1:
+            try:
+                self.cluster_validity, self.validity_indices = hdbscan.validity.validity_index(distances.astype(np.float64), labels, per_cluster_scores=True)
+            except ValueError:
+                self.cluster_validity, self.validity_indices = 0, [1 for x in set(labels)]
+        else:
+            self.cluster_validity, self.validity_indices = 0, [-1]
+
+    def recluster_unbinned(self, tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, delete_unbinned = False, bin_unbinned=False, allow_single_cluster=False):
         if len(set(tids)) > 1:
             unbinned_array = self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'].isin(tids)
             unbinned_embeddings = self.embeddings[unbinned_array]
-            self.labels = self.iterative_clustering(unbinned_embeddings)
+            self.labels = self.iterative_clustering(unbinned_embeddings, allow_single_cluster=allow_single_cluster)
+
+            if len(set(self.labels)) == 1 and -1 in set(self.labels):
+                self.labels = np.array([0 for i in self.labels])
+            self.validity(self.labels, unbinned_embeddings)
+
             contigs = self.large_contigs[~self.disconnected][~self.disconnected_intersected][unbinned_array]
 
-            findem = ['contig_1096_pilon', 'contig_1199_pilon', 'contig_1333_pilon', 'contig_1334_pilon',
-                      'contig_1337_pilon', 'contig_1346_pilon', 'contig_910_pilon', 'contig_1059_pilon',
-                      'contig_1060_pilon', 'contig_719_pilon']
+            findem = ['contig_85_pilon', 'contig_142_pilon', 'contig_133_pilon', 'contig_54_pilon', 
+                      'contig_115_pilon', 'contig_100_pilon', 'contig_910_pilon', 'contig_129_pilon', 
+                      'contig_82_pilon', 'contig_1276_pilon', 'contig_1957_pilon']
+
             names = list(contigs['contigName'])
             indices = []
             for to_find in findem:
@@ -756,15 +781,31 @@ class Binner():
             if delete_unbinned:
                 self.unbinned_tids = []
 
+            total_new_bins = len(set(self.labels)) - len([x for x in self.validity_indices if x < 0.5])
+            big_contig_counter = 0
+            total_new_bins = total_new_bins
+            
             for (idx, label) in enumerate(self.labels):
 
                 if label != -1:
+                    bin_key = max_bin_id + label.item() + 1
+                    if isinstance(bin_key, np.int64):
+                        bin_key = bin_key.item()
                     try:
-                        self.bins[max_bin_id + label.item() + 1].append(self.assembly[contigs[
+                        self.bins[bin_key].append(self.assembly[contigs[
                             'contigName'].iloc[idx]])  # inputs values as tid
                     except KeyError:
-                        self.bins[max_bin_id + label.item() + 1] = [
+                        self.bin_validity[bin_key] = self.validity_indices[label]
+                        self.bins[bin_key] = [
                             self.assembly[contigs['contigName'].iloc[idx]]]
+                elif contigs['contigLen'].iloc[idx] >= 2e6:
+                    bin_key = max_bin_id + total_new_bins + big_contig_counter
+                    if isinstance(bin_key, np.int64):
+                        bin_key = bin_key.item()
+                    self.bin_validity[bin_key] = self.validity_indices[label]
+                    self.bins[bin_key] = [
+                        self.assembly[contigs['contigName'].iloc[idx]]]
+                    big_contig_counter += 1
 
                 else:
                     self.unbinned_tids.append(self.assembly[contigs['contigName'].iloc[idx]])
@@ -788,303 +829,10 @@ class Binner():
 
         return plots
 
-    def reembed_unbinned(self, tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, delete_unbinned = False, bin_unbinned = False):
-        big_contigs = []
-
-        if len(set(tids)) > 1:
-            # rescue any large contigs if the clustering is scuffed
-
-            contigs, log_lengths, tnfs = self.extract_contigs(tids)
-
-            self.update_umap_params(contigs.shape[0])
-
-            try:
-                agg_mapping = self.depth_reducer.fit(np.concatenate((contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
-            except ValueError:
-                logging.debug("Failed to embed...")
-            
-                current_disconnected = np.array([False for i in range(len(tids))])
-                if delete_unbinned:
-                    self.unbinned_tids = []
-                    
-                # self.bins[max_bin_id + 1] = tids
-                [self.unbinned_tids.append(tid) for tid in tids]
-            
-                return plots
-
-            try:
-                tnf_mapping = self.tnf_reducer.fit(
-                                                np.concatenate((log_lengths.values[:, None],
-                                                                tnfs.iloc[:, 2:]),
-                                                                axis=1))
-                current_disconnected = np.array([False for i in range(contigs.values.shape[0])])
-                current_disconnected = umap.utils.disconnected_vertices(agg_mapping) + \
-                                       umap.utils.disconnected_vertices(tnf_mapping)
-            except ValueError:
-                current_disconnected = umap.utils.disconnected_vertices(agg_mapping)
-            
-
-            
-            if current_disconnected.sum() >= len(tids) // 2:
-                logging.debug("Too few contigs and too many disconnections...")
-                labels = [-1 for i in tids]
-                # current_disconnected = np.array([False for i in range(len(tids))])
-                connected = np.array(tids)[~current_disconnected]
-                if delete_unbinned:
-                    self.unbinned_tids = [] 
-            
-                try:
-                    max_bin_id = max(self.bins.keys()) + 1
-                except ValueError:
-                    max_bin_id = 1
-        
-                self.bins[max_bin_id] = list(connected)
-        
-                if current_disconnected.any():
-                    for contig in contigs[current_disconnected]['contigName']:
-                        self.unbinned_tids.append(self.assembly[contig])
-                plots.append(utils.plot_for_offset(agg_mapping.embedding_, labels, x_min, x_max, y_min, y_max, n))
-                return plots
-            elif current_disconnected.any():
-                # if self.n_samples >= 0:
-                try:
-                    tnf_mapping = self.tnf_reducer.fit(
-                                                    np.concatenate((log_lengths[~current_disconnected].values[:, None],
-                                                                    tnfs[~current_disconnected].iloc[:, 2:]),
-                                                                    axis=1))
-                    agg_mapping = self.depth_reducer.fit(np.concatenate((contigs[~current_disconnected].iloc[:, 3:], 
-                                                         log_lengths[~current_disconnected].values[:, None], 
-                                                         tnfs[~current_disconnected].iloc[:, 2:]), axis=1))
-                except ValueError:
-                    try:
-                        agg_mapping = self.depth_reducer.fit(np.concatenate((contigs[~current_disconnected].iloc[:, 3:], 
-                                                             log_lengths[~current_disconnected].values[:, None], 
-                                                             tnfs[~current_disconnected].iloc[:, 2:]), axis=1))
-                    except ValueError:
-                        if delete_unbinned:
-                            self.unbinned_tids = []
-                        for tid in tids:
-                            self.unbinned_tids.append(tid)
-            
-
-            try:
-                intersection = agg_mapping * tnf_mapping
-            except NameError:
-                intersection = agg_mapping
-
-
-
-            self.labels = self.iterative_clustering(intersection.embedding_)
-
-            findem = ['contig_1096_pilon', 'contig_1199_pilon', 'contig_1333_pilon', 'contig_1334_pilon', 'contig_1337_pilon', 'contig_1346_pilon', 'contig_910_pilon', 'contig_1059_pilon', 'contig_1060_pilon', 'contig_719_pilon']
-            names = list(contigs['contigName'])
-            indices = []
-            for to_find in findem:
-                try:
-                    indices.append(names.index(to_find))
-                except ValueError:
-                    indices.append(-1)
-
-            plots.append(utils.plot_for_offset(intersection.embedding_, self.labels, x_min, x_max, y_min, y_max, n))
-            color_palette = sns.color_palette('husl', max(self.labels) + 1)
-            cluster_colors = [
-                color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in self.labels
-            ]
-
-            fig = plt.figure()
-            ax = fig.add_subplot(111)
-
-            ## Plot large contig membership
-            ax.scatter(intersection.embedding_[:, 0],
-                       intersection.embedding_[:, 1],
-                       s=7,
-                       linewidth=0,
-                       c=cluster_colors,
-                       alpha=0.7)
-
-            for i, index in enumerate(indices):
-                if index != -1:
-                    ax.annotate(findem[i], xy=(intersection.embedding_[index, 0], intersection.embedding_[index, 1]), xycoords='data')
-
-
-            plt.gca().set_aspect('equal', 'datalim')
-            plt.title(format('UMAP projection of unbinned contigs - %d' % (n)), fontsize=24)
-            plt.savefig(self.path + '/UMAP_projection_of_unbinned.png')
-
-
-            if delete_unbinned:
-                self.unbinned_tids = []
-
-            tids = np.array(tids)
-            
-            for (idx, label) in enumerate(self.labels):
-            
-                # tid = tids[~current_disconnected][idx]
-                if label != -1:
-                    try:
-                        self.bins[max_bin_id + label.item() + 1].append(self.assembly[contigs[~current_disconnected]['contigName'].iloc[idx]]) # inputs values as tid
-                    except KeyError:
-                        self.bins[max_bin_id + label.item() + 1] = [self.assembly[contigs[~current_disconnected]['contigName'].iloc[idx]]]
-
-                else:
-                    self.unbinned_tids.append(self.assembly[contigs[~current_disconnected]['contigName'].iloc[idx]])
-
-        else:
-
-            if delete_unbinned:
-                self.unbinned_tids = [] 
-            for tid in tids:             
-                self.unbinned_tids.append(tid)
-
-        if bin_unbinned:
-            for idx in self.unbinned_tids:
-                if self.large_contigs[self.large_contigs['tid'] == idx]['contigLen'].iloc[0] >= self.min_bin_size:
-                    max_bin_id += 1
-                    self.bins[max_bin_id] = [idx]
-                else:
-                    try:
-                        self.bins[0].append(idx)
-                    except KeyError:
-                        self.bins[0] = [idx]
-        
-        
-
-        return plots
-
-
     def read_bin_file(self, bin_json):
         with open(bin_json) as bin_file:
             self.bins = json.load(bin_file)
             self.bins = {int(k):v for k, v in self.bins.items()}
-            
-
-    def pairwise_distance_single_bin(self, bin_id):
-        if self.n_samples > 0:
-            n_samples = self.n_samples
-            sample_distances = self.short_sample_distance
-        else:
-            n_samples = self.long_samples
-            sample_distances = self.long_sample_distance
-            
-        tids = self.bins[bin_id]
-        contigs, log_lengths, tnfs = self.extract_contigs(tids)
-
-        print(len(tids))
-
-        mean_md, \
-        mean_tnf, \
-        mean_agg, \
-        per_contig_avg = \
-            metrics.populate_matrix(np.concatenate((contigs.iloc[:, 3:].values,
-                                                    log_lengths.values[:, None],
-                                                    tnfs.iloc[:, 2:].values), axis=1),
-                                                    n_samples,
-                                                    sample_distances)
-        metric = mean_md
-        f_level = 0.25
-        print("Bin size: ", contigs['contigLen'].sum())
-
-            
-        if metric >= f_level or contigs['contigLen'].sum() <= 1e6 \
-        or (mean_md >= 0.1 and mean_tnf >= 0.1):
-            # This cluster is extra busted. Likely black hole contigs
-            removed = []
-            for (tid, contig_values) in zip(tids, per_contig_avg):
-                if contig_values[0] >= 0.2 and contig_values[1] >= 0.2:
-                    # if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
-                        # big_tids.append(tid)
-                        # removed.append(tid)
-                    # else:
-                    # print(tid, self.assembly_names[tid])
-                    try:
-                        self.unbinned_tids.append(tid)
-                    except AttributeError:
-                        self.unbinned_tids = []
-                    removed.append(tid)
-            
-            [tids.remove(r) for r in removed]
-            current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
-            remove = False
-            if current_contigs['contigLen'].sum() <= 5e5:
-                [self.unbinned_tids.append(tid) for tid in tids]
-                remove = True
-            print("New size: ", current_contigs['contigLen'].sum())
-
-        print(len(tids))
-        print(len(self.bins[bin_id]))
-
-
-    def pairwise_distance_all_bins(self):
-        bin_ids = self.bins.keys()
-        reembed_separately = []
-        bins_to_remove = []
-
-        for bin_id in bin_ids:
-            if self.n_samples > 0:
-                n_samples = self.n_samples
-                sample_distances = self.short_sample_distance
-            else:
-                n_samples = self.long_samples
-                sample_distances = self.long_sample_distance
-                
-            tids = self.bins[bin_id]
-            if len(tids) > 1:
-                contigs, log_lengths, tnfs = self.extract_contigs(tids)
-
-
-                mean_md, \
-                mean_tnf, \
-                mean_agg, \
-                per_contig_avg = \
-                    metrics.populate_matrix(np.concatenate((contigs.iloc[:, 3:].values,
-                                                            log_lengths.values[:, None],
-                                                            tnfs.iloc[:, 2:].values), axis=1),
-                                                            n_samples,
-                                                            sample_distances)
-                metric = mean_md
-                f_level = 0.25
-
-                print("Bin size: ", contigs['contigLen'].sum())
-                if metric >= f_level or contigs['contigLen'].sum() <= 1e6 \
-                or (mean_md >= 0.1 and mean_tnf >= 0.1):
-                    # This cluster is extra busted. Likely black hole contigs
-                    removed = []
-                    for (tid, contig_values) in zip(tids, per_contig_avg):
-                        if contig_values[0] >= 0.2 and contig_values[1] >= 0.2:
-
-                            try:
-                                self.unbinned_tids.append(tid)
-                            except AttributeError:
-                                self.unbinned_tids = []
-                            removed.append(tid)
-                    
-                    [tids.remove(r) for r in removed]
-                    current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
-                    remove = False
-                    if current_contigs['contigLen'].sum() <= 5e5:
-                        [self.unbinned_tids.append(tid) for tid in tids]
-                        remove = True
-
-                    print("New size: ", current_contigs['contigLen'].sum())
-                    if len(tids) == 0 or remove:
-                        print("Removing bin: ", bin_id)
-                        bins_to_remove.append(bin_id)
-
-                elif contigs['contigLen'].sum() >= 14e6:
-                    reembed_separately.append(bin_id)
-
-        for bin in reembed_separately:
-            tids = self.bins[bin]
-            try:
-                max_bin_id = max(self.bins.keys()) + 1
-            except ValueError:
-                max_bin_id = 1
-                
-            self.reembed_unbinned(tids, max_bin_id, [], 1, 1, 1, 1, 1) # don't plot results
-            bins_to_remove.append(bin)
-
-        for k in bins_to_remove:
-            result = self.bins.pop(k)
 
 
     def compare_contigs(self, contig1, contig2):
@@ -1153,7 +901,9 @@ class Binner():
     def plot(self):
         logging.info("Generating UMAP plot with labels")
 
-        findem = ['contig_297_pilon', 'contig_2921_pilon', 'contig_511_pilon', 'contig_846_pilon', 'contig_953_pilon', 'contig_675_pilon', 'contig_910_pilon', 'contig_2436_pilon', 'contig_3132_pilon', 'contig_1276_pilon', 'contig_1957_pilon']
+        findem = ['contig_85_pilon', 'contig_142_pilon', 'contig_133_pilon', 'contig_54_pilon', 'contig_115_pilon', 
+                  'contig_100_pilon', 'contig_910_pilon', 'contig_129_pilon', 'contig_82_pilon', 'contig_1276_pilon', 
+                  'contig_1957_pilon']
         names = list(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigName'])
         indices = []
         for to_find in findem:
@@ -1206,6 +956,16 @@ class Binner():
         except AttributeError:
             return self.clusterer.labels_.astype('int32')
 
+    def use_soft_clusters(self, contigs):
+        for (idx, label) in enumerate(self.labels):
+            if label == -1:
+                if contigs['contigLen'].iloc[idx] < 2e6:
+                    soft_values = self.soft_clusters[idx]
+                    max_value, best_label = metrics.get_best_soft_value(soft_values)
+                    if max_value >= 0.05:
+                        self.labels[idx] = best_label
+
+
     def bin_contigs(self, assembly_file, min_bin_size=200000):
         logging.info("Binning contigs...")
         self.bins = {}
@@ -1225,8 +985,12 @@ class Binner():
                         self.bins[label.item() + 1].append(
                             self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]]) # inputs values as tid
                     except KeyError:
+                        self.bin_validity[label.item() + 1] = self.validity_indices[label]
                         self.bins[label.item() + 1] = [self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]]]
-
+                elif self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigLen'].iloc[idx] >= 2e6:
+                    self.bin_validity[max_bin_id + 1] = 1
+                    self.bins[max_bin_id + 1] = [self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]]]
+                    max_bin_id += 1
                 else:
                     self.unbinned_tids.append(self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]])
                     # self.unbinned_embeddings.append(self.embeddings[idx, :])
@@ -1246,6 +1010,8 @@ class Binner():
             max_bin_id = 1
         # disconnected points end up in bin 0
 
+        if isinstance(max_bin_id, np.int64):
+            max_bin_id = max_bin_id.item()
                     
         for (idx, contig) in self.large_contigs[self.disconnected].iterrows():
             if contig["contigLen"] >= min_bin_size:
@@ -1312,9 +1078,30 @@ class Binner():
 
     def write_bins(self, min_bin_size=200000):
         logging.info("Writing bin JSON...")
+        # self.bins = {k.item():v if isinstance(k, np.int64) else k:v for k,v in self.bins.items()}
+        for key in self.bins.keys():
+            if isinstance(key, np.int64):
+                self.bins[key.item()] = self.bins[key]
+
 
         with open(self.path + '/rosella_bins.json', 'w') as fp:
-            json.dump(self.bins, fp)
+            json.dump(self.bins, fp, cls=NpEncoder)
 
         # self.small_contigs.to_csv(self.path + '/rosella_small_contigs.tsv', sep='\t')
         # self.large_contigs.to_csv(self.path + '/rosella_large_contigs.tsv', sep='\t')
+
+
+
+class NpEncoder(json.JSONEncoder):
+    """
+    Numpy data type encoder for serializing bin dictionary
+    """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        else:
+            return super(NpEncoder, self).default(obj)

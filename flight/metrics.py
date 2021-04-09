@@ -672,6 +672,19 @@ def get_mean_metabat(depths, n_samples, sample_distances):
     
     return mean_d
 
+
+@njit(fastmath=True)
+def get_best_soft_value(soft_values):
+    max_value = 0
+    best_label = -1
+    for soft_label, soft_value in enumerate(soft_values):
+        if soft_value > max_value:
+            max_value = soft_value
+            best_label = soft_label
+
+    return max_value, best_label
+
+
 @njit(fastmath=True)
 def metabat_tdp(a, b):
     """

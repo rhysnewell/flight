@@ -21,6 +21,7 @@
 ###############################################################################
 from Bio import SeqIO
 from flight.__init__ import __version__
+
 __author__ = "Rhys Newell"
 __copyright__ = "Copyright 2020"
 __credits__ = ["Rhys Newell"]
@@ -58,6 +59,7 @@ debug = {
     4: logging.INFO,
     5: logging.DEBUG
 }
+
 
 ###############################################################################
 ############################### - Exceptions - ################################
@@ -162,7 +164,6 @@ def main():
 
     fit_options.set_defaults(func=fit)
 
-
     bin_options = subparsers.add_parser(
         'bin',
         description='Perform UMAP and then HDBSCAN on array of variant depths',
@@ -244,7 +245,6 @@ def main():
                              help='Number of neighbors considered in UMAP',
                              dest="n_neighbors",
                              default=100)
-
 
     bin_options.add_argument(
         '--a_spread',
@@ -370,19 +370,20 @@ def main():
 
         args.func(args)
 
+
 def fit(args):
     prefix = args.input.replace(".npy", "")
     os.environ["NUMEXPR_MAX_THREADS"] = args.threads
     if not args.precomputed:
         clusterer = Cluster(args.input,
-                           prefix,
-                           n_neighbors=int(args.n_neighbors),
-                           min_cluster_size=int(args.min_cluster_size),
-                           min_samples=int(args.min_samples),
-                           min_dist=float(args.min_dist),
-                           n_components=int(args.n_components),
-                           threads=int(args.threads),
-                           )
+                            prefix,
+                            n_neighbors=int(args.n_neighbors),
+                            min_cluster_size=int(args.min_cluster_size),
+                            min_samples=int(args.min_samples),
+                            min_dist=float(args.min_dist),
+                            n_components=int(args.n_components),
+                            threads=int(args.threads),
+                            )
         clusterer.fit_transform()
         clusterer.cluster()
         # clusterer.break_clusters()
@@ -392,14 +393,14 @@ def fit(args):
         np.save(prefix + '_separation.npy', clusterer.cluster_separation())
     else:
         clusterer = Cluster(args.input,
-                           prefix,
-                           n_neighbors=int(args.n_neighbors),
-                           min_cluster_size=int(args.min_cluster_size),
-                           min_samples=int(args.min_samples),
-                           scaler="none",
-                           precomputed=args.precomputed,
-                           threads=int(args.threads),
-                           )
+                            prefix,
+                            n_neighbors=int(args.n_neighbors),
+                            min_cluster_size=int(args.min_cluster_size),
+                            min_samples=int(args.min_samples),
+                            scaler="none",
+                            precomputed=args.precomputed,
+                            threads=int(args.threads),
+                            )
         clusterer.cluster_distances()
         clusterer.plot_distances()
         np.save(prefix + '_labels.npy', clusterer.labels())
@@ -438,10 +439,10 @@ def bin(args):
                            initialization='spectral'
                            )
 
-        kwargs_write = {'fps':1.0, 'quantizer':'nq'}
+        kwargs_write = {'fps': 1.0, 'quantizer': 'nq'}
         plots = []
         with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
-            
+
             if clusterer.tnfs.values.shape[0] > int(args.n_neighbors):
                 # First pass quick TNF filter to speed up next steps
                 clusterer.update_parameters()
@@ -453,11 +454,13 @@ def bin(args):
                     found_disconnections = clusterer.fit_disconnect()
                     # clusterer.disconnected_intersected = np.array([False for i in range(clusterer.tnfs.values.shape[0])])
                     found_disconnections = True
-                    if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[0] > int(args.n_neighbors) * 2:
+                    if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[
+                        0] > int(args.n_neighbors) * 2:
                         # Final fully filtered embedding to cluster on
-                        # clusterer.update_parameters()
                         clusterer.fit_transform()
                         clusterer.labels = clusterer.iterative_clustering(clusterer.embeddings)
+                        clusterer.use_soft_clusters(clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected])
+                        clusterer.validity(clusterer.labels, clusterer.embeddings)
                         clusterer.plot()
 
                         ## Plot limits
@@ -466,15 +469,17 @@ def bin(args):
                         y_min = min(clusterer.embeddings[:, 1]) - 10
                         y_max = max(clusterer.embeddings[:, 1]) + 10
 
-                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.labels, x_min, x_max, y_min, y_max, 0))
+                        plots.append(
+                            utils.plot_for_offset(clusterer.embeddings, clusterer.labels, x_min, x_max, y_min, y_max,
+                                                  0))
                         clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-                        
+
                         n = 0
                         old_tids = []
                         logging.info("Performing iterative clustering with disconnections...")
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
-                            while n <= 2000:
+                            while n <= 500:
                                 unbinned_length = len(clusterer.unbinned_tids)
 
                                 while True:
@@ -489,97 +494,29 @@ def bin(args):
                                     max_bin_id = max(clusterer.bins.keys()) + 1
                                 except ValueError:
                                     max_bin_id = 1
-                                    
-                                if old_tids != set(clusterer.unbinned_tids):
-                                    old_tids = set(clusterer.unbinned_tids)
-                                else:
-                                    
-                                    break  # nothing changed
-                                n += 1
-                                plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                                                plots, x_min, x_max, y_min, y_max, n, delete_unbinned=True)
-                                n += 1
-                                plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max, reembed=True) # Try re-embedding problem clusters solo
 
-
-
-                            n += 1
-                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max)
-                            
-                            try:
-                                max_bin_id = max(clusterer.bins.keys()) + 1
-                            except ValueError:
-                                max_bin_id = 1
-                            plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                                                   plots, x_min, x_max, y_min, y_max, n,
-                                                                   delete_unbinned=True, bin_unbinned=True) # second pass get bins
-                                                                   
-                            # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max, bin_unbinned=True) # Bin out large unbinned contigs
-                            # 
-                            # plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                                               # plots, x_min, x_max, y_min, y_max, n+1,
-                                                               # delete_unbinned=True) # second pass get bins
-                            
-
-                        clusterer.bin_filtered(int(args.min_bin_size))
-                    elif not found_disconnections: # run clustering based off first round of embeddings
-                        clusterer.labels = clusterer.iterative_clustering(clusterer.embeddings)
-                        clusterer.plot()
-                        clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-                        ## Plot limits
-                        x_min = min(clusterer.embeddings[:, 0]) - 10
-                        x_max = max(clusterer.embeddings[:, 0]) + 10
-                        y_min = min(clusterer.embeddings[:, 1]) - 10
-                        y_max = max(clusterer.embeddings[:, 1]) + 10
-                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.labels, x_min, x_max, y_min, y_max, 0))
-
-
-                        n = 0
-                        old_tids = []
-                        logging.info("Performing iterative clustering...")
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore")
-                            while n <= 5:
-
-                                unbinned_length = len(clusterer.unbinned_tids)
-
-                                while True:
-                                    clusterer.pairwise_distances()
-                                    new_length = len(clusterer.unbinned_tids)
-                                    if unbinned_length == new_length:
-                                        break
-                                    else:
-                                        unbinned_length = new_length
-
-                                try:
-                                    max_bin_id = max(clusterer.bins.keys()) + 1
-                                except ValueError:
-                                    max_bin_id = 1
-                                    
                                 if n == 0 or old_tids != set(clusterer.unbinned_tids):
                                     old_tids = set(clusterer.unbinned_tids)
                                 else:
+
                                     break  # nothing changed
-                                plots = clusterer.recluster_unbinned(clusterer.unbinned_tids,
-                                                                   max_bin_id,
-                                                                   plots, x_min, x_max, y_min, y_max, n+1, delete_unbinned=True)
+                                plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
+                                                                     plots, x_min, x_max, y_min, y_max, n + 1,
+                                                                     delete_unbinned=True)
                                 n += 1
+                                plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max, reembed=True)
 
-                            # plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                                                                           # plots, x_min, x_max, y_min, y_max, n+1,
-                                                                                           # delete_unbinned=True,
-                                                                                           # bin_unbinned=False) # First pass get bins
-                            clusterer.pairwise_distances(reembed=True)  # Try re-embedding problem clusters solo
 
+                            # clusterer.pairwise_distances(reembed=True)  # Try re-embedding problem clusters solo
                             try:
                                 max_bin_id = max(clusterer.bins.keys()) + 1
                             except ValueError:
                                 max_bin_id = 1
-                                
                             plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                                                   plots, x_min, x_max, y_min, y_max, n+1,
-                                                                   delete_unbinned=True) # second pass get bins
-                            clusterer.pairwise_distances(bin_unbinned=True) # Bin out large unbinned contigs
+                                                                 plots, x_min, x_max, y_min, y_max, n + 1,
+                                                                 delete_unbinned=True)  # second pass get bins
+                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
+                                                                    bin_unbinned=True) # Bin out large unbinned contigs
 
                         clusterer.bin_filtered(int(args.min_bin_size))
                     else:
@@ -592,8 +529,9 @@ def bin(args):
         clusterer.write_bins(int(args.min_bin_size))
         try:
             imageio.mimsave(clusterer.path + '/UMAP_projections.gif', plots, fps=1)
-        except RuntimeError: # no plotting has occurred due to no embedding
+        except RuntimeError:  # no plotting has occurred due to no embedding
             pass
+
 
 def vamb(args):
     min_bin_size = int(args.min_size)
@@ -639,6 +577,7 @@ def write_contig(contig, assembly, f):
     fasta += str(seq.seq) + '\n'
     f.write(fasta)
 
+
 def phelp():
     print("""
 Usage:
@@ -674,9 +613,9 @@ class CustomHelpFormatter(argparse.HelpFormatter):
         h = action.help
         if '%(default)' not in action.help:
             if action.default != '' and \
-               action.default != [] and \
-               action.default != None \
-               and action.default != False:
+                    action.default != [] and \
+                    action.default != None \
+                    and action.default != False:
                 if action.default is not argparse.SUPPRESS:
                     defaulting_nargs = [
                         argparse.OPTIONAL, argparse.ZERO_OR_MORE
@@ -696,7 +635,5 @@ class CustomHelpFormatter(argparse.HelpFormatter):
         return ''.join([indent + line for line in text.splitlines(True)])
 
 
-
 if __name__ == '__main__':
-
-   sys.exit(main())
+    sys.exit(main())
