@@ -498,6 +498,8 @@ def rho(a, b):
 
     if a[0] >= 1 or b[0] >= 1:
         rp =  min(a[0], b[0]) / max(a[0], b[0])
+    else:
+        rp = 1
     # l = 0
     x = a[1:]
     y = b[1:]
@@ -529,7 +531,7 @@ def rho(a, b):
     rho += 1
     rho = 2 - rho
     
-    return rho
+    return rho ** rp
 
 @njit(fastmath=True)
 def rho_coverage(a, b):
