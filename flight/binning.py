@@ -48,6 +48,7 @@ import skbio.stats.composition
 import umap
 from itertools import product, combinations
 import scipy.stats as sp_stats
+from numpy import int64
 from sklearn.preprocessing import RobustScaler
 
 # self imports
@@ -449,7 +450,7 @@ class Binner():
         bins = self.bins.keys()
         for bin in bins:
             tids = self.bins[bin]
-            validity = self.bin_validity[bin]
+            # validity = self.bin_validity[bin]
             if len(tids) != len(set(tids)):
                 print("Duplicate contigs in: ", bin, " Exitting...")
                 tids = set(tids)
@@ -497,8 +498,8 @@ class Binner():
                         f_level = 0.7
                             
                         # if (mean_md >= 0.5 or mean_tnf >= 0.5) \
-                        if any([mean_agg, mean_md, mean_tnf]) >= 0.75 \
-                        and validity < 0.95:
+                        if any([mean_agg, mean_md, mean_tnf]) >= 0.75:
+                        # or validity < 0:
                             removed = []
                             [(self.unbinned_tids.append(tid), removed.append(tid)) for tid in tids]
                             
@@ -565,8 +566,8 @@ class Binner():
                         shared_level = 1
                     
                     # if (mean_md >= shared_level or mean_tnf >= shared_level) \
-                    if any([mean_agg, mean_md, mean_tnf]) >= 0.75 \
-                    and validity < 0.95:
+                    if any([mean_md, mean_tnf]) >= 0.75 or mean_agg >= 0.6:
+                    # or validity < 0:
                         removed = []
                         if reembed and len(tids) >= 20:
                             reembed_separately.append(bin)
@@ -582,9 +583,6 @@ class Binner():
                                 if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
                                     big_tids.append(tid)
                                     removed.append(tid)
-                                else:
-                                    self.unbinned_tids.append(tid)
-                                    removed.append(tid)
                         # This cluster is extra busted. Likely black hole contigs
                         [tids.remove(r) for r in removed]
                         current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
@@ -595,8 +593,6 @@ class Binner():
 
                         if len(tids) == 0 or remove:
                             bins_to_remove.append(bin)
-
-
                     
             elif self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 2e5 and bin != 0:
                 for tid in tids:
@@ -1080,7 +1076,7 @@ class Binner():
         logging.info("Writing bin JSON...")
         # self.bins = {k.item():v if isinstance(k, np.int64) else k:v for k,v in self.bins.items()}
         for key in self.bins.keys():
-            if isinstance(key, np.int64):
+            if isinstance(key, int64):
                 self.bins[key.item()] = self.bins[key]
 
 

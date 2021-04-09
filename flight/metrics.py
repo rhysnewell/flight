@@ -529,7 +529,7 @@ def rho(a, b):
     rho += 1
     rho = 2 - rho
     
-    return rho ** rp
+    return rho
 
 @njit(fastmath=True)
 def rho_coverage(a, b):
@@ -635,7 +635,7 @@ def populate_dictionary(depths, n_samples, sample_distances):
         md = metabat_distance(depths[i[0], :n_samples*2], depths[i[1], :n_samples*2], n_samples, sample_distances)
         tnf_dist = rho(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
 
-        agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
+        agg = np.sqrt((md) * (tnf_dist))
 
         mean_md += md
         mean_tnf += tnf_dist

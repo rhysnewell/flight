@@ -458,7 +458,7 @@ def bin(args):
                         0] > int(args.n_neighbors) * 2:
                         # Final fully filtered embedding to cluster on
                         clusterer.fit_transform()
-                        clusterer.labels = clusterer.iterative_clustering(clusterer.embeddings)
+                        clusterer.labels = clusterer.iterative_clustering(clusterer.embeddings, prediction_data=True)
                         clusterer.use_soft_clusters(clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected])
                         clusterer.validity(clusterer.labels, clusterer.embeddings)
                         clusterer.plot()
@@ -514,7 +514,8 @@ def bin(args):
                                 max_bin_id = 1
                             plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
                                                                  plots, x_min, x_max, y_min, y_max, n + 1,
-                                                                 delete_unbinned=True)  # second pass get bins
+                                                                 delete_unbinned=True, bin_unbinned=True)  # second pass get bins
+                            n += 1
                             plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
                                                                     bin_unbinned=True) # Bin out large unbinned contigs
 
