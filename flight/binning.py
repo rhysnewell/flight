@@ -447,6 +447,7 @@ class Binner():
         logging.debug("Checking bin internal distances...")
         big_tids = []
         reembed_separately = [] # container for bin ids that look like strain chimeras
+        allow_single_cluster_vec = []
         bins = self.bins.keys()
         for bin in bins:
             tids = self.bins[bin]
@@ -460,55 +461,45 @@ class Binner():
             and bin != 0:
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
-                if contigs['contigLen'].sum() <= 0:
-                    [self.unbinned_tids.append(i) for i in tids]
+                if contigs['contigLen'].sum() < 1.5e6:
+                    for tid in tids:
+                        # remove this contig
+                        self.unbinned_tids.append(tid)
+
                     bins_to_remove.append(bin)
+
+                elif contigs['contigLen'].sum() >= 13e6:
+                    # larger than most bacterial genomes, way larger than archaeal
+                    # Likely strains getting bunched together. But they won't disentangle, so just dismantle the bin
+                    # rescuing any large contigs. Unbinned contigs get put into self.unbinned_tids to be wholly re-embedded
+                    reembed_separately.append(bin)
+                    allow_single_cluster_vec.append(False)
+
                 else:
-                    
-                    if contigs['contigLen'].sum() < 5e5:
-                        for tid in tids:
-                            # remove this contig
-                            self.unbinned_tids.append(tid)
+                    try:
+                        mean_md, \
+                        mean_tnf, \
+                        mean_agg, \
+                        per_contig_avg = \
+                            metrics.populate_matrix(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                    log_lengths.values[:, None],
+                                                                    tnfs.iloc[:, 2:].values), axis=1),
+                                                                    n_samples,
+                                                                    sample_distances)
+                    except ZeroDivisionError:
+                        logging.info("Something broke - %s" % tids)
+                        sys.exit()
 
-                        bins_to_remove.append(bin)
-                        
-                    elif contigs['contigLen'].sum() >= 13e6: 
-                        # larger than most bacterial genomes, way larger than archaeal
-                        # Likely strains getting bunched together. But they won't disentangle, so just dismantle the bin
-                        # rescuing any large contigs. Unbinned contigs get put into self.unbinned_tids to be wholly re-embedded
-                        reembed_separately.append(bin)
-                        
-                    else:
-                        try:
-                            mean_md, \
-                            mean_tnf, \
-                            mean_agg, \
-                            per_contig_avg = \
-                                metrics.populate_matrix(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                        log_lengths.values[:, None],
-                                                                        tnfs.iloc[:, 2:].values), axis=1),
-                                                                        n_samples,
-                                                                        sample_distances)
-                        except ZeroDivisionError:
-                            logging.info("Something broke - %s" % tids)
-                            sys.exit()
+                    if any(x >= 0.5 for x in [mean_md]) or mean_agg >= 0.5 \
+                            or all(x > 0.25 for x in [mean_md, mean_tnf]):
+                        removed = []
+                        [(self.unbinned_tids.append(tid), removed.append(tid)) for tid in tids]
 
-                        
-                        metric = mean_agg
-                        f_level = 0.7
-                            
-                        # if (mean_md >= 0.5 or mean_tnf >= 0.5) \
-                        if (any(x >= 0.3 for x in [mean_md]) and mean_tnf > 0.05) or mean_agg >= 0.35:
-                            # or validity < 0:
-                            removed = []
-                            [(self.unbinned_tids.append(tid), removed.append(tid)) for tid in tids]
-                            
-                            remove = True
+                        remove = True
 
-                            if len(tids) == 0 or remove:
-                                bins_to_remove.append(bin)
-                        # else:
-                        #     self.checked_bins.append(bin)
+                        if len(tids) == 0 or remove:
+                            bins_to_remove.append(bin)
+
 
             elif (reembed or bin_unbinned) \
                 and bin != 0 \
@@ -516,13 +507,21 @@ class Binner():
                 
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
-                if contigs['contigLen'].sum() >= 13e6: # larger than most bacterial genomes, way larger than archaeal
+                if contigs['contigLen'].sum() < 1.5e6:
+                    for tid in tids:
+                        # remove this contig
+                        self.unbinned_tids.append(tid)
+
+                    bins_to_remove.append(bin)
+
+                elif contigs['contigLen'].sum() >= 13e6: # larger than most bacterial genomes, way larger than archaeal
                     # Likely strains getting bunched together. But they won't disentangle, so just dismantle the bin
                     # rescuing any large contigs. Only way I can think  of atm to deal with this.
                     # Besides perhaps looking at variation level?? But this seems to be a problem with
                     # the assembly being TOO good.
                     if reembed:
                         reembed_separately.append(bin)
+                        allow_single_cluster_vec.append(False)
                     else:
                         removed = []
                         for tid in tids:
@@ -557,17 +556,19 @@ class Binner():
                                                                 
                     # Slight higher thresholds since bins that break here are completely dismantled
                     if reembed:
-                        f_level = 0.35
-                        shared_level = 0.3
+                        f_level = 0.55
+                        shared_level = 0.45
                     else:
-                        f_level = 0.35
-                        shared_level = 0.3
+                        f_level = 0.4
+                        shared_level = 0.35
                     
-                    if (any(x >= shared_level for x in [mean_md]) and mean_tnf > 0.05) or mean_agg >= f_level:
+                    if (any(x >= 0.5 for x in [mean_md]) and mean_tnf > 0.25) or mean_agg >= f_level \
+                                or all(x >= shared_level for x in [mean_md, mean_tnf]):
                         removed = []
                         if reembed and len(tids) >= 20:
                             # print(bin, mean_md, mean_tnf, mean_agg, len(tids))
                             reembed_separately.append(bin)
+                            allow_single_cluster_vec.append(True)
                         else:
                             for tid in tids:
                                 if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
@@ -592,7 +593,7 @@ class Binner():
         for k, v in new_bins.items():
             self.bins[k] = list(set(v))
             
-        for bin in reembed_separately:
+        for bin, allow_single in zip(reembed_separately, allow_single_cluster_vec):
             tids = self.bins[bin]
             try:
                 max_bin_id = max(self.bins.keys()) + 1
@@ -602,7 +603,7 @@ class Binner():
             if isinstance(max_bin_id, np.int64):
                 max_bin_id = max_bin_id.item()
                 
-            self.recluster_unbinned(tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, allow_single_cluster=True) # don't plot results
+            self.recluster_unbinned(tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, allow_single_cluster=allow_single) # don't plot results
             n += 1
             bins_to_remove.append(bin)
 
@@ -720,8 +721,8 @@ class Binner():
 
             contigs = self.large_contigs[~self.disconnected][~self.disconnected_intersected][unbinned_array]
 
-            findem = ['contig_85_pilon', 'contig_142_pilon', 'contig_133_pilon', 'contig_54_pilon', 
-                      'contig_115_pilon', 'contig_100_pilon', 'contig_910_pilon', 'contig_129_pilon', 
+            findem = ['contig_1173_pilon', 'contig_1088_pilon', 'contig_1089_pilon', 'contig_2371_pilon',
+                      'contig_731_pilon', 'contig_100_pilon', 'contig_910_pilon', 'contig_129_pilon',
                       'contig_82_pilon', 'contig_1276_pilon', 'contig_1957_pilon']
 
             names = list(contigs['contigName'])
@@ -776,7 +777,7 @@ class Binner():
                     except KeyError:
                         self.bins[bin_key] = [
                             self.assembly[contigs['contigName'].iloc[idx]]]
-                elif contigs['contigLen'].iloc[idx] >= 2e6:
+                elif contigs['contigLen'].iloc[idx] >= 2e6 and bin_unbinned:
                     bin_key = max_bin_id + total_new_bins + big_contig_counter
                     if isinstance(bin_key, np.int64):
                         bin_key = bin_key.item()
@@ -934,7 +935,7 @@ class Binner():
                 if contigs['contigLen'].iloc[idx] < 2e6:
                     soft_values = self.soft_clusters[idx]
                     max_value, best_label = metrics.get_best_soft_value(soft_values)
-                    if max_value >= 0.05:
+                    if max_value >= 0.75:
                         self.labels[idx] = best_label
 
 
