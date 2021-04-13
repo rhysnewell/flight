@@ -225,7 +225,7 @@ class Binner():
         # self.tnfs.iloc[:, 2:] = self.tnfs.iloc[:, 2:].div(self.tnfs.iloc[:, 2:].sum(axis=1), axis=0)
         self.tnfs.iloc[:, 2:] = skbio.stats.composition.clr(self.tnfs.iloc[:, 2:].astype(np.float64) + 1)
         ## Set custom log base change for lengths
-        self.log_lengths = np.log(self.tnfs['contigLen']) / np.log(max(self.tnfs['contigLen'].mean(), 100000))
+        self.log_lengths = np.log(self.tnfs['contigLen']) / np.log(max(self.tnfs['contigLen'].mean(), 10000))
         
         ## Check the ordering of the contig names for sanity check
         if list(self.large_contigs['contigName']) != list(self.tnfs['contigName']):
@@ -355,16 +355,13 @@ class Binner():
             disconnection_param = min(0.5, 0.9)
         tnf_disconnect = max(min(lognorm_cdf.mean(), 0.9), 0.1)
         self.tnf_reducer.disconnection_distance = tnf_disconnect
-        self.depth_reducer.disconnection_distance = disconnection_param
+        self.depth_reducer.disconnection_distance = 0.25
+        self.depth_reducer.n_neighbors = 5
         self.filter_value = disconnection_stringent
  
     def fit_disconnect(self):
         ## Calculate the UMAP embeddings
-        # logging.info("Running UMAP - %s" % self.tnf_reducer)
-        # tnf_mapping = self.tnf_reducer.fit(
-                    # np.concatenate((self.log_lengths[~self.disconnected].values[:, None],
-                                    # self.tnfs[~self.disconnected].iloc[:, 2:]),
-                                    # axis=1))
+
         self.depths = np.nan_to_num(np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 3:].drop(['tid'], axis=1),
                                                     self.log_lengths[~self.disconnected].values[:, None],
                                                     self.tnfs[~self.disconnected].iloc[:, 2:]), axis=1))
@@ -395,18 +392,23 @@ class Binner():
         
             
         # if not self.disconnected_intersected.any() == True:
-# 
-            # self.intersection_mapper = depth_mapping * tnf_mapping
-            # self.embeddings = self.intersection_mapper.embedding_
-            # return False
+        #     logging.info("Running UMAP - %s" % self.tnf_reducer)
+        #     tnf_mapping = self.tnf_reducer.fit(
+        #                     np.concatenate((self.log_lengths[~self.disconnected].values[:, None],
+        #                     self.tnfs[~self.disconnected].iloc[:, 2:]),
+        #                     axis=1))
+        #     self.intersection_mapper = depth_mapping * tnf_mapping
+        #     self.embeddings = self.intersection_mapper.embedding_
+        #     return False
         # else:
-            # return True
+        #     return True
         return True
 
     def fit_transform(self):
         # update parameters to artificially high values to avoid disconnected vertices in the final manifold
         self.tnf_reducer.disconnection_distance = 1
         self.depth_reducer.disconnection_distance = 0.99
+        self.depth_reducer.n_neighbors = 100
         self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
         
         logging.info("Running UMAP - %s" % self.tnf_reducer)
@@ -457,8 +459,9 @@ class Binner():
                 tids = set(tids)
                 
             if len(tids) > 1 \
-            and not (bin_unbinned or reembed) \
-            and bin != 0:
+                and not (bin_unbinned or reembed) \
+                and bin != 0 \
+                and bin not in self.checked_bins:
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
                 if contigs['contigLen'].sum() < 1.5e6:
@@ -490,8 +493,8 @@ class Binner():
                         logging.info("Something broke - %s" % tids)
                         sys.exit()
 
-                    if any(x >= 0.5 for x in [mean_md]) or mean_agg >= 0.5 \
-                            or all(x > 0.25 for x in [mean_md, mean_tnf]):
+                    if any(x >= 0.35 for x in [mean_md]) or mean_agg >= 0.5 \
+                            or all(x > 0.15 for x in [mean_md, mean_tnf]):
                         removed = []
                         [(self.unbinned_tids.append(tid), removed.append(tid)) for tid in tids]
 
@@ -499,11 +502,14 @@ class Binner():
 
                         if len(tids) == 0 or remove:
                             bins_to_remove.append(bin)
+                    else:
+                        self.checked_bins.append(bin)
 
 
             elif (reembed or bin_unbinned) \
                 and bin != 0 \
-                and len(tids) > 1:
+                and len(tids) > 1 \
+                and bin not in self.checked_bins:
                 
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
@@ -557,12 +563,14 @@ class Binner():
                     # Slight higher thresholds since bins that break here are completely dismantled
                     if reembed:
                         f_level = 0.55
-                        shared_level = 0.45
+                        m_level = 0.45
+                        shared_level = 0.25
                     else:
                         f_level = 0.4
-                        shared_level = 0.35
+                        m_level = 0.35
+                        shared_level = 0.15
                     
-                    if (any(x >= 0.5 for x in [mean_md]) and mean_tnf > 0.25) or mean_agg >= f_level \
+                    if (any(x >= m_level for x in [mean_md])) or mean_agg >= f_level \
                                 or all(x >= shared_level for x in [mean_md, mean_tnf]):
                         removed = []
                         if reembed and len(tids) >= 20:
@@ -652,7 +660,7 @@ class Binner():
     def extract_contigs(self, tids):
         contigs = self.large_contigs[self.large_contigs['tid'].isin(tids)]
         contigs = contigs.drop(['tid'], axis=1)
-        log_lengths = np.log(contigs['contigLen']) / np.log(max(self.large_contigs['contigLen'].mean(), 100000))
+        log_lengths = np.log(contigs['contigLen']) / np.log(max(self.large_contigs['contigLen'].mean(), 10000))
         tnfs = self.tnfs[self.tnfs['contigName'].isin(contigs['contigName'])]
 
         return contigs, log_lengths, tnfs
@@ -710,20 +718,41 @@ class Binner():
         else:
             self.cluster_validity, self.validity_indices = 0, [-1]
 
-    def recluster_unbinned(self, tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, delete_unbinned = False, bin_unbinned=False, allow_single_cluster=False):
+    def recluster_unbinned(self, tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n,
+                           delete_unbinned = False, bin_unbinned=False, allow_single_cluster=False, reembed=False):
         if len(set(tids)) > 1:
-            unbinned_array = self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'].isin(tids)
-            unbinned_embeddings = self.embeddings[unbinned_array]
-            self.labels = self.iterative_clustering(unbinned_embeddings, allow_single_cluster=allow_single_cluster)
+            if not reembed: # Just use old embeddings for speed
+                unbinned_array = self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'].isin(tids)
+                unbinned_embeddings = self.embeddings[unbinned_array]
+                self.labels = self.iterative_clustering(unbinned_embeddings, allow_single_cluster=allow_single_cluster)
+                contigs = self.large_contigs[~self.disconnected][~self.disconnected_intersected][unbinned_array]
+
+            else: # Generate new emebddings for left over contigs
+                contigs, log_lengths, tnfs = self.extract_contigs(tids)
+                tnf_mapping = self.tnf_reducer.fit(
+                    np.concatenate(
+                        (log_lengths.values[:, None],
+                         tnfs.iloc[:, 2:]),
+                        axis=1))
+
+                depth_mapping = self.depth_reducer.fit(np.concatenate(
+                    (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
+
+                self.intersection_mapper = depth_mapping * tnf_mapping
+
+                unbinned_embeddings = self.intersection_mapper.embedding_
+                self.labels = self.iterative_clustering(unbinned_embeddings, allow_single_cluster=allow_single_cluster)
+
+
             if len(set(self.labels)) == 1 and -1 in set(self.labels):
-                self.labels = np.array([0 for i in self.labels])
+                    self.labels = np.array([0 for i in self.labels])
             # self.validity(self.labels, unbinned_embeddings)
 
-            contigs = self.large_contigs[~self.disconnected][~self.disconnected_intersected][unbinned_array]
 
             findem = ['contig_1173_pilon', 'contig_1088_pilon', 'contig_1089_pilon', 'contig_2371_pilon',
                       'contig_731_pilon', 'contig_100_pilon', 'contig_910_pilon', 'contig_129_pilon',
-                      'contig_82_pilon', 'contig_1276_pilon', 'contig_1957_pilon']
+                      'contig_82_pilon', 'contig_1276_pilon', 'contig_1957_pilon', 'contig_371_pilon',
+                      'contig_3901_pilon']
 
             names = list(contigs['contigName'])
             indices = []
@@ -884,7 +913,7 @@ class Binner():
 
         findem = ['contig_85_pilon', 'contig_142_pilon', 'contig_133_pilon', 'contig_54_pilon', 'contig_115_pilon', 
                   'contig_100_pilon', 'contig_910_pilon', 'contig_129_pilon', 'contig_82_pilon', 'contig_1276_pilon', 
-                  'contig_1957_pilon']
+                  'contig_1957_pilon', 'contig_371_pilon', 'contig_3901_pilon']
         names = list(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigName'])
         indices = []
         for to_find in findem:
@@ -930,13 +959,15 @@ class Binner():
             return self.clusterer.labels_.astype('int32')
 
     def use_soft_clusters(self, contigs):
-        for (idx, label) in enumerate(self.labels):
-            if label == -1:
-                if contigs['contigLen'].iloc[idx] < 2e6:
-                    soft_values = self.soft_clusters[idx]
-                    max_value, best_label = metrics.get_best_soft_value(soft_values)
-                    if max_value >= 0.75:
-                        self.labels[idx] = best_label
+        """"""
+        # for (idx, label) in enumerate(self.labels):
+        #     if label == -1:
+        #         if contigs['contigLen'].iloc[idx] < 2e6:
+        #             soft_values = self.soft_clusters[idx]
+        #             max_value, best_label = metrics.get_best_soft_value(soft_values)
+        #             if max_value >= 0.9:
+        #                 self.labels[idx] = best_label
+        pass
 
 
     def bin_contigs(self, assembly_file, min_bin_size=200000):

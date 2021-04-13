@@ -563,17 +563,16 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
     a, b - concatenated contig depth, variance, and TNF info with contig length at index 0
     n_samples - the number of samples
 
-    returns - an aggregate distance metric between KL divergence and TNF
+    returns - an aggregate distance metric between MetaBAT ADP divergence and TNF
     """
     w = (n_samples) / (n_samples + 1) # weighting by number of samples same as in metabat2
 
     
-    kl = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples, sample_distances)
-    # if n_samples < 3:
+    md = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples, sample_distances)
     # tnf_dist = rho(a[n_samples*2:], b[n_samples*2:])
-    # kl = np.sqrt(kl**w * (tnf_dist**(1-w)))
+    # agg = np.sqrt((md**w) * (tnf_dist**(1-w)))
        
-    return kl
+    return md
 
 @njit(fastmath=True)
 def populate_matrix(depths, n_samples, sample_distances):
