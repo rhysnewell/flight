@@ -354,7 +354,7 @@ class Binner():
         else:
             disconnection_param = min(0.5, 0.9)
         tnf_disconnect = max(min(lognorm_cdf.mean(), 0.9), 0.1)
-        self.tnf_reducer.disconnection_distance = tnf_disconnect
+        self.tnf_reducer.disconnection_distance = 0.25
         self.depth_reducer.disconnection_distance = 0.25
         self.depth_reducer.n_neighbors = 5
         self.filter_value = disconnection_stringent
@@ -406,7 +406,7 @@ class Binner():
 
     def fit_transform(self):
         # update parameters to artificially high values to avoid disconnected vertices in the final manifold
-        self.tnf_reducer.disconnection_distance = 1
+        self.tnf_reducer.disconnection_distance = 0.99
         self.depth_reducer.disconnection_distance = 0.99
         self.depth_reducer.n_neighbors = 100
         self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
@@ -493,8 +493,8 @@ class Binner():
                         logging.info("Something broke - %s" % tids)
                         sys.exit()
 
-                    if any(x >= 0.35 for x in [mean_md]) or mean_agg >= 0.5 \
-                            or all(x > 0.15 for x in [mean_md, mean_tnf]):
+                    if mean_md >= 0.25 \
+                            or all(x > 0.1 for x in [mean_md, mean_tnf]):
                         removed = []
                         [(self.unbinned_tids.append(tid), removed.append(tid)) for tid in tids]
 
@@ -534,18 +534,21 @@ class Binner():
                             if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
                                 big_tids.append(tid)
                                 removed.append(tid)
-
-                        [tids.remove(r) for r in removed]
-                        current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
-                        remove = False
-                        if current_contigs['contigLen'].sum() <= self.min_bin_size:
-                            [self.unbinned_tids.append(tid) for tid in tids]
-                            remove = True
+                            else:
+                                self.unbinned_tids.append(tid)
+                                removed.append(tid)
+                        # This cluster is extra busted. Likely black hole contigs
+                        # [tids.remove(r) for r in removed]
+                        # current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
+                        remove = True
+                        # if current_contigs['contigLen'].sum() <= self.min_bin_size:
+                        #     [self.unbinned_tids.append(tid) for tid in tids]
+                        #     remove = True
 
                         if len(tids) == 0 or remove:
                             bins_to_remove.append(bin)
 
-                elif bin not in self.checked_bins:
+                elif bin not in self.checked_bins and not reembed:
                     try:
                         mean_md, \
                         mean_tnf, \
@@ -562,13 +565,13 @@ class Binner():
                                                                 
                     # Slight higher thresholds since bins that break here are completely dismantled
                     if reembed:
-                        f_level = 0.55
-                        m_level = 0.45
-                        shared_level = 0.25
+                        f_level = 0.5
+                        m_level = 0.4
+                        shared_level = 0.15
                     else:
                         f_level = 0.4
-                        m_level = 0.35
-                        shared_level = 0.15
+                        m_level = 0.25
+                        shared_level = 0.1
                     
                     if (any(x >= m_level for x in [mean_md])) or mean_agg >= f_level \
                                 or all(x >= shared_level for x in [mean_md, mean_tnf]):
@@ -582,6 +585,9 @@ class Binner():
                                 if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
                                     big_tids.append(tid)
                                     removed.append(tid)
+                                else:
+                                    self.unbinned_tids.append(tid)
+                                    removed.append(tid)
                         # This cluster is extra busted. Likely black hole contigs
                         [tids.remove(r) for r in removed]
                         current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
@@ -593,7 +599,7 @@ class Binner():
                         if len(tids) == 0 or remove:
                             bins_to_remove.append(bin)
                     
-            elif self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 2e5 and bin != 0:
+            elif self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 1.5e6 and bin != 0:
                 for tid in tids:
                     self.unbinned_tids.append(tid)
                 bins_to_remove.append(bin)
@@ -612,7 +618,6 @@ class Binner():
                 max_bin_id = max_bin_id.item()
                 
             self.recluster_unbinned(tids, max_bin_id, plots, x_min, x_max, y_min, y_max, n, allow_single_cluster=allow_single) # don't plot results
-            n += 1
             bins_to_remove.append(bin)
 
         for k in bins_to_remove:
@@ -697,13 +702,28 @@ class Binner():
 
     def iterative_clustering(self, distances, metric='euclidean', binning_method='eom', allow_single_cluster=False, prediction_data=False):
         first_labels = self.cluster(distances, allow_single_cluster=allow_single_cluster, prediction_data=prediction_data)
-        bool_arr = np.array([True if i == -1 else False for i in first_labels])
-        main_labels = [] # container for complete clustering
-        
-        for first, second_bool in zip(first_labels, bool_arr): 
-            if first != -1: # use main label
+        # if prediction_data is False:
+        #     bool_arr = np.array([True if i == -1 else False for i in first_labels])
+        #     second_labels = self.cluster(distances[bool_arr], allow_single_cluster=allow_single_cluster)
+        # else:
+        bool_arr = np.array([False for i in first_labels])
+
+
+        main_labels = []  # container for complete clustering
+        max_label = max(first_labels) + 1  # value to shift second labels by
+        second_idx = 0  # current index in second labels
+
+        for first, second_bool in zip(first_labels, bool_arr):
+            if first != -1:  # use main label
                 main_labels.append(first)
-            else:
+            elif second_bool:  # check what the cluster is
+                second = second_labels[second_idx]
+                if second != -1:
+                    main_labels.append(max_label + second)
+                else:
+                    main_labels.append(-1)
+                second_idx += 1
+            else:  # Should never get here but just have it here in case
                 main_labels.append(-1)
 
         return np.array(main_labels)
@@ -749,9 +769,9 @@ class Binner():
             # self.validity(self.labels, unbinned_embeddings)
 
 
-            findem = ['contig_1173_pilon', 'contig_1088_pilon', 'contig_1089_pilon', 'contig_2371_pilon',
+            findem = ['contig_1173_pilon', 'contig_1088_pilon', 'contig_1089_pilon', 'contig_371_pilon',
                       'contig_731_pilon', 'contig_100_pilon', 'contig_910_pilon', 'contig_129_pilon',
-                      'contig_82_pilon', 'contig_1276_pilon', 'contig_1957_pilon', 'contig_371_pilon',
+                      'contig_85_pilon', 'contig_231_pilon', 'contig_1957_pilon', 'contig_371_pilon',
                       'contig_3901_pilon']
 
             names = list(contigs['contigName'])
@@ -806,7 +826,7 @@ class Binner():
                     except KeyError:
                         self.bins[bin_key] = [
                             self.assembly[contigs['contigName'].iloc[idx]]]
-                elif contigs['contigLen'].iloc[idx] >= 2e6 and bin_unbinned:
+                elif contigs['contigLen'].iloc[idx] >= self.min_bin_size:
                     bin_key = max_bin_id + total_new_bins + big_contig_counter
                     if isinstance(bin_key, np.int64):
                         bin_key = bin_key.item()
@@ -911,9 +931,10 @@ class Binner():
     def plot(self):
         logging.info("Generating UMAP plot with labels")
 
-        findem = ['contig_85_pilon', 'contig_142_pilon', 'contig_133_pilon', 'contig_54_pilon', 'contig_115_pilon', 
-                  'contig_100_pilon', 'contig_910_pilon', 'contig_129_pilon', 'contig_82_pilon', 'contig_1276_pilon', 
-                  'contig_1957_pilon', 'contig_371_pilon', 'contig_3901_pilon']
+        findem = ['contig_1173_pilon', 'contig_1088_pilon', 'contig_1089_pilon', 'contig_371_pilon',
+                  'contig_731_pilon', 'contig_100_pilon', 'contig_910_pilon', 'contig_129_pilon',
+                  'contig_85_pilon', 'contig_231_pilon', 'contig_1957_pilon', 'contig_371_pilon',
+                  'contig_3901_pilon']
         names = list(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigName'])
         indices = []
         for to_find in findem:
@@ -960,14 +981,14 @@ class Binner():
 
     def use_soft_clusters(self, contigs):
         """"""
-        # for (idx, label) in enumerate(self.labels):
-        #     if label == -1:
-        #         if contigs['contigLen'].iloc[idx] < 2e6:
-        #             soft_values = self.soft_clusters[idx]
-        #             max_value, best_label = metrics.get_best_soft_value(soft_values)
-        #             if max_value >= 0.9:
-        #                 self.labels[idx] = best_label
-        pass
+        for (idx, label) in enumerate(self.labels):
+            if label == -1:
+                if contigs['contigLen'].iloc[idx] < 2e6:
+                    soft_values = self.soft_clusters[idx]
+                    max_value, best_label = metrics.get_best_soft_value(soft_values)
+                    if max_value >= 0.75:
+                        self.labels[idx] = best_label
+        # pass
 
 
     def bin_contigs(self, assembly_file, min_bin_size=200000):
