@@ -480,7 +480,7 @@ def bin(args):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
 
-                            while n <= 5:
+                            while n <= 500:
 
                                 unbinned_length = len(clusterer.unbinned_tids)
 
@@ -502,11 +502,9 @@ def bin(args):
                                 else:
                                     break  # nothing changed
 
-                                plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                                                     plots, x_min, x_max, y_min, y_max, n,
-                                                                     delete_unbinned=True)  # second pass get bins
+
                                 plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max, reembed=True)
-                                plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max)
+                                # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max)
 
                                 try:
                                     max_bin_id = max(clusterer.bins.keys()) + 1
@@ -514,10 +512,12 @@ def bin(args):
                                     max_bin_id = 1
                                 plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
                                                                      plots, x_min, x_max, y_min, y_max, n,
-                                                                     delete_unbinned=True, reembed=True)  # second pass get bins
+                                                                     delete_unbinned=True, reembed=False)  # first pass reembed
+                                # plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
+                                #                                      plots, x_min, x_max, y_min, y_max, n,
+                                #                                      delete_unbinned=True)  # second pass get bins
                                 n += 1
 
-                            # Try re-embedding problem clusters solo
                             plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
                                                                     reembed=True) # Bin out large unbinned contigs
                             plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
