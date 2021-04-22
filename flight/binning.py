@@ -829,8 +829,8 @@ class Binner():
                 # Generate new emebddings if clustering seems fractured
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
-                self.tnf_reducer.n_neighbors = max(5, len(tids)/10)
-                self.depth_reducer.n_neighbors = max(5, len(tids)/10)
+                self.tnf_reducer.n_neighbors = max(5, len(tids)//10)
+                self.depth_reducer.n_neighbors = max(5, len(tids)//10)
 
 
                 try:
