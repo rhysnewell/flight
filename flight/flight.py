@@ -474,6 +474,14 @@ def bin(args):
                         n = 0
                         old_tids = []
                         logging.info("Performing iterative clustering with disconnections...")
+                        try:
+                            max_bin_id = max(clusterer.bins.keys()) + 1
+                        except ValueError:
+                            max_bin_id = 1
+                        plots, _ = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
+                                                                plots, x_min, x_max, y_min, y_max, n,
+                                                                delete_unbinned=True,
+                                                                bin_unbinned=True)
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
 
@@ -493,6 +501,10 @@ def bin(args):
                                 if n == 0 or old_tids != set(clusterer.unbinned_tids):
                                     old_tids = set(clusterer.unbinned_tids)
                                 else:
+                                    try:
+                                        max_bin_id = max(clusterer.bins.keys()) + 1
+                                    except ValueError:
+                                        max_bin_id = 1
                                     plots, _ = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
                                                                             plots, x_min, x_max, y_min, y_max, n,
                                                                             delete_unbinned=True,
