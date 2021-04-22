@@ -492,7 +492,7 @@ class Binner():
                 and bin not in self.checked_bins:
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
-                if contigs['contigLen'].sum() < 5e5:
+                if contigs['contigLen'].sum() < 1e6:
                     for tid in tids:
                         # remove this contig
                         self.unbinned_tids.append(tid)
@@ -667,7 +667,7 @@ class Binner():
                         bins_to_remove.append(bin)
 
                     
-            elif self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 1e6 and bin != 0:
+            elif (self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 1e6 or len(tids) == 1) and bin != 0:
                 for tid in tids:
                     self.unbinned_tids.append(tid)
                 bins_to_remove.append(bin)
@@ -1033,7 +1033,7 @@ class Binner():
         findem = ['contig_371_pilon', 'contig_3132_pilon',
                   'contig_3901_pilon', 'contig_846_pilon',
                   'contig_941_pilon', 'scaffold_49_pilon',
-                  'contig_591_pilon', 'contig_2054_pilon']
+                  'contig_591_pilon', 'contig_2054_pilon', 'contig_910_pilon']
         names = list(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigName'])
         indices = []
         for to_find in findem:
