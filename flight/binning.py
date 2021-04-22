@@ -957,15 +957,18 @@ class Binner():
                         self.bins[bin] = new_tids
                     else:
                         # put into unbinned
-                        print("Not adding new bin: ", bin, bin_size)
+                        if debug:
+                            print("Not adding new bin: ", bin, bin_size)
 
                         unbinned = unbinned + new_tids
 
                 if len(unbinned) != len(tids):
-                    print("New bin added...")
+                    if debug:
+                        print("New bin(s) added...")
                     self.unbinned_tids = self.unbinned_tids + unbinned
                 else:
-                    print("New bin added.")
+                    if debug:
+                        print("New bin added.")
                     pass
 
         try:
