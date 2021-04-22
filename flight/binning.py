@@ -833,19 +833,27 @@ class Binner():
                 self.depth_reducer.n_neighbors = max(5, len(tids)/10)
 
 
-                tnf_mapping = self.tnf_reducer.fit(
-                    np.concatenate(
-                        (log_lengths.values[:, None],
-                         tnfs.iloc[:, 2:]),
-                        axis=1))
+                try:
+                    tnf_mapping = self.tnf_reducer.fit(
+                        np.concatenate(
+                            (log_lengths.values[:, None],
+                             tnfs.iloc[:, 2:]),
+                            axis=1))
 
-                depth_mapping = self.depth_reducer.fit(np.concatenate(
-                    (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
+                    depth_mapping = self.depth_reducer.fit(np.concatenate(
+                        (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
 
-                self.intersection_mapper = depth_mapping * tnf_mapping
+                    self.intersection_mapper = depth_mapping * tnf_mapping
 
-                unbinned_embeddings = self.intersection_mapper.embedding_
-                self.labels = self.iterative_clustering(unbinned_embeddings, allow_single_cluster=allow_single_cluster)
+                    unbinned_embeddings = self.intersection_mapper.embedding_
+                    self.labels = self.iterative_clustering(unbinned_embeddings,
+                                                            allow_single_cluster=allow_single_cluster)
+                    self.use_soft_clusters(contigs)
+                    set_labels = set(self.labels)
+                except TypeError:
+                    unbinned_embeddings = self.embeddings[unbinned_array]
+                    self.labels = np.array([0 for _ in tids])
+
 
 
             # if len(set(self.labels)) == 1 and -1 in set(self.labels):
