@@ -491,7 +491,7 @@ def bin(args):
 
                                 while True:
                                     plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max, reembed=True)
-                                    plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max)
+                                    # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max)
                                     new_length = len(clusterer.unbinned_tids)
                                     if unbinned_length == new_length:
                                         break
@@ -523,16 +523,16 @@ def bin(args):
                                 n += 1
 
 
-                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
-                                                                    reembed=True)
-                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max)
-                            try:
-                                max_bin_id = max(clusterer.bins.keys()) + 1
-                            except ValueError:
-                                max_bin_id = 1
-                            plots, _ = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                                                 plots, x_min, x_max, y_min, y_max, n,
-                                                                 delete_unbinned=True, bin_unbinned=True)
+                            # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
+                            #                                         reembed=True)
+                            # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max)
+                            # try:
+                            #     max_bin_id = max(clusterer.bins.keys()) + 1
+                            # except ValueError:
+                            #     max_bin_id = 1
+                            # plots, _ = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
+                            #                                      plots, x_min, x_max, y_min, y_max, n,
+                            #                                      delete_unbinned=True, bin_unbinned=True)
 
 
                         clusterer.bin_filtered(int(args.min_bin_size))
