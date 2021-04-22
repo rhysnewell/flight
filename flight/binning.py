@@ -806,7 +806,7 @@ class Binner():
     def recluster_unbinned(self, tids, max_bin_id, plots,
                            x_min, x_max, y_min, y_max, n,
                            delete_unbinned = False, bin_unbinned=False,
-                           allow_single_cluster=False, reembed=False):
+                           allow_single_cluster=False, reembed=False, debug=False):
         remove = False
         if len(set(tids)) > 1:
             if not reembed or len(set(tids)) <= 10: # Just use old embeddings for speed
@@ -910,31 +910,42 @@ class Binner():
                         except KeyError:
                             new_bins[bin_key] = [
                                 self.assembly[contigs['contigName'].iloc[idx]]]
-                    elif contigs['contigLen'].iloc[idx] >= self.min_bin_size:
-                        bin_key = max_bin_id + total_new_bins + big_contig_counter
-                        if isinstance(bin_key, np.int64):
-                            bin_key = bin_key.item()
-                        new_bins[bin_key] = [
-                            self.assembly[contigs['contigName'].iloc[idx]]]
-                        big_contig_counter += 1
+                    # elif contigs['contigLen'].iloc[idx] >= self.min_bin_size:
+                    #     bin_key = max_bin_id + total_new_bins + big_contig_counter
+                    #     if isinstance(bin_key, np.int64):
+                    #         bin_key = bin_key.item()
+                    #     new_bins[bin_key] = [
+                    #         self.assembly[contigs['contigName'].iloc[idx]]]
+                    #     big_contig_counter += 1
 
                     else:
                         unbinned.append(self.assembly[contigs['contigName'].iloc[idx]])
+
+                if debug:
+                    print("No. of new bins:", new_bins.keys())
+                    print("No. unbinned: ", len(unbinned))
 
                 for bin, new_tids in new_bins.items():
                     contigs, log_lengths, tnfs = self.extract_contigs(new_tids)
                     bin_size = contigs['contigLen'].sum()
                     if bin_size > 1e6 or bin_unbinned:
                         #  Keep this bin
+                        if debug:
+                            print("Removing original bin, keeping bin: ", bin)
+                            print("Length: ", bin_size)
                         remove = True # remove original bin
                         self.bins[bin] = new_tids
                     else:
                         # put into unbinned
+                        print("Not adding new bin: ", bin, bin_size)
+
                         unbinned = unbinned + new_tids
 
                 if len(unbinned) != len(tids):
+                    print("Nothing changed...")
                     self.unbinned_tids = self.unbinned_tids + unbinned
                 else:
+                    print("New bin added.")
                     pass
 
         try:
