@@ -332,10 +332,10 @@ def metabat_distance(a, b, n_samples, sample_distances):
         
 
         if a_mean > 1e-6 or b_mean > 1e-6 and a_mean != b_mean:
-            # if a_var > a_mean:
-                # a_var = a_mean
-            # if b_var > b_mean:
-                # b_var = b_mean
+            if a_var < 1:
+                a_var = 1
+            if b_var < 1:
+                b_var = 1
                 
             if abs(a_var - b_var) < 1e-4:
                 k1 = k2 = (a_mean + b_mean) / 2
@@ -495,9 +495,12 @@ def rho(a, b):
     return - This is a transformed, inversed version of rho. Normal rho -1 <= rho <= 1
     transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
     """
-
+    # if a[0] >= 1 and b[0] >= 1:
+        # rp = 1 / max(a[0], b[0])
+    # el
     if a[0] >= 1 or b[0] >= 1:
-        rp =  min(a[0], b[0]) / max(a[0], b[0])
+        # rp =  min(a[0], b[0]) / \
+        rp =  max(a[0], b[0])
     else:
         rp = 1
     # rp =  max(max(a[0], b[0]), 1)
@@ -532,7 +535,7 @@ def rho(a, b):
     rho += 1
     rho = 2 - rho
     
-    return rho ** rp
+    return rho * rp
 
 @njit(fastmath=True)
 def rho_coverage(a, b):
@@ -573,6 +576,23 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
     # tnf_dist = rho(a[n_samples*2:], b[n_samples*2:])
     # agg = np.sqrt((md**w) * (tnf_dist**(1-w)))
        
+    return md
+
+
+@njit(fastmath=True)
+def aggregate_md(a, b, n_samples, sample_distances):
+    """
+    a, b - concatenated contig depth, variance, and TNF info with contig length at index 0
+    n_samples - the number of samples
+
+    returns - an aggregate distance metric between MetaBAT ADP divergence and TNF
+    """
+    # w = (n_samples) / (n_samples + 1)  # weighting by number of samples same as in metabat2
+
+    md = metabat_distance(a[0:n_samples * 2], b[0:n_samples * 2], n_samples, sample_distances)
+    # tnf_dist = rho(a[n_samples * 2:], b[n_samples * 2:])
+    # agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
+
     return md
 
 @njit(fastmath=True)

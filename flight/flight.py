@@ -447,20 +447,17 @@ def bin(args):
                 # First pass quick TNF filter to speed up next steps
                 clusterer.update_parameters()
                 clusterer.filter()
-                # clusterer.disconnected = np.array([False for i in range(clusterer.tnfs.values.shape[0])])
                 if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors) * 5:
                     # Second pass intersection filtering
                     clusterer.update_parameters()
                     found_disconnections = clusterer.fit_disconnect()
-                    # clusterer.disconnected_intersected = np.array([False for i in range(clusterer.tnfs.values.shape[0])])
                     if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[
                         0] > int(args.n_neighbors) * 2:
                         # Final fully filtered embedding to cluster on
                         if found_disconnections:
                             clusterer.fit_transform()
                         clusterer.labels = clusterer.iterative_clustering(clusterer.embeddings, prediction_data=True)
-                        clusterer.use_soft_clusters(clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected])
-                        # clusterer.validity(clusterer.labels, clusterer.embeddings)
+                        # clusterer.use_soft_clusters(clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected])
                         clusterer.plot()
 
                         ## Plot limits
@@ -485,6 +482,7 @@ def bin(args):
                                 unbinned_length = len(clusterer.unbinned_tids)
 
                                 while True:
+                                    plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max, reembed=True)
                                     plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max)
                                     new_length = len(clusterer.unbinned_tids)
                                     if unbinned_length == new_length:
@@ -492,39 +490,38 @@ def bin(args):
                                     else:
                                         unbinned_length = new_length
 
-                                try:
-                                    max_bin_id = max(clusterer.bins.keys()) + 1
-                                except ValueError:
-                                    max_bin_id = 1
-
                                 if n == 0 or old_tids != set(clusterer.unbinned_tids):
                                     old_tids = set(clusterer.unbinned_tids)
                                 else:
+                                    plots, _ = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
+                                                                            plots, x_min, x_max, y_min, y_max, n,
+                                                                            delete_unbinned=True,
+                                                                            bin_unbinned=True)
                                     break  # nothing changed
 
-
-                                plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max, reembed=True)
-                                # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max)
 
                                 try:
                                     max_bin_id = max(clusterer.bins.keys()) + 1
                                 except ValueError:
                                     max_bin_id = 1
-                                plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
+                                plots, _ = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
                                                                      plots, x_min, x_max, y_min, y_max, n,
                                                                      delete_unbinned=True, reembed=False)  # first pass reembed
-                                # plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                #                                      plots, x_min, x_max, y_min, y_max, n,
-                                #                                      delete_unbinned=True)  # second pass get bins
+
                                 n += 1
 
-                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
-                                                                    reembed=True) # Bin out large unbinned contigs
-                            plots = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                                                 plots, x_min, x_max, y_min, y_max, n,
-                                                                 delete_unbinned=True, bin_unbinned=True)  # third pass get bins
+
                             # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
-                            #                                         reembed=True, bin_unbinned=True)
+                            #                                         reembed=True)
+                            # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max)
+                            # try:
+                            #     max_bin_id = max(clusterer.bins.keys()) + 1
+                            # except ValueError:
+                            #     max_bin_id = 1
+                            # plots, _ = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
+                            #                                      plots, x_min, x_max, y_min, y_max, n,
+                            #                                      delete_unbinned=True, bin_unbinned=True)
+
 
                         clusterer.bin_filtered(int(args.min_bin_size))
                     else:

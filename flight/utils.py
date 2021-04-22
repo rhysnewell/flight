@@ -70,7 +70,8 @@ def plot_for_offset(embeddings, labels, x_min, x_max, y_min, y_max, n):
                c=cluster_colors,
                alpha=0.7)
     ax.set(xlabel = 'UMAP dimension 1', ylabel = 'UMAP dimension 2',
-           title=format("UMAP projection and HDBSCAN clustering of contigs. Iteration = %d" % (n)))
+           title=format("UMAP projection and HDBSCAN clustering of contigs. "
+                        "Iteration = %d, Clusters = %d" % (n, len(set(labels)))))
 
     ax.set_ylim(y_min, y_max)
     ax.set_xlim(x_min, x_max)
