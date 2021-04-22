@@ -636,28 +636,25 @@ class Binner():
                             # print(bin, mean_md, mean_tnf, mean_agg, len(tids))
                             reembed_separately.append(bin)
                             allow_single_cluster_vec.append(True)
-                        else:
-                            for tid in tids:
-                                if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 1e6:
-                                    big_tids.append(tid)
-                                    removed.append(tid)
+                        # else:
+                        #     for tid in tids:
+                        #         if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 1e6:
+                        #             big_tids.append(tid)
+                        #             removed.append(tid)
                                 # else:
                                 #     self.unbinned_tids.append(tid)
                                 #     removed.append(tid)
 
-                    # else:
-                    #     in_reembed_already = False
-                    #     for (tid, avgs) in zip(tids, per_contig_avg):
-                    #         if (avgs[0] >= 0.15 and avgs[1] >= 0.05) or \
-                    #                 (avgs[1] >= 0.5 and avgs[0] >= 0.1) or avgs[2] >= 0.4:
-                    #             # remove this contig
-                    #             if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
-                    #                 big_tids.append(tid)
-                    #                 removed.append(tid)
-                    #             elif not in_reembed_already:
-                    #                 reembed_separately.append(bin)
-                    #                 allow_single_cluster_vec.append(True)
-                    #                 in_reembed_already = True
+                    else:
+                        in_reembed_already = False
+                        for (tid, avgs) in zip(tids, per_contig_avg):
+                            if (avgs[0] >= 0.25 and avgs[1] >= 0.1) or \
+                                    (avgs[1] >= 0.5 and avgs[0] >= 0.1) or avgs[2] >= 0.4:
+                                # remove this contig
+                                if not in_reembed_already:
+                                    reembed_separately.append(bin)
+                                    allow_single_cluster_vec.append(True)
+                                    in_reembed_already = True
 
                     [tids.remove(r) for r in removed]
                     current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
@@ -780,27 +777,20 @@ class Binner():
         # bool_arr = np.array([True if i == -1 else False for i in first_labels])
         # second_labels = self.cluster(distances[bool_arr], allow_single_cluster=allow_single_cluster)
         # else:
-        bool_arr = np.array([False for i in first_labels])
+        # bool_arr = np.array([False for i in first_labels])
+        #
+        #
+        # main_labels = []  # container for complete clustering
+        # max_label = max(first_labels) + 1  # value to shift second labels by
+        # second_idx = 0  # current index in second labels
+        #
+        # for first, second_bool in zip(first_labels, bool_arr):
+        #     if first != -1:  # use main label
+        #         main_labels.append(first)
+        #     else:  # Should never get here but just have it here in case
+        #         main_labels.append(-1)
 
-
-        main_labels = []  # container for complete clustering
-        max_label = max(first_labels) + 1  # value to shift second labels by
-        second_idx = 0  # current index in second labels
-
-        for first, second_bool in zip(first_labels, bool_arr):
-            if first != -1:  # use main label
-                main_labels.append(first)
-            # elif second_bool:  # check what the cluster is
-            #     second = second_labels[second_idx]
-            #     if second != -1:
-            #         main_labels.append(max_label + second)
-            #     else:
-            #         main_labels.append(-1)
-            #     second_idx += 1
-            else:  # Should never get here but just have it here in case
-                main_labels.append(-1)
-
-        return np.array(main_labels)
+        return first_labels
         
 
     def validity(self, labels, distances):
@@ -823,9 +813,10 @@ class Binner():
                 unbinned_array = self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'].isin(tids)
                 unbinned_embeddings = self.embeddings[unbinned_array]
                 self.labels = self.iterative_clustering(unbinned_embeddings,
-                                                        allow_single_cluster=allow_single_cluster)
+                                                        allow_single_cluster=allow_single_cluster,
+                                                        prediction_data=True)
                 contigs = self.large_contigs[~self.disconnected][~self.disconnected_intersected][unbinned_array]
-                # self.use_soft_clusters(contigs)
+                self.use_soft_clusters(contigs)
 
             else: # Generate new emebddings for left over contigs
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
@@ -852,7 +843,8 @@ class Binner():
             findem = ['contig_371_pilon', 'contig_3132_pilon',
                       'contig_3901_pilon', 'contig_846_pilon',
                       'contig_941_pilon', 'scaffold_49_pilon',
-                      'contig_591_pilon', 'contig_2054_pilon', 'contig_910_pilon']
+                      'contig_591_pilon', 'contig_2054_pilon',
+                      'contig_910_pilon']
 
             names = list(contigs['contigName'])
             indices = []
@@ -1090,11 +1082,11 @@ class Binner():
         """"""
         for (idx, label) in enumerate(self.labels):
             if label == -1:
-                if contigs['contigLen'].iloc[idx] < 2e6:
-                    soft_values = self.soft_clusters[idx]
-                    max_value, best_label = metrics.get_best_soft_value(soft_values)
-                    if max_value >= 0.5:
-                        self.labels[idx] = best_label
+                # if contigs['contigLen'].iloc[idx] < 2e6:
+                soft_values = self.soft_clusters[idx]
+                max_value, best_label = metrics.get_best_soft_value(soft_values)
+                if max_value >= 0.25:
+                    self.labels[idx] = best_label
         # pass
 
 
