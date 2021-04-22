@@ -130,6 +130,7 @@ class Binner():
         self.threads = threads
         set_num_threads(threads)
         self.checked_bins = [] # Used in the pdist function
+        self.survived = []
         # Open up assembly
         self.assembly = {} 
         self.assembly_names = {}
@@ -631,7 +632,7 @@ class Binner():
 
                     removed = []
                     if (any(x >= m_level for x in [mean_md])) or mean_agg >= f_level \
-                                or all(x >= shared_level for x in [mean_md, mean_tnf]):
+                                or all(x >= shared_level for x in [mean_md, mean_tnf]) and bin not in survived:
                         if reembed and len(tids) >= 2:
                             # print(bin, mean_md, mean_tnf, mean_agg, len(tids))
                             reembed_separately.append(bin)
@@ -646,9 +647,9 @@ class Binner():
                                 #     removed.append(tid)
 
                     else:
-                        in_reembed_already = False
+                        # in_reembed_already = False
                         for (tid, avgs) in zip(tids, per_contig_avg):
-                            if (avgs[0] >= 0.2 and avgs[1] >= 0.1) or \
+                            if (avgs[0] >= 0.3 and avgs[1] >= 0.1) or \
                                     (avgs[1] >= 0.5 and avgs[0] >= 0.1) or avgs[2] >= 0.4:
                                 # remove this contig
                                 self.unbinned_tids.append(tid)
@@ -693,6 +694,8 @@ class Binner():
                                     reembed=True) # don't plot results
             if remove:
                 bins_to_remove.append(bin)
+            else:
+                self.survived.append(bin)
 
         for k in bins_to_remove:
             try:
@@ -821,9 +824,17 @@ class Binner():
             self.labels = self.iterative_clustering(unbinned_embeddings,
                                                     allow_single_cluster=allow_single_cluster,
                                                     prediction_data=True)
+
             contigs = self.large_contigs[~self.disconnected][~self.disconnected_intersected][unbinned_array]
+            set_labels = set(self.labels)
+            if debug:
+                print("No. of Clusters:", len(set_labels))
+                self.no_soft = self.labels
+
             self.use_soft_clusters(contigs)
             set_labels = set(self.labels)
+            if debug:
+                print("No. of Clusters:", len(set_labels))
 
             if len(set_labels) >= 5 and reembed:
                 # Generate new emebddings if clustering seems fractured
@@ -848,8 +859,15 @@ class Binner():
                     unbinned_embeddings = self.intersection_mapper.embedding_
                     self.labels = self.iterative_clustering(unbinned_embeddings,
                                                             allow_single_cluster=allow_single_cluster)
+                    set_labels = set(self.labels)
+                    if debug:
+                        print("No. of Clusters:", len(set_labels))
+                        self.no_soft = self.labels
+
                     self.use_soft_clusters(contigs)
                     set_labels = set(self.labels)
+                    if debug:
+                        print("No. of Clusters:", len(set_labels))
                 except TypeError:
                     unbinned_embeddings = self.embeddings[unbinned_array]
                     self.labels = np.array([0 for _ in tids])
