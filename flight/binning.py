@@ -632,7 +632,7 @@ class Binner():
 
                     removed = []
                     if (any(x >= m_level for x in [mean_md])) or mean_agg >= f_level \
-                                or all(x >= shared_level for x in [mean_md, mean_tnf]) and bin not in survived:
+                                or all(x >= shared_level for x in [mean_md, mean_tnf]) and bin not in self.survived:
                         if reembed and len(tids) >= 2:
                             # print(bin, mean_md, mean_tnf, mean_agg, len(tids))
                             reembed_separately.append(bin)
