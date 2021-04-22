@@ -524,8 +524,8 @@ class Binner():
 
                     removed = []
 
-                    if mean_md >= 0.3 or mean_agg >= 0.4 \
-                            or all(x > 0.15 for x in [mean_md, mean_tnf]) \
+                    if mean_md >= 0.4 or mean_agg >= 0.5 \
+                            or all(x > 0.25 for x in [mean_md, mean_tnf]) \
                             or contigs['contigLen'].sum() >= 13e6:
                         [(self.unbinned_tids.append(tid), removed.append(tid)) for tid in tids]
 
@@ -648,13 +648,15 @@ class Binner():
                     else:
                         in_reembed_already = False
                         for (tid, avgs) in zip(tids, per_contig_avg):
-                            if (avgs[0] >= 0.25 and avgs[1] >= 0.1) or \
+                            if (avgs[0] >= 0.2 and avgs[1] >= 0.1) or \
                                     (avgs[1] >= 0.5 and avgs[0] >= 0.1) or avgs[2] >= 0.4:
                                 # remove this contig
-                                if not in_reembed_already:
-                                    reembed_separately.append(bin)
-                                    allow_single_cluster_vec.append(True)
-                                    in_reembed_already = True
+                                self.unbinned_tids.append(tid)
+                                removed.append(tid)
+                                # if not in_reembed_already:
+                                #     reembed_separately.append(bin)
+                                #     allow_single_cluster_vec.append(True)
+                                #     in_reembed_already = True
 
                     [tids.remove(r) for r in removed]
                     current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
@@ -687,7 +689,8 @@ class Binner():
                 
             plots, remove = self.recluster_unbinned(tids, max_bin_id, plots,
                                     x_min, x_max, y_min, y_max, n,
-                                    allow_single_cluster=allow_single) # don't plot results
+                                    allow_single_cluster=allow_single,
+                                    reembed=True) # don't plot results
             if remove:
                 bins_to_remove.append(bin)
 
@@ -805,21 +808,31 @@ class Binner():
 
     def recluster_unbinned(self, tids, max_bin_id, plots,
                            x_min, x_max, y_min, y_max, n,
-                           delete_unbinned = False, bin_unbinned=False,
-                           allow_single_cluster=False, reembed=False, debug=False):
+                           delete_unbinned = False,
+                           bin_unbinned=False,
+                           allow_single_cluster=False,
+                           reembed=False,
+                           debug=False):
         remove = False
         if len(set(tids)) > 1:
-            if not reembed or len(set(tids)) <= 10: # Just use old embeddings for speed
-                unbinned_array = self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'].isin(tids)
-                unbinned_embeddings = self.embeddings[unbinned_array]
-                self.labels = self.iterative_clustering(unbinned_embeddings,
-                                                        allow_single_cluster=allow_single_cluster,
-                                                        prediction_data=True)
-                contigs = self.large_contigs[~self.disconnected][~self.disconnected_intersected][unbinned_array]
-                self.use_soft_clusters(contigs)
+            # if not reembed or len(set(tids)) <= 10: # Just use old embeddings for speed
+            unbinned_array = self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'].isin(tids)
+            unbinned_embeddings = self.embeddings[unbinned_array]
+            self.labels = self.iterative_clustering(unbinned_embeddings,
+                                                    allow_single_cluster=allow_single_cluster,
+                                                    prediction_data=True)
+            contigs = self.large_contigs[~self.disconnected][~self.disconnected_intersected][unbinned_array]
+            self.use_soft_clusters(contigs)
+            set_labels = set(self.labels)
 
-            else: # Generate new emebddings for left over contigs
+            if len(set_labels) >= 5 and reembed:
+                # Generate new emebddings if clustering seems fractured
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
+
+                self.tnf_reducer.n_neighbors = max(5, len(tids)/10)
+                self.depth_reducer.n_neighbors = max(5, len(tids)/10)
+
+
                 tnf_mapping = self.tnf_reducer.fit(
                     np.concatenate(
                         (log_lengths.values[:, None],
@@ -890,7 +903,6 @@ class Binner():
                 self.unbinned_tids = []
 
             big_contig_counter = 0
-            set_labels = set(self.labels)
             if len(set_labels) == 1:
                 # Reclustering resulted in single cluster or all noise,
                 # either case just use original bin
@@ -942,7 +954,7 @@ class Binner():
                         unbinned = unbinned + new_tids
 
                 if len(unbinned) != len(tids):
-                    print("Nothing changed...")
+                    print("New bin added...")
                     self.unbinned_tids = self.unbinned_tids + unbinned
                 else:
                     print("New bin added.")
