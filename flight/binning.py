@@ -622,9 +622,9 @@ class Binner():
 
                     # Slight higher thresholds since bins that break here are completely dismantled
                     if reembed:
-                        f_level = 0.45
-                        m_level = 0.3
-                        shared_level = 0.15
+                        f_level = 0.25
+                        m_level = 0.2
+                        shared_level = 0.1
                     else:
                         f_level = 0.4
                         m_level = 0.25
@@ -826,6 +826,10 @@ class Binner():
                                                     prediction_data=True)
 
             contigs = self.large_contigs[~self.disconnected][~self.disconnected_intersected][unbinned_array]
+
+            # get original size of bin
+            original_size = contigs['contigLen'].sum()
+            
             set_labels = set(self.labels)
             if debug:
                 print("No. of Clusters:", len(set_labels))
@@ -840,8 +844,8 @@ class Binner():
                 # Generate new emebddings if clustering seems fractured
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
-                self.tnf_reducer.n_neighbors = max(5, len(tids)//10)
-                self.depth_reducer.n_neighbors = max(5, len(tids)//10)
+                self.tnf_reducer.n_neighbors = min(100, len(tids))
+                self.depth_reducer.n_neighbors = min(100, len(tids))
 
 
                 try:
@@ -868,6 +872,8 @@ class Binner():
                     set_labels = set(self.labels)
                     if debug:
                         print("No. of Clusters:", len(set_labels))
+                    # if len(set_labels) >= 5:
+                        # self.labels = np.array([0 for _ in tids])
                 except TypeError:
                     unbinned_embeddings = self.embeddings[unbinned_array]
                     self.labels = np.array([0 for _ in tids])
@@ -879,11 +885,7 @@ class Binner():
             # self.validity(self.labels, unbinned_embeddings)
 
 
-            findem = ['contig_371_pilon', 'contig_3132_pilon',
-                      'contig_3901_pilon', 'contig_846_pilon',
-                      'contig_941_pilon', 'scaffold_49_pilon',
-                      'contig_591_pilon', 'contig_2054_pilon',
-                      'contig_910_pilon']
+            findem = ['contig_69_pilon', 'contig_67_pilon']
 
             names = list(contigs['contigName'])
             indices = []
@@ -948,13 +950,13 @@ class Binner():
                         except KeyError:
                             new_bins[bin_key] = [
                                 self.assembly[contigs['contigName'].iloc[idx]]]
-                    # elif contigs['contigLen'].iloc[idx] >= self.min_bin_size:
-                    #     bin_key = max_bin_id + total_new_bins + big_contig_counter
-                    #     if isinstance(bin_key, np.int64):
-                    #         bin_key = bin_key.item()
-                    #     new_bins[bin_key] = [
-                    #         self.assembly[contigs['contigName'].iloc[idx]]]
-                    #     big_contig_counter += 1
+                    elif contigs['contigLen'].iloc[idx] >= self.min_bin_size:
+                        bin_key = max_bin_id + total_new_bins + big_contig_counter
+                        if isinstance(bin_key, np.int64):
+                            bin_key = bin_key.item()
+                        new_bins[bin_key] = [
+                            self.assembly[contigs['contigName'].iloc[idx]]]
+                        big_contig_counter += 1
 
                     else:
                         unbinned.append(self.assembly[contigs['contigName'].iloc[idx]])
@@ -963,10 +965,25 @@ class Binner():
                     print("No. of new bins:", new_bins.keys())
                     print("No. unbinned: ", len(unbinned))
 
+                if reembed: # How much of original bin was binned?
+                    not_recovered = 0
+                    
+                    for bin, new_tids in new_bins.items():
+                        contigs, log_lengths, tnfs = self.extract_contigs(new_tids)
+                        bin_size = contigs['contigLen'].sum()
+                        if bin_size < original_size // 3:
+                            not_recovered += bin_size
+
+                    contigs, _, _ = self.extract_contigs(unbinned)
+                    not_recovered += contigs['contigLen'].sum()
+                            
+                        
+                        
+
                 for bin, new_tids in new_bins.items():
                     contigs, log_lengths, tnfs = self.extract_contigs(new_tids)
                     bin_size = contigs['contigLen'].sum()
-                    if bin_size > 1e6 or bin_unbinned:
+                    if (bin_size >= 2e6 and reembed) or bin_unbinned or (not reembed and bin_size >= self.min_bin_size):
                         #  Keep this bin
                         if debug:
                             print("Removing original bin, keeping bin: ", bin)
@@ -980,7 +997,8 @@ class Binner():
 
                         unbinned = unbinned + new_tids
 
-                if len(unbinned) != len(tids):
+
+                if len(unbinned) != len(tids) or not reembed:
                     if debug:
                         print("New bin(s) added...")
                     self.unbinned_tids = self.unbinned_tids + unbinned
@@ -1085,7 +1103,8 @@ class Binner():
         findem = ['contig_371_pilon', 'contig_3132_pilon',
                   'contig_3901_pilon', 'contig_846_pilon',
                   'contig_941_pilon', 'scaffold_49_pilon',
-                  'contig_591_pilon', 'contig_2054_pilon', 'contig_910_pilon']
+                  'contig_591_pilon', 'contig_2054_pilon',
+                  'contig_910_pilon', 'contig_69_pilon', 'contig_67_pilon']
         names = list(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigName'])
         indices = []
         for to_find in findem:
