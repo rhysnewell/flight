@@ -582,11 +582,24 @@ class Binner():
                 elif bin not in self.survived:
                     print("Made to second check.")
 
+                    try:
+                        mean_md, \
+                        mean_tnf, \
+                        mean_agg, \
+                        per_contig_avg = \
+                            metrics.populate_matrix(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                    log_lengths.values[:, None],
+                                                                    tnfs.iloc[:, 2:].values), axis=1),
+                                                                    n_samples,
+                                                                    sample_distances)
+                    except ZeroDivisionError:
+                        continue
+
 
                     # Slight higher thresholds since bins that break here are completely dismantled
                     if reembed:
                         f_level = 0.25
-                        m_level = 0.2
+                        m_level = 0.15
                         shared_level = 0.1
                     else:
                         f_level = 0.4
@@ -595,7 +608,9 @@ class Binner():
 
                     removed = []
                     # if bin not in self.survived:
-                    if reembed and len(tids) >= 2:
+                    if (mean_md >= m_level and mean_tnf >= 0.05) \
+                        or mean_agg >= f_level \
+                        or (mean_md >= shared_level and mean_tnf >= shared_level):
                         # print(bin, mean_md, mean_tnf, mean_agg, len(tids))
                         reembed_separately.append(bin)
                         allow_single_cluster_vec.append(False)
@@ -991,15 +1006,17 @@ class Binner():
                 split = True
                 if reembed: # How much of original bin was binned?
                     not_recovered = 0
+                    new_bin_ids = []
                     
                     for bin, new_tids in new_bins.items():
                         contigs, log_lengths, tnfs = self.extract_contigs(new_tids)
                         bin_size = contigs['contigLen'].sum()
-                        if bin_size < original_size // 4:
+                        if bin_size < original_size // 4 and bin_size < 1e6:
                             if debug:
                                 print("Didn't recover enough: %d of %d" % (bin_size, original_size))
                             not_recovered += bin_size
                         else:
+                            new_bin_ids.append(bin)
                             if debug:
                                 print("Recovered enough: %d of %d" % (bin_size, original_size))
 
@@ -1009,6 +1026,9 @@ class Binner():
                         if debug:
                             print("Didn't recover enough: %d of %d, %.3f percent" %
                                   (not_recovered, original_size, not_recovered / original_size))
+                        split = False
+                        remove = False
+                    elif len(new_bins_ids) < 2:
                         split = False
                         remove = False
                 if split:
