@@ -859,7 +859,7 @@ class Binner():
             if all(label == -1 for label in set_labels):
                 self.labels = np.array([0 for _ in tids])
 
-            if max_validity < 0.75 and reembed and len(tids) >= 10:
+            if max_validity < 0.75 and reembed and len(tids) >= 5:
                 # Generate new emebddings if clustering seems fractured
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
@@ -1028,7 +1028,7 @@ class Binner():
                                   (not_recovered, original_size, not_recovered / original_size))
                         split = False
                         remove = False
-                    elif len(new_bins_ids) < 2:
+                    elif len(new_bin_ids) < 2:
                         split = False
                         remove = False
                 if split:
