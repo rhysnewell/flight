@@ -100,6 +100,12 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
 
     min_cluster_size = clust_alg.min_cluster_size
     min_samples = clust_alg.min_samples
+
+    try:
+        cluster_validity = hdbscan.validity.validity_index(df.astype(np.float64), clust_alg.labels_)
+    except ValueError:
+        cluster_validity = -1
+    
     validity_score = clust_alg.relative_validity_
     n_clusters = np.max(clust_alg.labels_)
 
@@ -120,9 +126,14 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
     warnings.filterwarnings('ignore')
     results = []
     n = df.shape[0]
-    for gamma in range(starting_size, int(np.log(max(n, 3)))):
+    if starting_size >= np.log2(n):
+        end_size = starting_size * 2
+    else:
+        end_size = max(np.log2(n), min(10, (n - 1) // 2))
+    
+    for gamma in range(starting_size, int(end_size)):
         mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
-                      range(1, int(2 * np.log(n)))]
+                      range(1, int(2 * end_size))]
         for result in mp_results:
             result = result.get()
             results.append(result)
@@ -137,13 +148,13 @@ def best_validity(source):
     """
     Retrieves best clustering result based on the relative validity metric
     """
-    try:
-        cols = ['min_cluster_size', 'min_samples', 'validity_score', 'n_clusters']
-        df =  pd.DataFrame(source, columns = cols)
-        df['validity_score'] = df['validity_score'].fillna(0)
-        best_validity = df.loc[df['validity_score'].idxmax()]
-    except TypeError:
-        best_validity = None
+    # try:
+    cols = ['min_cluster_size', 'min_samples', 'validity_score', 'n_clusters']
+    df =  pd.DataFrame(source, columns = cols)
+    df['validity_score'] = df['validity_score'].fillna(0)
+    best_validity = df.loc[df['validity_score'].idxmax()]
+    # except TypeError:
+        # best_validity = None
         
     return best_validity
 
