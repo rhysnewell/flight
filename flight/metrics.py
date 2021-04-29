@@ -616,14 +616,16 @@ def populate_matrix(depths, n_samples, sample_distances):
         contigs[i[0]][1] += tnf_dist
         contigs[i[0]][2] += agg
 
+
         contigs[i[1]][0] += md
         contigs[i[1]][1] += tnf_dist
         contigs[i[1]][2] += agg
 
+
     for i in range(len(contigs)):
-        contigs[i][0] /= len(contigs)
-        contigs[i][1] /= len(contigs)
-        contigs[i][2] /= len(contigs)
+        contigs[i][0] /= (len(contigs) - 1)
+        contigs[i][1] /= (len(contigs) - 1)
+        contigs[i][2] /= (len(contigs) - 1)
                 
     mean_md = mean_md / len(pairs)
     mean_tnf = mean_tnf / len(pairs)

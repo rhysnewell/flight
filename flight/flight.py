@@ -477,24 +477,28 @@ def bin(args):
                             max_bin_id = max(clusterer.bins.keys()) + 1
                         except ValueError:
                             max_bin_id = 1
-                        clusterer.min_cluster_size=2
+                        clusterer.min_cluster_size = 2
                         plots, _ = clusterer.recluster_unbinned(clusterer.unbinned_tids, max_bin_id,
                                                                 plots, x_min, x_max, y_min, y_max, n,
                                                                 delete_unbinned=True, debug=True)
 
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
+                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
+                                                                    big_only=True)
                             n = 0
                             while n <= 10:
                                 print("iteration: ", n)
                                 clusterer.overclustered = False # large clusters
-                                plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max, 
+                                plots, n = clusterer.pairwise_distances(plots, n,
+                                                                        x_min, x_max,
+                                                                        y_min, y_max,
                                                                         reembed=True)
                                 n += 1
                                 if not clusterer.overclustered:
                                     break # no more clusters have broken
 
-                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max)
+                            # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max)
                             try:
                                 max_bin_id = max(clusterer.bins.keys()) + 1
                             except ValueError:
@@ -510,8 +514,9 @@ def bin(args):
                                 n += 1
                                 if not clusterer.overclustered:
                                     break # no more clusters have broken
+
                             plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
-                                                                    bin_unbinned=True)
+                                                                    big_only=True, bin_unbinned=True)
 
                         clusterer.bin_filtered(int(args.min_bin_size))
                     else:

@@ -314,18 +314,17 @@ class Binner():
         elif nrows <= 50000: # mid gear
             # Things start to get too slow around here, so scale back params
             self.tnf_reducer.n_neighbors = 100
-            self.tnf_reducer.n_epochs = 400
+            self.tnf_reducer.n_epochs = 500
             self.depth_reducer.n_neighbors = 100
-            self.depth_reducer.n_epochs = 400
+            self.depth_reducer.n_epochs = 500
         else: # low gear
             # This is the super slow zone, but don't want to dip values below this
             # Hopefully pick out easy bins, then scale data down with each iterations
             # Allowing the params to bump up into other gears
             self.tnf_reducer.n_neighbors = 100
-            self.tnf_reducer.n_epochs = 300
+            self.tnf_reducer.n_epochs = 500
             self.depth_reducer.n_neighbors = 100
-            self.depth_reducer.n_epochs = 300
-            self.depth_reducer.n_epochs = 300
+            self.depth_reducer.n_epochs = 500
 
     def filter(self):
 
@@ -465,7 +464,8 @@ class Binner():
 
 
     def pairwise_distances(self, plots, n, x_min, x_max, y_min, y_max,
-                           bin_unbinned=False, reembed=False, size_only=False):
+                           bin_unbinned=False, reembed=False,
+                           size_only=False, big_only=False):
 
         if self.n_samples > 0:
             n_samples = self.n_samples
@@ -507,21 +507,26 @@ class Binner():
                     sys.exit()
 
                 removed = []
-                for (tid, avgs) in zip(tids, per_contig_avg):
-                    if avgs[0] >= 0.7 or avgs[2] >= 0.7:
-                        # if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
-                            # big_tids.append(tid)
-                            # removed.append(tid)
-                        # remove this contig
-                        # else:
-                            # self.overclustered = True
-                            # reembed_separately.append(bin)
-                        # if not in_reembed_already:
-                        #     reembed_separately.append(bin)
-                        #     allow_single_cluster_vec.append(True)
-                        #     in_reembed_already = True
-                        self.unbinned_tids.append(tid)
-                        removed.append(tid)
+                if 0.3 > mean_md >= 0.15 or 0.35 > mean_agg >= 0.2:
+                    for (tid, avgs) in zip(tids, per_contig_avg):
+                        if avgs[0] >= 0.35 or avgs[2] >= 0.35 and \
+                            self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
+                            big_tids.append(tid)
+                            removed.append(tid)
+                        elif avgs[0] >= 0.7 or avgs[2] >= 0.7:
+                            # if self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 2e6:
+                                # big_tids.append(tid)
+                                # removed.append(tid)
+                            # remove this contig
+                            # else:
+                                # self.overclustered = True
+                                # reembed_separately.append(bin)
+                            # if not in_reembed_already:
+                            #     reembed_separately.append(bin)
+                            #     allow_single_cluster_vec.append(True)
+                            #     in_reembed_already = True
+                            self.unbinned_tids.append(tid)
+                            removed.append(tid)
 
                 [tids.remove(r) for r in removed]
                 current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
@@ -595,7 +600,7 @@ class Binner():
 
 
                     # Slight higher thresholds since bins that break here are completely dismantled
-                    f_level = 0.3
+                    f_level = 0.25
                     m_level = 0.2
                     shared_level = 0.1
 
@@ -611,12 +616,12 @@ class Binner():
                             and bin_size > 1e6:
                         logging.debug(bin, mean_md, mean_tnf, mean_agg, len(tids))
                         reembed_separately.append(bin)
-                        if mean_md >= 0.35 \
-                                or mean_agg >= 0.5\
+                        if mean_md >= 0.5 \
+                                or mean_agg >= 0.4\
                                 or (mean_md >= 0.15 and mean_tnf >= 0.15):
-                            force_new_clustering.append(True)
+                            force_new_clustering.append(True) # send it to turbo hell
                         else:
-                            force_new_clustering.append(False)
+                            force_new_clustering.append(False) # send it to regular hell
                     else:
                         self.survived.append(bin)
                         # reembed_separately.append(bin)
@@ -637,8 +642,33 @@ class Binner():
                     # the assembly being TOO good.
                     if reembed:
                         reembed_separately.append(bin)
-                        force_new_clustering.append(True)
-                elif (self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 1e6) and bin != 0:
+                        force_new_clustering.append(True) # turbo hell
+                elif bin not in self.survived:
+                    try:
+                        mean_md, \
+                        mean_tnf, \
+                        mean_agg, \
+                        per_contig_avg = \
+                            metrics.populate_matrix(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                    log_lengths.values[:, None],
+                                                                    tnfs.iloc[:, 2:].values), axis=1),
+                                                                    n_samples,
+                                                                    sample_distances)
+                    except ZeroDivisionError:
+                        continue
+
+                    if mean_md >= 0.5 \
+                            or mean_agg >= 0.4 \
+                            or (mean_md >= 0.15 and mean_tnf >= 0.15):
+                        reembed_separately.append(bin)
+                        force_new_clustering.append(True)  # send it to turbo hell
+                    else:
+                        self.survived.append(bin)
+
+
+                elif (self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 1e6) \
+                        and bin != 0 \
+                        and not reembed:
                     for tid in tids:
                         self.unbinned_tids.append(tid)
                     bins_to_remove.append(bin)
@@ -870,7 +900,7 @@ class Binner():
                 noise = True
                 remove = True
 
-            if max_validity < 0.5 and reembed and len(tids) >= 5:
+            if max_validity < 0.9 and reembed and len(tids) >= 5:
                 # Generate new emebddings if clustering seems fractured
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
@@ -906,40 +936,42 @@ class Binner():
                     print('Allow multi cluster validity: ', validity_multi)
 
                     if validity_single >= validity_multi:
-                        if max_validity < validity_single or force:
-                            self.labels = labels_single
-                            max_validity = validity_single
+                        if max_validity < validity_single:
+                            if all(label == -1 for label in labels_single):
+                                print('using non re-embedded...')
+                            else:
+                                self.labels = labels_single
+                                max_validity = validity_single
                         else:
-                            
                             print('using non re-embedded...')
                     else:
-                        if max_validity < validity_multi or force:
-                            self.labels = labels_multi
-                            max_validity = validity_multi
+                        if max_validity < validity_multi:
+                            if all(label == -1 for label in labels_multi):
+                                print('using non re-embedded...')
+                            else:
+                                self.labels = labels_multi
+                                max_validity = validity_multi
                         else:
-                            
                             print('using non re-embedded...')
 
 
                     set_labels = set(self.labels)
-                    
                     print("No. of Clusters:", len(set_labels), set_labels)
-                    if all(label == -1 for label in set_labels):
+                    if all(label == -1 for label in set_labels) and not force:
                         self.labels = np.array([0 for _ in tids])
                         noise = True
                         remove = True
                 except TypeError:
-                    unbinned_embeddings = self.embeddings[unbinned_array]
-                    self.labels = np.array([0 for _ in tids])
-                    noise = True
-                    remove = True
+                    pass
 
             # if validity_single == -1 and validity_multi == -1:
                 # self.labels = np.array([0 for _ in self.labels])
             # self.validity(self.labels, unbinned_embeddings)
 
 
-            findem = ['contig_2371_pilon', 'contig_1088_pilon', 'contig_1089_pilon', 'contig_731_pilon']
+            findem = ['contig_1346_pilon', 'contig_910_pilon',
+                      'contig_1199_pilon', 'contig_1096_pilon',
+                      'contig_1337_pilon']
 
             names = list(contigs['contigName'])
             indices = []
@@ -988,7 +1020,7 @@ class Binner():
             if noise:
                 # Clustering was a bit funky, so put back into unbinned and pull out again
                 self.unbinned_tids = self.unbinned_tids + tids
-            elif (len(set_labels) == 1 and reembed) or (max_validity < 0.7) and not force:
+            elif (len(set_labels) == 1 and reembed) or (max_validity < 0.75) and not force:
                 # Reclustering resulted in single cluster or all noise,
                 # either case just use original bin
                 remove = False
@@ -1031,7 +1063,7 @@ class Binner():
                     for bin, new_tids in new_bins.items():
                         contigs, log_lengths, tnfs = self.extract_contigs(new_tids)
                         bin_size = contigs['contigLen'].sum()
-                        if bin_size < original_size // 4 or bin_size < 5e5:
+                        if bin_size < original_size // 4 or bin_size < 1e6:
                             
                             print("Didn't recover enough: %d of %d" % (bin_size, original_size))
                             not_recovered += bin_size
@@ -1048,7 +1080,7 @@ class Binner():
                                   (not_recovered, original_size, not_recovered / original_size))
                         split = False
                         remove = False
-                    elif len(new_bin_ids) < 2 and not force and max_validity < 0.6:
+                    elif (len(new_bin_ids) < 2 or max_validity < 0.8) and not force:
                         split = False
                         remove = False
                 if split:
