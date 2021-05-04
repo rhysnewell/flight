@@ -127,9 +127,9 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
     results = []
     n = df.shape[0]
     if starting_size >= np.log2(n):
-        end_size = starting_size * 2
+        end_size = starting_size + 10
     else:
-        end_size = max(np.log2(n), min(10, (n - 1) // 2))
+        end_size = min(max(np.log2(n), min(10, (n - 1) // 2)), 10)
     
     for gamma in range(starting_size, int(end_size)):
         mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
@@ -164,7 +164,6 @@ def cluster_distances(embeddings, cluster_result, threads):
     with threadpoolctl.threadpool_limits(limits=threads, user_api='blas'):
         pool = mp.Pool(max(int(threads / 5), 1))
         labels = set(cluster_result.labels_)
-        logging.info(labels)
         try:
             labels.remove(-1)
         except KeyError:

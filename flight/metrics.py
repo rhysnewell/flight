@@ -53,18 +53,19 @@ class NormalDist:
         self.scale = scale
 
     def cdf(self, x):
-        # https: // stackoverflow.com / questions / 809362 / how - to - calculate - cumulative - normal - distribution
+        # https://stackoverflow.com/questions/809362/how-to-calculate-cumulative-normal-distribution
         # 'Cumulative distribution function for the standard normal distribution'
         # Scale and shift the x value
-        x = (x - self.loc) / self.scale
-        return (1.0 + math.erf(x / np.sqrt(2.0))) / 2.0
+        # https: // www.boost.org / doc / libs / 1_38_0 / libs / math / doc / sf_and_dist / html / math_toolkit / dist / dist_ref / dists / normal_dist.html
+        # x = (x - self.loc) / self.scale
+        return (math.erfc(-(x - self.loc) / (self.scale * np.sqrt(2.0)))) / 2.0
 
 @njit(fastmath=True)
 def tnf_euclidean(a, b):
 
     # l = length_weighting(a[0], b[0])
-    rp = max(max(a[0], b[0]), 1)
-    
+    rp = max(a[0], b[0], 1)
+    # rp = 1
     result = 0.0
     for i in range(a.shape[0] - 1):
         result += (a[i + 1] - b[i + 1]) ** 2
@@ -295,6 +296,7 @@ def hellinger_distance_poisson(a, b, n_samples, sample_distances):
     
     return d
 
+
 @njit(fastmath=True)
 def metabat_distance(a, b, n_samples, sample_distances):
     """
@@ -327,11 +329,17 @@ def metabat_distance(a, b, n_samples, sample_distances):
         b_mean = b_means[i] + 1e-6
         b_var = b_vars[i] + 1e-6
         d = 0
+
         if a_mean > 1e-6 and b_mean > 1e-6:
             both_present.append(i)
-        
 
-        if a_mean > 1e-6 or b_mean > 1e-6 and a_mean != b_mean:
+        # if a_var >= 50 * a_mean and a_mean >= 10: # scale down extreme variances
+        #     a_var = a_mean
+        #
+        # if b_var >= 50 * b_mean and b_mean >= 10:
+        #     b_var = b_mean
+
+        if (a_mean > 1e-6 or b_mean > 1e-6) and a_mean != b_mean:
             if a_var < 1:
                 a_var = 1
             if b_var < 1:
@@ -365,8 +373,9 @@ def metabat_distance(a, b, n_samples, sample_distances):
                 mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
                 # mb_vec.append(d)
         else:
-            mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
-    
+            # mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
+            pass
+
     if len(mb_vec) >= 1:
         # convert to log space to avoid overflow errors
         d = np.log(np.array(mb_vec))
@@ -496,7 +505,8 @@ def rho(a, b):
     transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
     """
 
-    rp =  max(max(a[0], b[0]), 1)
+    rp = max(a[0], b[0], 1)
+    # rp = 1
     # l = 0
     x = a[1:]
     y = b[1:]
