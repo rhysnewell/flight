@@ -77,6 +77,65 @@ def tnf_euclidean(a, b):
     return d
 
 @njit(fastmath=True)
+def rho_aitchinson(a, b):
+    """
+    Calculates both rho and aitchinson values and takes the geometric mean
+    of the the two
+    """
+    # Calculate aitchinson distance
+    rp = max(a[0], b[0], 1)
+    # rp = 1
+    result = 0.0
+    for i in range(a.shape[0] - 1):
+        result += (a[i + 1] - b[i + 1]) ** 2
+
+    d = np.sqrt(result)
+
+    # scale aitchinson by length factor
+    d = d * rp
+
+    # Calculate rho
+    x = a[1:]
+    y = b[1:]
+    mu_x = 0.0
+    mu_y = 0.0
+    norm_x = 0.0
+    norm_y = 0.0
+    dot_product = 0.0
+
+    for i in range(x.shape[0]):
+        mu_x += x[i]
+        mu_y += y[i]
+
+    mu_x /= x.shape[0]
+    mu_y /= x.shape[0]
+
+    for i in range(x.shape[0]):
+        shifted_x = x[i] - mu_x
+        shifted_y = y[i] - mu_y
+        norm_x += shifted_x ** 2
+        norm_y += shifted_y ** 2
+        dot_product += shifted_x * shifted_y
+
+    norm_x = norm_x / (x.shape[0] - 1)
+    norm_y = norm_y / (x.shape[0] - 1)
+    dot_product = dot_product / (x.shape[0] - 1)
+    vlr = -2 * dot_product + norm_x + norm_y
+    rho = 1 - vlr / (norm_x + norm_y)
+    rho += 1
+    rho = 2 - rho
+
+    # Scale rho by length factor
+    rho = rho * rp
+
+    # calculate the geometric mean betweeen the two
+    r_a = (rho * d)**(1/2)
+
+    return r_a
+
+
+
+@njit(fastmath=True)
 def euclidean(a, b):
 
     result = 0.0
