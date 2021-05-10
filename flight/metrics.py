@@ -70,7 +70,7 @@ def tnf_euclidean(a, b):
     for i in range(a.shape[0] - 1):
         result += (a[i + 1] - b[i + 1]) ** 2
         
-    d = np.sqrt(result)
+    d = result ** (1/2)
     # if rp > 1:
     d = d * rp
     
@@ -83,8 +83,8 @@ def rho_aitchinson(a, b):
     of the the two
     """
     # Calculate aitchinson distance
-    rp = max(a[0], b[0], 1)
-    # rp = 1
+    # rp = max(a[0], b[0], 1)
+    rp = 1
     result = 0.0
     for i in range(a.shape[0] - 1):
         result += (a[i + 1] - b[i + 1]) ** 2

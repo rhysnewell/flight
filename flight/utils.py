@@ -133,7 +133,7 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
     
     for gamma in range(starting_size, int(end_size)):
         mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
-                      range(1, int(end_size))]
+                      range(starting_size, int(end_size))]
         for result in mp_results:
             result = result.get()
             results.append(result)
