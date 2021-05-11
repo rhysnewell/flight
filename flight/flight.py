@@ -483,7 +483,7 @@ def bin(args):
                                                                     y_min, y_max,
                                                                     reembed=True)
                             while n <= 100:
-                                print("iteration: ", n)
+                                logging.debug("iteration: ", n)
                                 clusterer.overclustered = False # large clusters
                                 plots, n = clusterer.pairwise_distances(plots, n,
                                                                         x_min, x_max,

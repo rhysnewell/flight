@@ -658,7 +658,7 @@ def aggregate_md(a, b, n_samples, sample_distances):
     return md
 
 @njit(fastmath=True)
-def populate_matrix(depths, n_samples, sample_distances):
+def get_averages(depths, n_samples, sample_distances):
     contigs = List()
     tids = List()
     # distances = np.zeros((depths.shape[0], depths.shape[0]))
@@ -704,14 +704,12 @@ def populate_matrix(depths, n_samples, sample_distances):
 
 
 @njit(fastmath=True)
-def populate_dictionary(depths, n_samples, sample_distances):
-    distances = {}
+def distance_matrix(depths, n_samples, sample_distances):
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
+    distances = np.zeros((depths.shape[0], depths.shape[0]))
     tids = List()
     [tids.append(x) for x in range(depths.shape[0])]
 
-    for tid in tids:
-        distances[tid] = List([0.0, 0.0, 0.0])
     pairs = combinations(tids, 2)
     mean_md = 0.0
     mean_tnf = 0.0
@@ -721,28 +719,16 @@ def populate_dictionary(depths, n_samples, sample_distances):
         md = metabat_distance(depths[i[0], :n_samples*2], depths[i[1], :n_samples*2], n_samples, sample_distances)
         tnf_dist = rho(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
 
-        agg = np.sqrt((md) * (tnf_dist))
+        agg = np.sqrt((md**w) * (tnf_dist**(1-w)))
 
         mean_md += md
         mean_tnf += tnf_dist
         mean_agg += agg
 
-
-        distances[i[0]][0] += md
-        distances[i[0]][1] += tnf_dist
-        distances[i[0]][2] += agg
-
-        distances[i[1]][0] += md
-        distances[i[1]][1] += tnf_dist
-        distances[i[1]][2] += agg
-
-        
+        distances[i[0]][i[1]] = agg
+        distances[i[1]][i[0]] = agg
     
-    mean_md = mean_md / len(pairs)
-    mean_tnf = mean_tnf / len(pairs)
-    mean_agg = mean_agg / len(pairs)
-    
-    return mean_md, mean_tnf, mean_agg, distances
+    return distances
 
 @njit(fastmath=True)
 def get_mean_metabat(depths, n_samples, sample_distances):
