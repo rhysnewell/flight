@@ -658,49 +658,76 @@ def aggregate_md(a, b, n_samples, sample_distances):
     return md
 
 @njit(fastmath=True)
+def check_connections(current, others, n_samples, rho_threshold=0.05, euc_threshold=3):
+    rho_connected = False
+    euc_connected = False
+    for contig_idx in range(others.shape[0]):
+        if not rho_connected:
+            rho_value = rho(current[0, n_samples * 2:], others[contig_idx, n_samples * 2:])
+            if rho_value <= rho_threshold:
+                rho_connected = True
+
+        if not euc_connected:
+            euc_value = tnf_euclidean(current[0, n_samples * 2:], others[contig_idx, n_samples * 2:])
+            if euc_value <= euc_threshold:
+                euc_connected = True
+
+        if euc_connected and rho_connected:
+            break
+
+    return rho_connected, euc_connected
+
+@njit(fastmath=True)
 def get_averages(depths, n_samples, sample_distances):
     contigs = List()
     tids = List()
     # distances = np.zeros((depths.shape[0], depths.shape[0]))
     w = (n_samples) / (n_samples + 1) # weighting by number of samples same as in metabat2
 
-    [(contigs.append(List([0.0, 0.0, 0.0])), tids.append(x)) for x in range(depths.shape[0])]
+    [(contigs.append(List([0.0, 0.0, 0.0, 0.0])), tids.append(x)) for x in range(depths.shape[0])]
     
     pairs = combinations(tids, 2)
     mean_md = 0
     mean_tnf = 0
+    mean_euc = 0
     mean_agg = 0
     
     for i in pairs:
         md = metabat_distance(depths[i[0], :n_samples*2], depths[i[1], :n_samples*2], n_samples, sample_distances)
         tnf_dist = rho(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
+        tnf_euc = tnf_euclidean(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
 
         agg = np.sqrt((md**w) * (tnf_dist**(1-w)))
 
         mean_md += md
         mean_tnf += tnf_dist
+        mean_euc += tnf_euc
         mean_agg += agg
 
         contigs[i[0]][0] += md
         contigs[i[0]][1] += tnf_dist
-        contigs[i[0]][2] += agg
+        contigs[i[0]][2] += tnf_euc
+        contigs[i[0]][3] += agg
 
 
         contigs[i[1]][0] += md
         contigs[i[1]][1] += tnf_dist
-        contigs[i[1]][2] += agg
+        contigs[i[1]][2] += tnf_euc
+        contigs[i[1]][3] += agg
 
 
     for i in range(len(contigs)):
         contigs[i][0] /= (len(contigs) - 1)
         contigs[i][1] /= (len(contigs) - 1)
         contigs[i][2] /= (len(contigs) - 1)
+        contigs[i][3] /= (len(contigs) - 1)
                 
     mean_md = mean_md / len(pairs)
     mean_tnf = mean_tnf / len(pairs)
+    mean_euc = mean_tnf / len(pairs)
     mean_agg = mean_agg / len(pairs)
     
-    return mean_md, mean_tnf, mean_agg, contigs
+    return mean_md, mean_tnf, mean_euc, mean_agg, contigs
 
 
 @njit(fastmath=True)

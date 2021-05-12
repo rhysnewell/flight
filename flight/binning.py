@@ -227,6 +227,20 @@ class Binner():
 
         n_components = min(max(self.n_samples, self.long_samples, 2), 5)
 
+
+
+        self.rho_reducer = umap.UMAP(
+            metric=metrics.rho,
+            n_neighbors=int(n_neighbors),
+            n_components=2,
+            min_dist=0,
+            disconnection_distance=0.05,
+            set_op_mix_ratio=1,
+            a=a,
+            b=b,
+            init=initialization,
+        )
+
         self.tnf_reducer = umap.UMAP(
             metric=metrics.rho,
             n_neighbors=int(n_neighbors),
@@ -309,18 +323,65 @@ class Binner():
         Performs quick UMAP embeddings with stringent disconnection distances
         """
         try:
-            logging.info("Running UMAP Filter - %s" % self.tnf_reducer)
-            self.tnf_reducer.n_neighbors = 5
-            self.tnf_reducer.disconnection_distance = 0.05
 
-            filterer_rho = self.tnf_reducer.fit(
+            # We check the euclidean distances of large contigs as well.
+            disconnections = self.check_contigs(self.large_contigs[self.large_contigs['contigLen'] > 1e6]['tid'])
+
+            logging.info("Running UMAP Filter - %s" % self.rho_reducer)
+            self.rho_reducer.n_neighbors = 5
+            self.rho_reducer.disconnection_distance = 0.05
+
+            filterer_rho = self.rho_reducer.fit(
                 np.concatenate((self.log_lengths.values[:, None],
                                 self.tnfs.iloc[:, 2:]), axis = 1))
 
-            self.disconnected = umap.utils.disconnected_vertices(filterer_rho)
+            self.disconnected = umap.utils.disconnected_vertices(filterer_rho) + disconnections
 
         except ValueError: # Everything was disconnected
             self.disconnected = np.array([True for i in range(self.large_contigs.values.shape[0])])
+
+
+    def check_contigs(self, tids, rho_threshold=0.05, euc_threshold=3):
+        logging.info("Checking TNF connections...")
+        disconnected_tids = []
+        if self.n_samples > 0:
+            n_samples = self.n_samples
+            sample_distances = self.short_sample_distance
+        else:
+            n_samples = self.long_samples
+            sample_distances = self.long_sample_distance
+
+        for tid in tids:
+
+            current_contigs, current_log_lengths, current_tnfs = \
+                self.extract_contigs([tid])
+            other_contigs, other_log_lengths, other_tnfs = \
+                self.extract_contigs(self.large_contigs[self.large_contigs['tid'] != tid]['tid'])
+
+            current = np.concatenate((current_contigs.iloc[:, 3:].values,
+                                      current_log_lengths.values[:, None],
+                                      current_tnfs.iloc[:, 2:].values), axis=1)
+
+            others = np.concatenate((other_contigs.iloc[:, 3:].values,
+                                    other_log_lengths.values[:, None],
+                                    other_tnfs.iloc[:, 2:].values), axis=1)
+
+
+            rho_connected, euc_connected = metrics.check_connections(
+                current, others, n_samples, rho_threshold=rho_threshold, euc_threshold=euc_threshold
+            )
+
+            if not rho_connected or not euc_connected:
+                # print(tid, self.large_contigs[self.large_contigs['tid'] == tid])
+                # idx = self.large_contigs.index[self.large_contigs['tid'] == tid].tolist()
+                # print(idx)
+                # disconnections[idx[0]] = True
+                disconnected_tids.append(tid)
+
+        disconnections = np.array(self.large_contigs['tid'].isin(disconnected_tids))
+
+        return disconnections
+
 
 
     def n50(self):
@@ -499,6 +560,7 @@ class Binner():
                 try:
                     mean_md, \
                     mean_tnf, \
+                    mean_euc, \
                     mean_agg, \
                     per_contig_avg = \
                         metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
@@ -510,24 +572,32 @@ class Binner():
                     continue
 
                 removed = []
+                removed_together = []
 
                 # if bin not in self.survived:
-                if (mean_md >= 0.15 or mean_agg >= 0.25) and len(tids) > 2:
+                if (mean_md >= 0.5 or mean_agg >= 0.5) and len(tids) < 5:
+                    for (tid, avgs) in zip(tids, per_contig_avg):
+                        removed.append(tid)
+                elif (mean_md >= 0.15 or mean_agg >= 0.25) and len(tids) > 2:
                     # Simply remove
                     for (tid, avgs) in zip(tids, per_contig_avg):
-                        if (avgs[0] >= 0.7 or avgs[2] >= 0.7 or
-                            (avgs[0] >= 0.25 and avgs[1] >= 0.1)):
-                            removed.append(tid)
-                elif (mean_md >= 0.35 or mean_agg >= 0.45) and len(tids) == 2:
+                        if (((avgs[0] >= 0.4 or avgs[3] >= 0.45) and (avgs[1] >= 0.05 or avgs[2] >= 4.5))
+                            and self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 1e6) or \
+                                (avgs[0] >= 0.7 or avgs[3] >= 0.7 or
+                                    (avgs[0] >= 0.25 and (avgs[1] >= 0.1 or avgs[2] >= 5))):
+                            removed_together.append(tid)
+                elif (mean_md >= 0.35 or mean_agg >= 0.45 or mean_euc >= 4.5) and len(tids) == 2:
                     # Two contigs stuck in orbit, impossible to split using
                     # HDBSCAN or re-embedding
                     removed.append(tids[0])
                             
 
                 remove = False
-                if len(removed) > 0 and len(removed) != len(tids):
+                if len(removed) > 0 or len(removed_together) > 0:
+                    [(tids.remove(r), big_tids.append(r)) for r in removed]
+
                     new_bins[new_bin_counter] = []
-                    [(tids.remove(r), new_bins[new_bin_counter].append(r)) for r in removed]
+                    [(tids.remove(r), new_bins[new_bin_counter].append(r)) for r in removed_together]
                     new_bin_counter += 1
 
                     current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
@@ -553,6 +623,7 @@ class Binner():
                     try:
                         mean_md, \
                         mean_tnf, \
+                        mean_euc, \
                         mean_agg, \
                         per_contig_avg = \
                             metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
@@ -564,22 +635,23 @@ class Binner():
                         continue
 
                     removed = []
-                    if mean_md >= 0.15 or mean_agg >= 0.25:
-                        # Simply remove
-                        for (tid, avgs) in zip(tids, per_contig_avg):
-                            if ((avgs[0] >= 0.35 and avgs[1] >= 0.05) or avgs[2] >= 0.45 or
-                                (avgs[0] >= 0.1 and avgs[1] >= 0.1)) and \
-                                    self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 1e6:
-                                if big_only:
-                                    removed.append(tid)
-                                elif ((avgs[0] >= 0.35 or avgs[2] >= 0.45)) or \
-                                        (avgs[0] >= 0.2 and avgs[1] >= 0.2):
-
-                                    removed.append(tid)
-                            elif (((avgs[0] >= 0.45 or avgs[2] >= 0.5) and avgs[1] > 0.05) or
-                                  (avgs[0] >= 0.3 and avgs[1] >= 0.3)) and not big_only:
-
-                                removed.append(tid)
+                    # if mean_md >= 0.15 or mean_agg >= 0.25:
+                    #     # Simply remove
+                    #     for (tid, avgs) in zip(tids, per_contig_avg):
+                    #         # if ((avgs[0] >= 0.35 and avgs[1] >= 0.05) or avgs[3] >= 0.45 or
+                    #         #     (avgs[0] >= 0.1 and avgs[1] >= 0.1)) and \
+                    #         #         self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 1e6:
+                    #         #     if big_only:
+                    #         #         removed.append(tid)
+                    #         #     elif ((avgs[0] >= 0.4 or avgs[3] >= 0.45)) or \
+                    #         #             (avgs[0] >= 0.2 and avgs[1] >= 0.2):
+                    #         #
+                    #         #         removed.append(tid)
+                    #         if (((avgs[0] >= 0.45 or avgs[3] >= 0.45) and
+                    #              (avgs[1] > 0.05 or avgs[2] >= 4)) or
+                    #               (avgs[0] >= 0.3 and avgs[1] >= 0.3)) and not big_only:
+                    #
+                    #             removed.append(tid)
 
                     remove = False
                     if len(removed) > 0 and len(removed) != len(tids):
@@ -596,7 +668,7 @@ class Binner():
                             bins_to_remove.append(bin)
 
                     if not remove:
-                        f_level = 0.25
+                        f_level = 0.2
                         m_level = 0.1
                         shared_level = 0.1
                     
@@ -607,6 +679,7 @@ class Binner():
                             try:
                                 mean_md, \
                                 mean_tnf, \
+                                mean_euc, \
                                 mean_agg, \
                                 per_contig_avg = \
                                     metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
@@ -617,13 +690,13 @@ class Binner():
                             except ZeroDivisionError:
                                 continue
                     
-                        if ((mean_md >= m_level and mean_tnf >= 0.05)
+                        if ((mean_md >= m_level)
                             or mean_agg >= f_level
-                            or (mean_md >= shared_level and mean_tnf >= shared_level)
+                            or (mean_md >= shared_level and (mean_tnf >= shared_level or mean_euc >= 5))
                                 and bin_size > 1e6) or bin_size >= 12e6:
                             logging.debug(bin, mean_md, mean_tnf, mean_agg, len(tids))
                             reembed_separately.append(bin)
-                            if ((mean_md >= 0.2 and mean_tnf >= 0.05) or mean_md >= 0.35) \
+                            if ((mean_md >= 0.2 and (mean_tnf >= 0.05 or mean_euc >= 5)) or mean_md >= 0.35) \
                                     or (mean_agg >= 0.4) \
                                     or (mean_md >= 0.15 and mean_tnf >= 0.15) \
                                     or bin_size >= 13e6:
@@ -643,7 +716,7 @@ class Binner():
                             # force_new_clustering.append(False)  # send it to regular hell
                             # reembed_if_no_cluster.append(False) # take it easy, okay?
                             if debug:
-                                logging.debug("bin sruvived %d" % bin)
+                                logging.debug("bin survived %d" % bin)
                                 self.compare_bins(bin)
                             self.survived.append(bin)
                 else:
@@ -664,28 +737,29 @@ class Binner():
                         reembed_separately.append(bin)
                         reembed_if_no_cluster.append(True)
                         force_new_clustering.append(True) # turbo hell
-                # else:
-                #     try:
-                #         mean_md, \
-                #         mean_tnf, \
-                #         mean_agg, \
-                #         per_contig_avg = \
-                #             metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
-                #                                                     log_lengths.values[:, None],
-                #                                                     tnfs.iloc[:, 2:].values), axis=1),
-                #                                                     n_samples,
-                #                                                     sample_distances)
-                #     except ZeroDivisionError:
-                #         continue
-                #
-                #     if (mean_md >= 0.8) \
-                #             or mean_agg >= 0.8 \
-                #             or (mean_md >= 0.5 and mean_tnf >= 0.5):
-                #         reembed_separately.append(bin)
-                #         reembed_if_no_cluster.append(True)
-                #         force_new_clustering.append(True)  # send it to turbo hell
-                #     else:
-                #         self.survived.append(bin)
+                elif contigs['contigLen'].sum() >= 1e6 and bin!=0 and bin not in self.survived:
+                    try:
+                        mean_md, \
+                        mean_tnf, \
+                        mean_euc, \
+                        mean_agg, \
+                        per_contig_avg = \
+                            metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                    log_lengths.values[:, None],
+                                                                    tnfs.iloc[:, 2:].values), axis=1),
+                                                                    n_samples,
+                                                                    sample_distances)
+                    except ZeroDivisionError:
+                        continue
+
+                    if (mean_md >= 0.4) \
+                            or mean_agg >= 0.4 \
+                            or (mean_md >= 0.2 and mean_tnf >= 0.2):
+                        reembed_separately.append(bin)
+                        reembed_if_no_cluster.append(True)
+                        force_new_clustering.append(False)  # send it to turbo hell
+                    else:
+                        self.survived.append(bin)
 
 
                 # elif (self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 1e6) \
@@ -1060,7 +1134,7 @@ class Binner():
             set_labels = set(self.labels)
             logging.debug("No. of Clusters:", len(set_labels), set_labels)
 
-            findem = ['contig_1570_pilon', 'scaffold_1358_pilon', 'contig_913_pilon', 'contig_3496_pilon', 'contig_1125_pilon']
+            findem = ['contig_1125_pilon', 'scaffold_2425_pilon', 'contig_601_pilon', 'contig_143_pilon']
 
             names = list(contigs['contigName'])
             indices = []
@@ -1096,7 +1170,8 @@ class Binner():
             total_new_bins = len(set(self.labels))
 
             plt.gca().set_aspect('equal', 'datalim')
-            plt.title(format('UMAP projection of unbinned contigs - %d: %d clusters' % (n, total_new_bins)), fontsize=24)
+            plt.title(format('UMAP projection of unbinned contigs - %d: %d clusters %f %d' %
+                             (n, total_new_bins, max_validity, precomputed)), fontsize=24)
             plt.savefig(self.path + '/UMAP_projection_of_unbinned.png')
 
             if found and len(tids) < 100:
@@ -1105,12 +1180,20 @@ class Binner():
             if delete_unbinned:
                 self.unbinned_tids = []
 
+            if precomputed:
+                # We make this lower the precomputed validity score is generally going to be lower
+                # This is because silhouette score works but DBCV doesn't on precomputed matrices,
+                # and silhouette score already underestimates clustering quslity for DBSCAn and HDBSCAN
+                min_validity = 0.65
+            else:
+                min_validity = 0.75
+
             big_contig_counter = 0
             if noise:
                 # Clustering was a bit funky, so put back into unbinned and pull out again
                 self.unbinned_tids = self.unbinned_tids + tids
                 remove = True
-            elif (len(set_labels) == 1) or (max_validity < 0.8) and not force:
+            elif (len(set_labels) == 1) or (max_validity < min_validity) and not force:
                 # Reclustering resulted in single cluster or all noise,
                 # either case just use original bin
                 remove = False
@@ -1152,14 +1235,6 @@ class Binner():
 
                     contigs, _, _ = self.extract_contigs(unbinned)
                     not_recovered += contigs['contigLen'].sum()
-
-                    if precomputed:
-                        # We make this lower the precomputed validity score is generally going to be lower
-                        # This is because silhouette score works but DBCV doesn't on precomputed matrices,
-                        # and silhouette score already underestimates clustering quslity for DBSCAn and HDBSCAN
-                        min_validity = 0.65
-                    else:
-                        min_validity = 0.75
 
                     if not_recovered > original_size // 2 and not force:
                         logging.debug("Didn't recover enough: %d of %d, %.3f percent" %
@@ -1205,6 +1280,7 @@ class Binner():
                             n_samples = self.long_samples
                             sample_distances = self.long_sample_distance
                         try:
+                            _, \
                             _, \
                             _, \
                             mean_agg, \
@@ -1320,6 +1396,7 @@ class Binner():
 
         mean_md, \
         mean_tnf, \
+        mean_euc, \
         mean_agg, \
         per_contig_avg = \
             metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
@@ -1330,6 +1407,7 @@ class Binner():
 
         print("MAG size: ", contigs['contigLen'].sum())
         print("Mean TNF Rho: ", mean_tnf)
+        print("Mean Aitchinson: ", mean_euc)
         print("Mean Agg: ", mean_agg)
         print("Mean metabat: ", mean_md)
 
@@ -1343,6 +1421,7 @@ class Binner():
 
         findem = ['scaffold_669_pilon', 'contig_683_pilon', 'contig_684_pilon', 'contig_673_pilon', 'contig_674_pilon',
                   'contig_1570_pilon', 'scaffold_1358_pilon', 'contig_913_pilon', 'contig_3496_pilon', 'contig_1125_pilon',
+                  'scaffold_2425_pilon',
                   'contig_941_pilon', 'contig_591_pilon']
         names = list(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigName'])
         indices = []

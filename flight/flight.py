@@ -478,10 +478,13 @@ def bin(args):
                             logging.info("Reclustering individual bins.")
 
                             n = 0
-                            plots, n = clusterer.pairwise_distances(plots, n,
-                                                                    x_min, x_max,
-                                                                    y_min, y_max,
-                                                                    reembed=True)
+                            while n <= 0:
+                                plots, n = clusterer.pairwise_distances(plots, n,
+                                                                        x_min, x_max,
+                                                                        y_min, y_max,
+                                                                        reembed=True)
+                                n += 1
+
                             while n <= 100:
                                 logging.debug("iteration: ", n)
                                 clusterer.overclustered = False # large clusters
