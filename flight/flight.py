@@ -309,37 +309,34 @@ def main():
                              default=8)
     bin_options.set_defaults(func=bin)
 
-    vamb_options = subparsers.add_parser(
-        'vamb',
-        description='Bin out the results of vamb',
+    filter_options = subparsers.add_parser(
+        'filter',
+        description='Filter out contigs larger than the given base pair threshold',
         formatter_class=CustomHelpFormatter,
         epilog='''
-                                        ~ vamb ~
-            How to use vamb:
+                                        ~ filter ~
+            How to use filter:
 
-            flight vamb --reference assembly.fasta --clusters vamb_clusters.tsv
+            flight filter --reference assembly.fasta --min_size 200000
 
             ''')
 
-    vamb_options.add_argument('--reference',
+    filter_options.add_argument('--reference',
                               help='The assembly file to be binned',
                               dest='assembly')
 
-    vamb_options.add_argument('--clusters',
-                              help='The vamb clusters',
-                              dest='clusters')
 
-    vamb_options.add_argument('--min_size',
+    filter_options.add_argument('--min_size',
                               help='Minimum bin size',
                               dest='min_size',
                               default=200000)
 
-    vamb_options.add_argument('--output',
+    filter_options.add_argument('--output',
                               help='The output directory',
                               dest='output',
-                              default='vamb_bins/')
+                              default='filtered_contigs/')
 
-    vamb_options.set_defaults(func=vamb)
+    filter_options.set_defaults(func=filter)
     ###########################################################################
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Parsing input ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
@@ -458,7 +455,7 @@ def bin(args):
                             logging.info("HDBSCAN - Performing initial clustering.")
                             clusterer.labels = clusterer.iterative_clustering(clusterer.embeddings,
                                                                               prediction_data=True,
-                                                                              allow_single_cluster=True,
+                                                                              allow_single_cluster=False,
                                                                               double=True)
 
                             ## Plot limits
@@ -477,14 +474,27 @@ def bin(args):
 
                             logging.info("Reclustering individual bins.")
 
+                            clusterer.sort_bins()
+
+                            # This took so much refinement holy shit. This is what makes Rosella work
+                            # Each cluster is checked for internal metrics. If the metrics look bad then
+                            # Recluster -> re-embed -> recluster. If any of the new clusters look better
+                            # Than the previous clusters then take them instead (Within reason).
+                            # Kind of time consuming, could potentially be sped up with multiprocessing
+                            # but thread control might get a bit heckers.
                             n = 0
-                            while n <= 0:
+                            while n <= 1:
                                 plots, n = clusterer.pairwise_distances(plots, n,
                                                                         x_min, x_max,
                                                                         y_min, y_max,
                                                                         reembed=True)
                                 n += 1
 
+
+                            # If after everything there are excessively large clusters hanging around
+                            # This is where we send them to turbo hell. This step is probably the main
+                            # reason Rosella won't work on eukaryotic genomes, if we made this step optional
+                            # then it might work on them but I don't have any good benchmarks to test on.
                             while n <= 100:
                                 logging.debug("iteration: ", n)
                                 clusterer.overclustered = False # large clusters
@@ -497,7 +507,13 @@ def bin(args):
                                 if not clusterer.overclustered:
                                     break # no more clusters have broken
 
-                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max, big_only=True)
+
+                            # Quickly filter any busted contigs
+                            # These are just contigs that either belong by themselves or are
+                            # just noise that UMAP decided to put with other stuff. Only way to
+                            # get rid of them is to just use this smooth brain method
+                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
+                                                                    big_only=True)
 
                             clusterer.bin_filtered(int(args.min_bin_size))
                         else:
@@ -514,42 +530,27 @@ def bin(args):
                 pass
 
 
-def vamb(args):
+def filter(args):
+    """
+    Filters out big contigs in an assembly and writes them to individual fasta files
+    """
     min_bin_size = int(args.min_size)
     prefix = args.output
     if not os.path.exists(prefix):
         os.makedirs(prefix)
 
-    bins = {}
-    with open(args.clusters, 'r') as vamb_file:
-        for line in vamb_file:
-            line = line.split()
-            try:
-                bins[line[0]].append(line[1])
-            except KeyError:
-                bins[line[0]] = [line[1]]
-
     assembly = SeqIO.to_dict(SeqIO.parse(args.assembly, "fasta"))
 
     logging.info("Writing bins...")
-    max_cluster_id = max(bins.keys())
-    for (bin, contigs) in bins.items():
-        if bin != -1:
-            # Calculate total bin size and check if it is larger than min_bin_size
-            bin_length = sum([len(assembly[contig].seq) for contig in contigs])
-            if bin_length >= min_bin_size:
-                with open(prefix + '/vamb_bin.' + str(bin) + '.fna', 'w') as f:
-                    for contig in contigs:
-                        write_contig(contig, assembly, f)
-
-        else:
-            # Get final bin value
-            max_cluster_id += 1
+    bin_id = 0
+    for (contig_name, record) in assembly.items():
+        if len(record.seq) >= min_bin_size:
+            bin_id += 1
             # Rescue any large unbinned contigs and put them in their own cluster
-            for contig in contigs:
-                if len(assembly[contig].seq) >= min_bin_size:
-                    with open(prefix + '/vamb_bin.' + str(max_cluster_id) + '.fna', 'w') as f:
-                        write_contig(contig, assembly, f)
+            with open(prefix + '/filtered_contig.' + str(bin_id) + '.fna', 'w') as f:
+                fasta = ">" + record.id + '\n'
+                fasta += str(record.seq) + '\n'
+                f.write(fasta)
 
 
 def write_contig(contig, assembly, f):

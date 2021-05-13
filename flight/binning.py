@@ -521,6 +521,14 @@ class Binner():
 
         # self.embeddings = self.intersection_mapper.embedding_
 
+    def sort_bins(self):
+        """
+        Helper functiont that sorts bin tids
+        """
+        bins = self.bins.keys()
+        for bin in bins:
+            tids = self.bins[bin]
+            self.bins[bin] = list(np.sort(tids))
 
     def pairwise_distances(self, plots, n, x_min, x_max, y_min, y_max,
                            bin_unbinned=False, reembed=False,
@@ -552,9 +560,9 @@ class Binner():
             if len(tids) == 1:
                 continue
             # validity = self.bin_validity[bin]
-            if len(tids) != len(set(tids)):
-                tids = list(set(tids))
-                self.bins[bin] = tids
+            # if len(tids) != len(set(tids)):
+            #     tids = list(set(tids))
+            #     self.bins[bin] = tids
             if big_only:
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
                 try:
@@ -581,7 +589,7 @@ class Binner():
                 elif (mean_md >= 0.15 or mean_agg >= 0.25) and len(tids) > 2:
                     # Simply remove
                     for (tid, avgs) in zip(tids, per_contig_avg):
-                        if (((avgs[0] >= 0.4 or avgs[3] >= 0.45) and (avgs[1] >= 0.05 or avgs[2] >= 4.5))
+                        if (((avgs[0] >= 0.35 or avgs[3] >= 0.45) and (avgs[1] >= 0.05 or avgs[2] >= 4.5))
                             and self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 1e6) or \
                                 (avgs[0] >= 0.7 or avgs[3] >= 0.7 or
                                     (avgs[0] >= 0.25 and (avgs[1] >= 0.1 or avgs[2] >= 5))):
@@ -728,7 +736,8 @@ class Binner():
                 logging.debug("Size only check when size only is ", size_only)
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
-                if contigs['contigLen'].sum() >= 13e6 and bin!=0:  # larger than most bacterial genomes, way larger than archaeal
+                if contigs['contigLen'].sum() >= 13e6 and bin!=0:
+                    # larger than most bacterial genomes, way larger than archaeal
                     # Likely strains getting bunched together. But they won't disentangle, so just dismantle the bin
                     # rescuing any large contigs. Only way I can think  of atm to deal with this.
                     # Besides perhaps looking at variation level?? But this seems to be a problem with
@@ -886,8 +895,13 @@ class Binner():
         self.embeddings = old_binning.embeddings
         self.unbinned_tids = []
 
-    def iterative_clustering(self, distances, metric='euclidean', binning_method='eom',
-                             allow_single_cluster=False, prediction_data=False, double=True):
+    def iterative_clustering(self,
+                             distances,
+                             metric='euclidean',
+                             binning_method='eom',
+                             allow_single_cluster=False,
+                             prediction_data=False,
+                             double=True):
         if metric != "precomputed":
             try:
                 first_labels = self.cluster(distances, metric=metric,
@@ -937,6 +951,11 @@ class Binner():
 
 
     def precomputed(self, distances):
+        """
+        Helper function to perform basic HDBSCAN on precomputed matrix.
+        Hyperparameter selection does not work on precomputed matrices, so default params
+        are set very low to try and force a result.
+        """
         clusterer = hdbscan.HDBSCAN(
             algorithm='best',
             alpha=1.0,
@@ -951,6 +970,15 @@ class Binner():
 
     @staticmethod
     def _validity(labels, distances):
+        """
+        Calculates cluster validity using Density Based Cluster Validity from HDBSCAN
+
+        Params:
+            :labels:
+                Cluster labels to test
+            :distances:
+                Either a pairwise distance matrix or UMAP embedding values for the provided contig labels
+        """
         if len(set(labels)) > 1:
             try:
                 cluster_validity, validity_indices = hdbscan.validity.validity_index(distances.astype(np.float64), np.array(labels), per_cluster_scores=True)
@@ -968,17 +996,44 @@ class Binner():
 
 
     def reembed(self, tids, max_bin_id, plots,
-                           x_min, x_max, y_min, y_max, n,
+                           x_min=20, x_max=20, y_min=20, y_max=20, n=0,
                            delete_unbinned = False,
                            bin_unbinned=False,
                            force=False,
                            reembed=False,
                            debug=False):
+        """
+        Recluster -> Re-embedding -> Reclustering on the specified set of contigs
+        Any clusters that look better than current cluster are kept and old cluster is thrown out
+        Anything that doesn't get binned is thrown in the unbinned_tids list
+
+        Params:
+            :tids:
+                List of contig target ids to be reclustered
+            :max_bin:
+                The current large bin key
+            :plots:
+                List of plots resulting from all previous embeddings. Gets turned into a gif
+            :x_min, x_max, y_max, y_min:
+                Parameters for the plot to keep all plots at the same aspect ratio
+            :n:
+                The current iteration
+            :force:
+                Whether to force the results even if they look bad. This is used when a cluster looks
+                looks especially heinous or is too big. Use this param lightly, it can bust your bins for sure
+            :reembed:
+                Whether to use the re-embedding feature. Setting to false will skip out on UMAP. Can make things
+                faster if original clustering is easy to disentangle, but setting to false can miss things
+
+        ignore the other shit
+        """
         remove = False
         noise = False
         precomputed = False # Whether the precomputed clustering was the best result
+        tids = list(np.sort(tids))
         contigs, log_lengths, tnfs = self.extract_contigs(tids)
         original_size = contigs['contigLen'].sum()
+
 
         if original_size >= 14e6:
             force = True
@@ -1134,7 +1189,10 @@ class Binner():
             set_labels = set(self.labels)
             logging.debug("No. of Clusters:", len(set_labels), set_labels)
 
-            findem = ['contig_1125_pilon', 'scaffold_2425_pilon', 'contig_601_pilon', 'contig_143_pilon']
+            findem = [
+                      'contig_1357_pilon', 'contig_1361_pilon',
+                      'contig_1570_pilon', 'scaffold_1358_pilon',
+                      'contig_810_pilon']
 
             names = list(contigs['contigName'])
             indices = []
@@ -1184,9 +1242,9 @@ class Binner():
                 # We make this lower the precomputed validity score is generally going to be lower
                 # This is because silhouette score works but DBCV doesn't on precomputed matrices,
                 # and silhouette score already underestimates clustering quslity for DBSCAn and HDBSCAN
-                min_validity = 0.65
+                min_validity = 0.7
             else:
-                min_validity = 0.75
+                min_validity = 0.85
 
             big_contig_counter = 0
             if noise:
@@ -1250,6 +1308,7 @@ class Binner():
                     # new_bins = []
                     # Half the original input has been binned if reembedding
                     for bin, new_tids in new_bins.items():
+                        new_tids = list(np.sort(new_tids))
                         contigs, log_lengths, tnfs = self.extract_contigs(new_tids)
                         bin_size = contigs['contigLen'].sum()
                         if (bin_size >= 1e6 and reembed) \
@@ -1419,10 +1478,10 @@ class Binner():
     def plot(self):
         logging.info("Generating UMAP plot with labels")
 
-        findem = ['scaffold_669_pilon', 'contig_683_pilon', 'contig_684_pilon', 'contig_673_pilon', 'contig_674_pilon',
-                  'contig_1570_pilon', 'scaffold_1358_pilon', 'contig_913_pilon', 'contig_3496_pilon', 'contig_1125_pilon',
-                  'scaffold_2425_pilon',
-                  'contig_941_pilon', 'contig_591_pilon']
+        findem = ['contig_108_pilon', 'contig_1250_pilon',
+                  'contig_1357_pilon', 'contig_1361_pilon',
+                  'contig_1570_pilon', 'scaffold_1358_pilon',
+                  'contig_810_pilon']
         names = list(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigName'])
         indices = []
         for to_find in findem:
