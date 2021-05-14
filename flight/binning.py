@@ -110,6 +110,7 @@ class Binner():
             b=0.4,
             min_bin_size=200000,
             initialization='spectral',
+            random_seed=42
     ):
         # config.THREADING_LAYER = 'tbb'
         # config.NUMBA_NUM_THREADS = threads
@@ -239,6 +240,7 @@ class Binner():
             a=a,
             b=b,
             init=initialization,
+            random_state=42
         )
 
         self.tnf_reducer = umap.UMAP(
@@ -251,6 +253,7 @@ class Binner():
             a=a,
             b=b,
             init=initialization,
+            random_state=42
         )
 
         self.euc_reducer = umap.UMAP(
@@ -262,6 +265,7 @@ class Binner():
             a=a,
             b=b,
             init=initialization,
+            random_state=42
         )
         
         self.depth_reducer = umap.UMAP(
@@ -273,7 +277,8 @@ class Binner():
             set_op_mix_ratio=1,
             a=a,
             b=b,
-            init=initialization
+            init=initialization,
+            random_state=42
         )
 
         self.md_reducer = umap.UMAP(
@@ -285,7 +290,8 @@ class Binner():
             set_op_mix_ratio=1,
             a=a,
             b=b,
-            init=initialization
+            init=initialization,
+            random_state=42
         )
 
         self.n_neighbors = n_neighbors
@@ -564,48 +570,91 @@ class Binner():
             #     tids = list(set(tids))
             #     self.bins[bin] = tids
             if big_only:
-                contigs, log_lengths, tnfs = self.extract_contigs(tids)
-                try:
-                    mean_md, \
-                    mean_tnf, \
-                    mean_euc, \
-                    mean_agg, \
-                    per_contig_avg = \
-                        metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                log_lengths.values[:, None],
-                                                                tnfs.iloc[:, 2:].values), axis=1),
-                                                                n_samples,
-                                                                sample_distances)
-                except ZeroDivisionError:
-                    continue
 
-                removed = []
-                removed_together = []
+                filtering = True
+                remove = False # Whether to completely remove original bin
+                removed_single = [] # Single contig bin
+                removed_together = [] # These contigs form their own bin
 
-                # if bin not in self.survived:
-                if (mean_md >= 0.5 or mean_agg >= 0.5) and len(tids) < 5:
-                    for (tid, avgs) in zip(tids, per_contig_avg):
-                        removed.append(tid)
-                elif (mean_md >= 0.15 or mean_agg >= 0.25) and len(tids) > 2:
-                    # Simply remove
-                    for (tid, avgs) in zip(tids, per_contig_avg):
-                        if (((avgs[0] >= 0.35 or avgs[3] >= 0.45) and (avgs[1] >= 0.05 or avgs[2] >= 4.5))
-                            and self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 1e6) or \
-                                (avgs[0] >= 0.7 or avgs[3] >= 0.7 or
-                                    (avgs[0] >= 0.25 and (avgs[1] >= 0.1 or avgs[2] >= 5))):
-                            removed_together.append(tid)
-                elif (mean_md >= 0.35 or mean_agg >= 0.45 or mean_euc >= 4.5) and len(tids) == 2:
-                    # Two contigs stuck in orbit, impossible to split using
-                    # HDBSCAN or re-embedding
-                    removed.append(tids[0])
-                            
+                while filtering:
 
-                remove = False
-                if len(removed) > 0 or len(removed_together) > 0:
-                    [(tids.remove(r), big_tids.append(r)) for r in removed]
+                    # Extract current contigs and get statistics
+                    contigs, log_lengths, tnfs = self.extract_contigs(tids)
+                    try:
+                        mean_md, \
+                        mean_tnf, \
+                        mean_euc, \
+                        mean_agg, \
+                        per_contig_avg = \
+                            metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                 log_lengths.values[:, None],
+                                                                 tnfs.iloc[:, 2:].values), axis=1),
+                                                 n_samples,
+                                                 sample_distances)
+
+                        per_contig_avg = np.array(per_contig_avg)
+                    except ZeroDivisionError:
+                        # Only one contig left, break out
+                        break
+
+                    removed_inner = [] # inner container that is rewritten every iteration
+
+                    if len(tids) == 2:
+                        # Higher thresholds for fewer contigs
+                        md_filt = 0.35
+                        agg_filt = 0.45
+                        euc_filt = 4.5
+                        rho_filt = 0.05
+                        # Two contigs by themselves that are relatively distant. Remove them separately
+                        together = False
+                    elif len(tids) <= 5:
+                        # Higher thresholds for fewer contigs
+                        md_filt = 0.35
+                        agg_filt = 0.45
+                        euc_filt = 4.5
+                        rho_filt = 0.05
+                        together = True
+                    else:
+                        # Lower thresholds for fewer contigs
+                        md_filt = 0.45
+                        agg_filt = 0.5
+                        euc_filt = 4.5
+                        rho_filt = 0.05
+                        together = True
+
+
+                    max_idx = np.argmax(per_contig_avg[:, 3]) # Check mean_agg first
+                    if (per_contig_avg[max_idx, 3] >= agg_filt or per_contig_avg[max_idx, 0] >= md_filt) and \
+                        (per_contig_avg[max_idx, 1] >= rho_filt or per_contig_avg[max_idx, 2] >= euc_filt):
+                        if together:
+                            removed_inner.append(tids[max_idx])
+                            removed_together.append(tids[max_idx])
+                        else:
+                            removed_inner.append(tids[max_idx])
+                            removed_single.append(tids[max_idx])
+                    else:
+                        max_idx = np.argmax(per_contig_avg[:, 0]) # check md second
+                        if (per_contig_avg[max_idx, 3] >= agg_filt or per_contig_avg[max_idx, 0] >= md_filt) and \
+                                (per_contig_avg[max_idx, 1] >= rho_filt or per_contig_avg[max_idx, 2] >= euc_filt):
+                            if together:
+                                removed_inner.append(tids[max_idx])
+                                removed_together.append(tids[max_idx])
+                            else:
+                                removed_inner.append(tids[max_idx])
+                                removed_single.append(tids[max_idx])
+                        else:
+                            filtering = False
+
+                    if len(removed_inner) > 0:
+                        [tids.remove(r) for r in removed_inner]
+                    else:
+                        filtering = False
+
+                if len(removed_single) > 0 or len(removed_together) > 0:
+                    [big_tids.append(r) for r in removed_single]
 
                     new_bins[new_bin_counter] = []
-                    [(tids.remove(r), new_bins[new_bin_counter].append(r)) for r in removed_together]
+                    [new_bins[new_bin_counter].append(r) for r in removed_together]
                     new_bin_counter += 1
 
                     current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
@@ -615,7 +664,6 @@ class Binner():
 
                     if len(tids) == 0 or remove:
                         bins_to_remove.append(bin)
-
 
 
             elif not size_only \
@@ -643,23 +691,12 @@ class Binner():
                         continue
 
                     removed = []
-                    # if mean_md >= 0.15 or mean_agg >= 0.25:
-                    #     # Simply remove
-                    #     for (tid, avgs) in zip(tids, per_contig_avg):
-                    #         # if ((avgs[0] >= 0.35 and avgs[1] >= 0.05) or avgs[3] >= 0.45 or
-                    #         #     (avgs[0] >= 0.1 and avgs[1] >= 0.1)) and \
-                    #         #         self.large_contigs[self.large_contigs['tid'] == tid]['contigLen'].iloc[0] >= 1e6:
-                    #         #     if big_only:
-                    #         #         removed.append(tid)
-                    #         #     elif ((avgs[0] >= 0.4 or avgs[3] >= 0.45)) or \
-                    #         #             (avgs[0] >= 0.2 and avgs[1] >= 0.2):
-                    #         #
-                    #         #         removed.append(tid)
-                    #         if (((avgs[0] >= 0.45 or avgs[3] >= 0.45) and
-                    #              (avgs[1] > 0.05 or avgs[2] >= 4)) or
-                    #               (avgs[0] >= 0.3 and avgs[1] >= 0.3)) and not big_only:
-                    #
-                    #             removed.append(tid)
+                    if mean_md >= 0.15 or mean_agg >= 0.25:
+                        # Simply remove
+                        for (tid, avgs) in zip(tids, per_contig_avg):
+                            if (((avgs[0] >= 0.75) and
+                                 (avgs[1] > 0.05 or avgs[2] >= 4))) and not big_only:
+                                removed.append(tid)
 
                     remove = False
                     if len(removed) > 0 and len(removed) != len(tids):
@@ -677,9 +714,9 @@ class Binner():
 
                     if not remove:
                         f_level = 0.2
-                        m_level = 0.1
+                        m_level = 0.15
                         shared_level = 0.1
-                    
+
                         if len(removed) >= 1:
                             # calc new bin size and stats
                             contigs, log_lengths, tnfs = self.extract_contigs(tids)
@@ -697,7 +734,7 @@ class Binner():
                                                                             sample_distances)
                             except ZeroDivisionError:
                                 continue
-                    
+
                         if ((mean_md >= m_level)
                             or mean_agg >= f_level
                             or (mean_md >= shared_level and (mean_tnf >= shared_level or mean_euc >= 5))
@@ -1141,18 +1178,18 @@ class Binner():
 
                     self.fit_transform(tids, 50)
 
-                    unbinned_embeddings = self.intersection_mapper.embedding_
-                    labels_single = self.iterative_clustering(unbinned_embeddings,
+                    new_embeddings = self.intersection_mapper.embedding_
+                    labels_single = self.iterative_clustering(new_embeddings,
                                                               allow_single_cluster=True,
                                                               prediction_data=False,
                                                               double=False)
-                    labels_multi = self.iterative_clustering(unbinned_embeddings,
+                    labels_multi = self.iterative_clustering(new_embeddings,
                                                              allow_single_cluster=False,
                                                              prediction_data=False,
                                                              double=False)
 
-                    validity_single, _ = self._validity(labels_single, unbinned_embeddings)
-                    validity_multi, _ = self._validity(labels_multi, unbinned_embeddings)
+                    validity_single, _ = self._validity(labels_single, new_embeddings)
+                    validity_multi, _ = self._validity(labels_multi, new_embeddings)
 
                     logging.debug('Allow single cluster validity: ', validity_single)
                     logging.debug('Allow multi cluster validity: ', validity_multi)
@@ -1162,6 +1199,7 @@ class Binner():
                             if all(label == -1 for label in labels_single):
                                 logging.debug('using non re-embedded...')
                             else:
+                                unbinned_embeddings = new_embeddings
                                 self.labels = labels_single
                                 max_validity = validity_single
                                 if precomputed:
@@ -1173,6 +1211,7 @@ class Binner():
                             if all(label == -1 for label in labels_multi):
                                 logging.debug('using non re-embedded...')
                             else:
+                                unbinned_embeddings = new_embeddings
                                 self.labels = labels_multi
                                 max_validity = validity_multi
                                 if precomputed:
@@ -1481,7 +1520,9 @@ class Binner():
         findem = ['contig_108_pilon', 'contig_1250_pilon',
                   'contig_1357_pilon', 'contig_1361_pilon',
                   'contig_1570_pilon', 'scaffold_1358_pilon',
-                  'contig_810_pilon']
+                  'contig_810_pilon',
+                  'contig_591_pilon', 'contig_941_pilon',
+                  'contig_1687_pilon']
         names = list(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigName'])
         indices = []
         for to_find in findem:
@@ -1543,8 +1584,8 @@ class Binner():
                 # if contigs['contigLen'].iloc[idx] < 2e6:
                 soft_values = self.soft_clusters[idx]
                 max_value, best_label = metrics.get_best_soft_value(soft_values)
-                # if max_value >= 0.75:
-                self.labels[idx] = best_label
+                if max_value >= 0.1:
+                    self.labels[idx] = best_label
         # pass
 
 

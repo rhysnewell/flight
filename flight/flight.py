@@ -436,7 +436,8 @@ def bin(args):
                 warnings.simplefilter("ignore")
 
                 if clusterer.tnfs.values.shape[0] > int(args.n_neighbors):
-                    # First pass quick TNF filter to speed up next steps
+                    # First pass quick TNF filter to speed up next steps and remove large contigs that
+                    # are too distant from other contigs. These contigs tend to break UMAP results
                     clusterer.update_parameters()
                     clusterer.filter()
                     if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors) * 5:
@@ -476,6 +477,11 @@ def bin(args):
 
                             clusterer.sort_bins()
 
+                            clusterer.reembed(clusterer.unbinned_tids,
+                                              max(clusterer.bins.keys()), plots,
+                                              x_min, x_max, y_min, y_max,
+                                              delete_unbinned=True,
+                                              force=True)
                             # This took so much refinement holy shit. This is what makes Rosella work
                             # Each cluster is checked for internal metrics. If the metrics look bad then
                             # Recluster -> re-embed -> recluster. If any of the new clusters look better
@@ -512,8 +518,8 @@ def bin(args):
                             # These are just contigs that either belong by themselves or are
                             # just noise that UMAP decided to put with other stuff. Only way to
                             # get rid of them is to just use this smooth brain method
-                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
-                                                                    big_only=True)
+                            # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
+                            #                                         big_only=True)
 
                             clusterer.bin_filtered(int(args.min_bin_size))
                         else:
