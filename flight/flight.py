@@ -438,7 +438,6 @@ def bin(args):
                 if clusterer.tnfs.values.shape[0] > int(args.n_neighbors):
                     # First pass quick TNF filter to speed up next steps and remove large contigs that
                     # are too distant from other contigs. These contigs tend to break UMAP results
-                    clusterer.update_parameters()
                     clusterer.filter()
                     if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors) * 5:
                         # Second pass intersection filtering
@@ -489,13 +488,15 @@ def bin(args):
                             # Kind of time consuming, could potentially be sped up with multiprocessing
                             # but thread control might get a bit heckers.
                             n = 0
-                            while n <= 1:
+                            while n <= 10:
+                                clusterer.overclustered = False # large clusters
                                 plots, n = clusterer.pairwise_distances(plots, n,
                                                                         x_min, x_max,
                                                                         y_min, y_max,
                                                                         reembed=True)
                                 n += 1
-
+                                if not clusterer.overclustered:
+                                    break # no more clusters have broken
 
                             # If after everything there are excessively large clusters hanging around
                             # This is where we send them to turbo hell. This step is probably the main
@@ -518,8 +519,11 @@ def bin(args):
                             # These are just contigs that either belong by themselves or are
                             # just noise that UMAP decided to put with other stuff. Only way to
                             # get rid of them is to just use this smooth brain method
-                            # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
-                            #                                         big_only=True)
+                            n = 0
+                            while n <= 5:
+                                plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
+                                                                        big_only=True)
+                                n += 1
 
                             clusterer.bin_filtered(int(args.min_bin_size))
                         else:
