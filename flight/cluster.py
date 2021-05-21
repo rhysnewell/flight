@@ -151,7 +151,6 @@ class Cluster():
         hdbscan_metric="euclidean",
         threads=8
     ):
-        set_num_threads(threads)
         self.threads = threads
         ## Set up clusterer and UMAP
         self.path = output_prefix

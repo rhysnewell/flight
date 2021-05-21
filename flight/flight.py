@@ -39,17 +39,10 @@ import os
 import datetime
 
 # Function imports
-import numpy as np
-import pandas as pd
-from numba import config, set_num_threads
-import threadpoolctl
 import warnings
 import imageio
 
 # Self imports
-from .binning import Binner
-from .cluster import Cluster
-import flight.utils as utils
 
 # Debug
 debug = {
@@ -371,6 +364,14 @@ def main():
 def fit(args):
     prefix = args.input.replace(".npy", "")
     os.environ["NUMEXPR_MAX_THREADS"] = args.threads
+    os.environ["NUMBA_NUM_THREADS" ]= args.threads
+    os.environ["MKL_NUM_THREADS"] = args.threads
+    os.environ["OPENBLAS_NUM_THREADS"] = args.threads
+    from .cluster import Cluster
+    import numpy as np
+    # os.environ["MKL_NUM_THREADS"] = args.threads
+    # os.environ["OPENBLAS_NUM_THREADS"] = args.threads
+
     if not args.precomputed:
         clusterer = Cluster(args.input,
                             prefix,
@@ -405,8 +406,14 @@ def fit(args):
 
 def bin(args):
     prefix = args.output
-    # os.environ["NUMEXPR_MAX_THREADS"] = "1"
-    set_num_threads(int(args.threads))
+    os.environ["NUMEXPR_MAX_THREADS"] = args.threads
+    os.environ["NUMBA_NUM_THREADS"] = args.threads
+    os.environ["MKL_NUM_THREADS"] = args.threads
+    os.environ["OPENBLAS_NUM_THREADS"] = args.threads
+    from .binning import Binner
+    import flight.utils as utils
+    import threadpoolctl
+
     if args.long_input is None and args.input is None:
         logging.warning("bin requires either short or longread coverage values.")
         sys.exit()
@@ -446,6 +453,7 @@ def bin(args):
                         if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[
                             0] > int(args.n_neighbors) * 2:
                             # Final fully filtered embedding to cluster on
+                            clusterer.update_umap_params(clusterer.large_contigs[~clusterer.disconnected][~clusterer.disconnected_intersected].shape[0])
                             if found_disconnections:
                                 clusterer.fit_transform(clusterer.large_contigs[~clusterer.disconnected][~clusterer.disconnected_intersected]['tid'],
                                                         int(args.n_neighbors))
@@ -469,7 +477,7 @@ def bin(args):
                                                       0))
                             clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
 
-                            clusterer.plot()
+                            clusterer.plot(['contig_591_pilon', 'contig_941_pilon'])
 
 
                             logging.info("Reclustering individual bins.")
@@ -479,32 +487,18 @@ def bin(args):
                             clusterer.reembed(clusterer.unbinned_tids,
                                               max(clusterer.bins.keys()), plots,
                                               x_min, x_max, y_min, y_max,
+                                              reembed=True,
                                               delete_unbinned=True,
                                               force=True)
-                            # This took so much refinement holy shit. This is what makes Rosella work
-                            # Each cluster is checked for internal metrics. If the metrics look bad then
-                            # Recluster -> re-embed -> recluster. If any of the new clusters look better
-                            # Than the previous clusters then take them instead (Within reason).
-                            # Kind of time consuming, could potentially be sped up with multiprocessing
-                            # but thread control might get a bit heckers.
-                            n = 0
-                            while n <= 10:
-                                clusterer.overclustered = False # large clusters
-                                plots, n = clusterer.pairwise_distances(plots, n,
-                                                                        x_min, x_max,
-                                                                        y_min, y_max,
-                                                                        reembed=True)
-                                n += 1
-                                if not clusterer.overclustered:
-                                    break # no more clusters have broken
 
                             # If after everything there are excessively large clusters hanging around
                             # This is where we send them to turbo hell. This step is probably the main
                             # reason Rosella won't work on eukaryotic genomes, if we made this step optional
                             # then it might work on them but I don't have any good benchmarks to test on.
+                            n = 0
                             while n <= 100:
                                 logging.debug("iteration: ", n)
-                                clusterer.overclustered = False # large clusters
+                                clusterer.overclustered = False  # large clusters
                                 plots, n = clusterer.pairwise_distances(plots, n,
                                                                         x_min, x_max,
                                                                         y_min, y_max,
@@ -512,18 +506,37 @@ def bin(args):
                                                                         reembed=True)
                                 n += 1
                                 if not clusterer.overclustered:
+                                    break  # no more clusters have broken
+
+                            # This took so much refinement holy shit. This is what makes Rosella work
+                            # Each cluster is checked for internal metrics. If the metrics look bad then
+                            # Recluster -> re-embed -> recluster. If any of the new clusters look better
+                            # Than the previous clusters then take them instead (Within reason).
+                            # Kind of time consuming, could potentially be sped up with multiprocessing
+                            # but thread control might get a bit heckers.
+                            n = 0
+                            while n <= 100:
+                                clusterer.overclustered = False # large clusters
+                                plots, n = clusterer.pairwise_distances(plots, n,
+                                                                        x_min, x_max,
+                                                                        y_min, y_max,
+                                                                        reembed=True)
+                                n += 1
+                                if not clusterer.overclustered:
                                     break # no more clusters have broken
 
 
+                            # THIS WILL BREAK BINS, Try not to use it
                             # Quickly filter any busted contigs
                             # These are just contigs that either belong by themselves or are
                             # just noise that UMAP decided to put with other stuff. Only way to
                             # get rid of them is to just use this smooth brain method
-                            n = 0
-                            while n <= 5:
-                                plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
-                                                                        big_only=True)
-                                n += 1
+                            # n = 0
+                            # while n <= 5:
+                            #     plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
+                            #                                             big_only=True)
+                            #
+                            #     n += 1
 
                             clusterer.bin_filtered(int(args.min_bin_size))
                         else:

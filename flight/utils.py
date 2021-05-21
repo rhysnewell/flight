@@ -83,7 +83,7 @@ def plot_for_offset(embeddings, labels, x_min, x_max, y_min, y_max, n):
 
     return image
 
-def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_cluster=False):
+def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_cluster=False, threads=1):
     """
     Asynchronous parallel function for use with hyperparameter_selection function
     """
@@ -96,7 +96,7 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
                                 min_cluster_size=int(gamma),
                                 min_samples=ms,
                                 allow_single_cluster=allow_single_cluster,
-                                core_dist_n_jobs=20).fit(df)
+                                core_dist_n_jobs=threads).fit(df)
 
     min_cluster_size = clust_alg.min_cluster_size
     min_samples = clust_alg.min_samples
@@ -112,7 +112,9 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
     return (min_cluster_size, min_samples, validity_score, n_clusters)
 
 
-def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', allow_single_cluster=False, starting_size = 2):
+def hyperparameter_selection(df, cores=10,
+                             method='eom', metric='euclidean',
+                             allow_single_cluster=False, starting_size = 2):
     """
     Input:
     df - embeddings from UMAP
@@ -122,7 +124,7 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
     Output:
     Quality metrics for multiple HDBSCAN clusterings
     """
-    pool = mp.Pool(cores)
+    # pool = mp.Pool(cores)
     warnings.filterwarnings('ignore')
     results = []
     n = df.shape[0]
@@ -132,14 +134,18 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
         end_size = min(max(np.log2(n), min(10, (n - 1) // 2)), 10)
     
     for gamma in range(starting_size, int(end_size)):
-        mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
-                      range(starting_size, int(end_size))]
-        for result in mp_results:
-            result = result.get()
-            results.append(result)
+        # mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
+        #               range(starting_size, int(end_size))]
+        # for result in mp_results:
+        #     result = result.get()
+        #     results.append(result)
+        for ms in range(starting_size, int(end_size)):
+            mp_results = mp_cluster(df, n, gamma, ms, method,
+                                    metric, allow_single_cluster, cores)
+            results.append(mp_results)
 
-    pool.close()
-    pool.join()
+    # pool.close()
+    # pool.join()
 
     return results
 

@@ -724,7 +724,7 @@ def get_averages(depths, n_samples, sample_distances):
                 
     mean_md = mean_md / len(pairs)
     mean_tnf = mean_tnf / len(pairs)
-    mean_euc = mean_tnf / len(pairs)
+    mean_euc = mean_euc / len(pairs)
     mean_agg = mean_agg / len(pairs)
     
     return mean_md, mean_tnf, mean_euc, mean_agg, contigs
