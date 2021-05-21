@@ -149,7 +149,9 @@ class Cluster():
         precomputed=False,
         metric='euclidean',
         hdbscan_metric="euclidean",
-        threads=8
+        threads=8,
+        b=0.5,
+        a=1.58,
     ):
         self.threads = threads
         ## Set up clusterer and UMAP
@@ -181,7 +183,9 @@ class Cluster():
                 random_state=random_state,
                 spread=1,
                 metric=getattr(metrics, metric),
-                metric_kwds={'n_samples': self.n_samples}
+                metric_kwds={'n_samples': self.n_samples},
+                a=a,
+                b=b,
             )
         else:
             self.reducer = umap.UMAP(
@@ -190,7 +194,9 @@ class Cluster():
                 n_components=n_components,
                 random_state=random_state,
                 spread=1,
-                metric=metric
+                metric=metric,
+                a=a,
+                b=b,
             )
 
         if min_cluster_size > self.depths.shape[0] * 0.1:
