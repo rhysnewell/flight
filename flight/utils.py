@@ -70,7 +70,8 @@ def plot_for_offset(embeddings, labels, x_min, x_max, y_min, y_max, n):
                c=cluster_colors,
                alpha=0.7)
     ax.set(xlabel = 'UMAP dimension 1', ylabel = 'UMAP dimension 2',
-           title=format("UMAP projection and HDBSCAN clustering of contigs. Iteration = %d" % (n)))
+           title=format("UMAP projection and HDBSCAN clustering of contigs. "
+                        "Iteration = %d, Clusters = %d" % (n, len(set(labels)))))
 
     ax.set_ylim(y_min, y_max)
     ax.set_xlim(x_min, x_max)
@@ -82,7 +83,7 @@ def plot_for_offset(embeddings, labels, x_min, x_max, y_min, y_max, n):
 
     return image
 
-def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_cluster=False):
+def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_cluster=False, threads=1):
     """
     Asynchronous parallel function for use with hyperparameter_selection function
     """
@@ -95,17 +96,25 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
                                 min_cluster_size=int(gamma),
                                 min_samples=ms,
                                 allow_single_cluster=allow_single_cluster,
-                                core_dist_n_jobs=20).fit(df)
+                                core_dist_n_jobs=threads).fit(df)
 
     min_cluster_size = clust_alg.min_cluster_size
     min_samples = clust_alg.min_samples
+
+    try:
+        cluster_validity = hdbscan.validity.validity_index(df.astype(np.float64), clust_alg.labels_)
+    except ValueError:
+        cluster_validity = -1
+    
     validity_score = clust_alg.relative_validity_
     n_clusters = np.max(clust_alg.labels_)
 
     return (min_cluster_size, min_samples, validity_score, n_clusters)
 
 
-def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', allow_single_cluster=False, starting_size = 2):
+def hyperparameter_selection(df, cores=10,
+                             method='eom', metric='euclidean',
+                             allow_single_cluster=False, starting_size = 2):
     """
     Input:
     df - embeddings from UMAP
@@ -115,19 +124,28 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
     Output:
     Quality metrics for multiple HDBSCAN clusterings
     """
-    pool = mp.Pool(cores)
+    # pool = mp.Pool(cores)
     warnings.filterwarnings('ignore')
     results = []
     n = df.shape[0]
-    for gamma in range(starting_size, int(np.log(max(n, 3)))):
-        mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
-                      range(1, int(2 * np.log(n)))]
-        for result in mp_results:
-            result = result.get()
-            results.append(result)
+    if starting_size >= np.log2(n):
+        end_size = starting_size + 10
+    else:
+        end_size = min(max(np.log2(n), min(10, (n - 1) // 2)), 10)
+    
+    for gamma in range(starting_size, int(end_size)):
+        # mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
+        #               range(starting_size, int(end_size))]
+        # for result in mp_results:
+        #     result = result.get()
+        #     results.append(result)
+        for ms in range(starting_size, int(end_size)):
+            mp_results = mp_cluster(df, n, gamma, ms, method,
+                                    metric, allow_single_cluster, cores)
+            results.append(mp_results)
 
-    pool.close()
-    pool.join()
+    # pool.close()
+    # pool.join()
 
     return results
 
@@ -136,13 +154,13 @@ def best_validity(source):
     """
     Retrieves best clustering result based on the relative validity metric
     """
-    try:
-        cols = ['min_cluster_size', 'min_samples', 'validity_score', 'n_clusters']
-        df =  pd.DataFrame(source, columns = cols)
-        df['validity_score'] = df['validity_score'].fillna(0)
-        best_validity = df.loc[df['validity_score'].idxmax()]
-    except TypeError:
-        best_validity = None
+    # try:
+    cols = ['min_cluster_size', 'min_samples', 'validity_score', 'n_clusters']
+    df =  pd.DataFrame(source, columns = cols)
+    df['validity_score'] = df['validity_score'].fillna(0)
+    best_validity = df.loc[df['validity_score'].idxmax()]
+    # except TypeError:
+        # best_validity = None
         
     return best_validity
 
@@ -152,7 +170,6 @@ def cluster_distances(embeddings, cluster_result, threads):
     with threadpoolctl.threadpool_limits(limits=threads, user_api='blas'):
         pool = mp.Pool(max(int(threads / 5), 1))
         labels = set(cluster_result.labels_)
-        logging.info(labels)
         try:
             labels.remove(-1)
         except KeyError:

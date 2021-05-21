@@ -21,7 +21,7 @@ def get_version(relpath):
 
 
 setup(
-    name='flight',
+    name='flight-genome',
     version=get_version("flight/__init__.py"),
     url='https://github.com/rhysnewell/flight',
     license='BSD-3',
