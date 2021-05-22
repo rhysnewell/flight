@@ -548,7 +548,8 @@ class Binner():
 
     def pairwise_distances(self, plots, n, x_min, x_max, y_min, y_max,
                            bin_unbinned=False, reembed=False,
-                           size_only=False, big_only=False, debug=False):
+                           size_only=False, big_only=False,
+                           dissolve=False, debug=False):
         """
         Function for deciding whether a bin needs to be reembedded or split up
         Uses internal bin statistics, mainly mean ADP and Rho values
@@ -584,9 +585,40 @@ class Binner():
             # if len(tids) != len(set(tids)):
             #     tids = list(set(tids))
             #     self.bins[bin] = tids
-            if big_only:
+            if dissolve:
 
-                filtering = True
+                contigs, log_lengths, tnfs = self.extract_contigs(tids)
+                bin_size = contigs['contigLen'].sum()
+                if bin_size < 1e6:
+                    self.unbinned_tids = self.unbinned_tids + tids
+                    bins_to_remove.append(bin)
+                else:
+                    try:
+                        mean_md, \
+                        mean_tnf, \
+                        mean_euc, \
+                        mean_agg, \
+                        per_contig_avg = \
+                            metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                 log_lengths.values[:, None],
+                                                                 tnfs.iloc[:, 2:].values), axis=1),
+                                                 n_samples,
+                                                 sample_distances)
+
+                        per_contig_avg = np.array(per_contig_avg)
+                    except ZeroDivisionError:
+                        # Only one contig left, break out
+                        break
+
+                    # IFF the bin is extra busted just obliterate it
+                    if (mean_md >= 0.45 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3):
+                        self.unbinned_tids = self.unbinned_tids + tids
+                        bins_to_remove.append(bin)
+
+
+            elif big_only:
+
+                # filtering = True
                 remove = False # Whether to completely remove original bin
                 removed_single = [] # Single contig bin
                 removed_together = [] # These contigs form their own bin
@@ -598,7 +630,7 @@ class Binner():
                     # while filtering:
 
                     # Extract current contigs and get statistics
-                    contigs, log_lengths, tnfs = self.extract_contigs(tids)
+                    # contigs, log_lengths, tnfs = self.extract_contigs(tids)
                     try:
                         mean_md, \
                         mean_tnf, \
@@ -1125,10 +1157,12 @@ class Binner():
 
     def reembed(self, tids, max_bin_id, plots,
                            x_min=20, x_max=20, y_min=20, y_max=20, n=0,
+                           max_n_neighbours = 50,
                            delete_unbinned = False,
                            bin_unbinned=False,
                            force=False,
                            reembed=False,
+                           skip_clustering=False,
                            debug=False):
         """
         Recluster -> Re-embedding -> Reclustering on the specified set of contigs
@@ -1169,106 +1203,109 @@ class Binner():
 
         if len(set(tids)) > 1:
 
-            unbinned_array = self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'].isin(tids)
-            unbinned_embeddings = self.embeddings[unbinned_array]
+            if not skip_clustering:
+                unbinned_array = self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'].isin(tids)
+                unbinned_embeddings = self.embeddings[unbinned_array]
 
-            if reembed:
-                self.min_cluster_size = 2
+                if reembed:
+                    self.min_cluster_size = 2
+                else:
+                    self.min_cluster_size = 2
+                try:
+                    labels_single = self.iterative_clustering(unbinned_embeddings,
+                                                            allow_single_cluster=True,
+                                                            prediction_data=False,
+                                                            double=False)
+                    labels_multi = self.iterative_clustering(unbinned_embeddings,
+                                                             allow_single_cluster=False,
+                                                             prediction_data=False,
+                                                             double=False)
+
+                    # if max_validity == -1:
+                    # Try out precomputed method, validity metric does not work here
+                    # so we just set it to 1 and hope it ain't shit. Method for this is
+                    # not accept a clustering result with noise. Not great, but
+
+                    if self.n_samples > 0:
+                        n_samples = self.n_samples
+                        sample_distances = self.short_sample_distance
+                    else:
+                        n_samples = self.long_samples
+                        sample_distances = self.long_sample_distance
+
+                    distances = metrics.distance_matrix(np.concatenate((contigs.iloc[:, 3:].values,
+                                                            log_lengths.values[:, None],
+                                                            tnfs.iloc[:, 2:].values), axis=1),
+                                                            n_samples,
+                                                            sample_distances)
+
+                    labels_precomputed = self.iterative_clustering(distances, metric="precomputed")
+
+                    validity_single, _ = self._validity(labels_single, unbinned_embeddings)
+                    validity_multi, _ = self._validity(labels_multi, unbinned_embeddings)
+                    validity_precom, _ = self._validity(labels_precomputed, unbinned_embeddings)
+
+                    # Calculate silhouette scores, will fail if only one label
+                    # Silhouette scores don't work too well with HDBSCAN though since it
+                    # usually requires pretty uniform clusters to generate a value of use
+                    try:
+                        silho_single = sk_metrics.silhouette_score(unbinned_embeddings, labels_single)
+                    except ValueError:
+                        silho_single = -1
+
+                    try:
+                        silho_multi = sk_metrics.silhouette_score(unbinned_embeddings, labels_multi)
+                    except ValueError:
+                        silho_multi = -1
+
+                    try:
+                        silho_precom = sk_metrics.silhouette_score(distances, labels_precomputed)
+                    except ValueError:
+                        silho_precom = -1
+
+                    max_single = max(validity_single, silho_single)
+                    max_multi = max(validity_multi, silho_multi)
+                    max_precom = max(validity_precom, silho_precom)
+
+                    if debug:
+                        print('Allow single cluster validity: ', max_single)
+                        print('Allow multi cluster validity: ', max_multi)
+                        print('precom cluster validity: ', max_precom)
+
+
+                    if max_single == -1 and max_multi == -1 and max_precom == -1:
+                        self.labels = labels_single
+                        max_validity = -1
+                        min_validity = 1
+                    elif max(max_single, max_multi, max_precom) == max_precom:
+                        self.labels = labels_precomputed
+                        max_validity = max_precom
+                        precomputed = True
+                        min_validity = 0.7
+                    elif max(max_single, max_multi) == max_single:
+                        self.labels = labels_single
+                        max_validity = max_single
+                        min_validity = 0.85
+                    else:
+                        self.labels = labels_multi
+                        max_validity = max_multi
+                        min_validity = 0.85
+
+                    # get original size of bin
+
+
+                    set_labels = set(self.labels)
+
+                    if debug:
+                        print("No. of Clusters:", len(set_labels), set_labels)
+
+                except IndexError:
+                    # Index error occurs when doing recluster after adding disconnected TNF
+                    # contigs. Since the embedding array does not contain the missing contigs
+                    # as such, new embeddings have to be calculated
+                    max_validity = 0
             else:
-                self.min_cluster_size = 2
-            try:
-                labels_single = self.iterative_clustering(unbinned_embeddings,
-                                                        allow_single_cluster=True,
-                                                        prediction_data=False,
-                                                        double=False)
-                labels_multi = self.iterative_clustering(unbinned_embeddings,
-                                                         allow_single_cluster=False,
-                                                         prediction_data=False,
-                                                         double=False)
-
-                # if max_validity == -1:
-                # Try out precomputed method, validity metric does not work here
-                # so we just set it to 1 and hope it ain't shit. Method for this is
-                # not accept a clustering result with noise. Not great, but
-
-                if self.n_samples > 0:
-                    n_samples = self.n_samples
-                    sample_distances = self.short_sample_distance
-                else:
-                    n_samples = self.long_samples
-                    sample_distances = self.long_sample_distance
-
-                distances = metrics.distance_matrix(np.concatenate((contigs.iloc[:, 3:].values,
-                                                        log_lengths.values[:, None],
-                                                        tnfs.iloc[:, 2:].values), axis=1),
-                                                        n_samples,
-                                                        sample_distances)
-
-                labels_precomputed = self.iterative_clustering(distances, metric="precomputed")
-
-                validity_single, _ = self._validity(labels_single, unbinned_embeddings)
-                validity_multi, _ = self._validity(labels_multi, unbinned_embeddings)
-                validity_precom, _ = self._validity(labels_precomputed, unbinned_embeddings)
-
-                # Calculate silhouette scores, will fail if only one label
-                # Silhouette scores don't work too well with HDBSCAN though since it
-                # usually requires pretty uniform clusters to generate a value of use
-                try:
-                    silho_single = sk_metrics.silhouette_score(unbinned_embeddings, labels_single)
-                except ValueError:
-                    silho_single = -1
-
-                try:
-                    silho_multi = sk_metrics.silhouette_score(unbinned_embeddings, labels_multi)
-                except ValueError:
-                    silho_multi = -1
-
-                try:
-                    silho_precom = sk_metrics.silhouette_score(distances, labels_precomputed)
-                except ValueError:
-                    silho_precom = -1
-
-                max_single = max(validity_single, silho_single)
-                max_multi = max(validity_multi, silho_multi)
-                max_precom = max(validity_precom, silho_precom)
-
-                if debug:
-                    print('Allow single cluster validity: ', max_single)
-                    print('Allow multi cluster validity: ', max_multi)
-                    print('precom cluster validity: ', max_precom)
-
-
-                if max_single == -1 and max_multi == -1 and max_precom == -1:
-                    self.labels = labels_single
-                    max_validity = -1
-                    min_validity = 1
-                elif max(max_single, max_multi, max_precom) == max_precom:
-                    self.labels = labels_precomputed
-                    max_validity = max_precom
-                    precomputed = True
-                    min_validity = 0.7
-                elif max(max_single, max_multi) == max_single:
-                    self.labels = labels_single
-                    max_validity = max_single
-                    min_validity = 0.85
-                else:
-                    self.labels = labels_multi
-                    max_validity = max_multi
-                    min_validity = 0.85
-
-                # get original size of bin
-
-
-                set_labels = set(self.labels)
-
-                if debug:
-                    print("No. of Clusters:", len(set_labels), set_labels)
-
-            except IndexError:
-                # Index error occurs when doing recluster after adding disconnected TNF
-                # contigs. Since the embedding array does not contain the missing contigs
-                # as such, new embeddings have to be calculated
-                max_validity = 0
+                max_validity = -1
 
             if max_validity < 0.95 and reembed and len(tids) >= 5:
                 # Generate new emebddings if clustering seems fractured
@@ -1276,7 +1313,7 @@ class Binner():
 
                 try:
 
-                    self.fit_transform(tids, 50)
+                    self.fit_transform(tids, max_n_neighbours)
 
                     new_embeddings = self.intersection_mapper.embedding_
                     labels_single = self.iterative_clustering(new_embeddings,
@@ -1718,7 +1755,7 @@ class Binner():
 
 
 
-    def bin_filtered(self, min_bin_size=200000):
+    def bin_filtered(self,  min_bin_size=200000, keep_unbinned=False, unbinned_only=False):
         """
         Bins out any disconnected vertices if they are of sufficient size
         """
@@ -1730,38 +1767,50 @@ class Binner():
 
         if isinstance(max_bin_id, np.int64):
             max_bin_id = max_bin_id.item()
-                    
-        for (idx, contig) in self.large_contigs[self.disconnected].iterrows():
-            if contig["contigLen"] >= min_bin_size:
-                self.bins[max_bin_id] = [self.assembly[contig["contigName"]]]
-                max_bin_id += 1
-            try:
-                self.bins[0].append(self.assembly[contig["contigName"]])
-            except KeyError:
-                self.bins[0] = [self.assembly[contig["contigName"]]]
+        if not unbinned_only:
+            for (idx, contig) in self.large_contigs[self.disconnected].iterrows():
+                if contig["contigLen"] >= min_bin_size:
+                    self.bins[max_bin_id] = [self.assembly[contig["contigName"]]]
+                    max_bin_id += 1
+                elif not keep_unbinned:
+                    try:
+                        self.bins[0].append(self.assembly[contig["contigName"]])
+                    except KeyError:
+                        self.bins[0] = [self.assembly[contig["contigName"]]]
+                else:
+                    self.unbinned_tids.append(contig['tid'])
 
-        for (idx, contig) in self.large_contigs[~self.disconnected][self.disconnected_intersected].iterrows():
-            if contig["contigLen"] >= min_bin_size:
-                self.bins[max_bin_id] = [self.assembly[contig["contigName"]]]
-                max_bin_id += 1
-            try:
-                self.bins[0].append(self.assembly[contig["contigName"]])
-            except KeyError:
-                self.bins[0] = [self.assembly[contig["contigName"]]]
+            for (idx, contig) in self.large_contigs[~self.disconnected][self.disconnected_intersected].iterrows():
+                if contig["contigLen"] >= min_bin_size:
+                    self.bins[max_bin_id] = [self.assembly[contig["contigName"]]]
+                    max_bin_id += 1
+                elif not keep_unbinned:
+                    try:
+                        self.bins[0].append(self.assembly[contig["contigName"]])
+                    except KeyError:
+                        self.bins[0] = [self.assembly[contig["contigName"]]]
+                else:
+                    self.unbinned_tids.append(contig['tid'])
 
 
         unbinned_contigs, _, _ = self.extract_contigs(self.unbinned_tids)
         for contig in unbinned_contigs.itertuples():
             if contig.contigLen >= min_bin_size:
                 self.bins[max_bin_id] = [self.assembly[contig.contigName]]
+                self.unbinned_tids.remove(self.assembly[contig.contigName])
                 max_bin_id += 1
-            else:
+            elif not keep_unbinned:
                 try:
                     self.bins[0].append(self.assembly[contig.contigName])
                 except KeyError:
                     self.bins[0] = [self.assembly[contig.contigName]]
+            else:
+                pass
 
-        self.bins[0] = list(set(self.bins[0]))
+        if not keep_unbinned:
+            self.bins[0] = list(set(self.bins[0]))
+        else:
+            self.unbinned_tids = list(np.sort(self.unbinned_tids))
         
 
     def bin_big_contigs(self, min_bin_size=200000):
