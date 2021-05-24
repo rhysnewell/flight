@@ -350,7 +350,7 @@ class Binner():
             self.disconnected = np.array([True for i in range(self.large_contigs.values.shape[0])])
 
 
-    def check_contigs(self, tids, rho_threshold=0.05, euc_threshold=3):
+    def check_contigs(self, tids, rho_threshold=0.05, euc_threshold=2):
         logging.info("Checking TNF connections...")
         disconnected_tids = []
         if self.n_samples > 0:
@@ -626,7 +626,7 @@ class Binner():
 
                 bin_size = contigs['contigLen'].sum()
 
-                if bin_size >= 1e6:
+                if bin_size >= 5e6:
                     # while filtering:
 
                     # Extract current contigs and get statistics
@@ -653,25 +653,25 @@ class Binner():
                     if len(tids) == 2:
                         # Higher thresholds for fewer contigs
                         md_filt = 0.35
-                        agg_filt = 0.45
-                        euc_filt = 3
+                        agg_filt = 0.4
+                        euc_filt = 2
                         rho_filt = 0.05
                         # Two contigs by themselves that are relatively distant. Remove them separately
                         together = False
                     elif len(tids) <= 5:
                         # Higher thresholds for fewer contigs
                         md_filt = 0.35
-                        agg_filt = 0.45
-                        euc_filt = 3
+                        agg_filt = 0.4
+                        euc_filt = 2
                         rho_filt = 0.05
-                        together = True
+                        together = False
                     else:
                         # Lower thresholds for fewer contigs
                         md_filt = 0.35
-                        agg_filt = 0.45
-                        euc_filt = 3
+                        agg_filt = 0.4
+                        euc_filt = 2
                         rho_filt = 0.05
-                        together = True
+                        together = False
 
 
 
@@ -683,18 +683,29 @@ class Binner():
                         for max_idx in range(per_contig_avg.shape[0]):
                             # max_idx = np.argmax(per_contig_avg[:, 3]) # Check mean_agg first
                             max_values = per_contig_avg[max_idx, :]
+                            contig_length = contigs['contigLen'].iloc[max_idx]
 
-                            if (max_values[3] >= agg_filt or max_values[0] >= md_filt
-                                or max_values[3] >= (mean_agg + agg_std)
-                                or max_values[0] >= (mean_md + md_std)) and \
-                                    ((max_values[1] >= rho_filt or max_values[1] >= (mean_tnf + rho_std))
-                                     or (max_values[2] >= euc_filt or max_values[2] >= (mean_euc + euc_std))):
-                                if together:
-                                    removed_inner.append(tids[max_idx])
-                                    removed_together.append(tids[max_idx])
-                                else:
-                                    removed_inner.append(tids[max_idx])
-                                    removed_single.append(tids[max_idx])
+                            if contig_length >= min(bin_size // 2, 3e6):
+                                if (max_values[3] >= agg_filt or max_values[0] >= md_filt
+                                    or max_values[3] >= (mean_agg + agg_std)
+                                    or max_values[0] >= (mean_md + md_std)) and \
+                                        ((max_values[1] >= rho_filt
+                                          or max_values[1] >= (mean_tnf + rho_std))
+                                         or (max_values[2] >= euc_filt
+                                             or max_values[2] >= (mean_euc + euc_std))):
+                                    if together:
+                                        removed_inner.append(tids[max_idx])
+                                        removed_together.append(tids[max_idx])
+                                    else:
+                                        removed_inner.append(tids[max_idx])
+                                        removed_single.append(tids[max_idx])
+                                elif (max_values[1] >= 0.2 or max_values[2] >= 4):
+                                    if together:
+                                        removed_inner.append(tids[max_idx])
+                                        removed_together.append(tids[max_idx])
+                                    else:
+                                        removed_inner.append(tids[max_idx])
+                                        removed_single.append(tids[max_idx])
 
                         if len(removed_inner) > 0:
                             [tids.remove(r) for r in removed_inner]
@@ -775,7 +786,7 @@ class Binner():
                             bins_to_remove.append(bin)
 
                     if not remove:
-                        f_level = 0.2
+                        f_level = 0.15
                         m_level = 0.15
                         shared_level = 0.1
 
@@ -803,18 +814,19 @@ class Binner():
 
                         if ((mean_md >= m_level
                             or mean_agg >= f_level
-                            or (mean_md >= shared_level and (mean_tnf >= shared_level or mean_euc >= 2)))
+                            or (mean_md >= shared_level and (mean_tnf >= shared_level or mean_euc >= 2))
+                                    or ((mean_md >= 0.05 or mean_agg >= 0.15) and (mean_tnf >= 0.1 or mean_euc >= 2)))
                                 and bin_size > 1e6) or bin_size >= 12e6:
                             logging.debug(bin, mean_md, mean_tnf, mean_agg, len(tids))
                             reembed_separately.append(bin)
-                            if ((mean_md >= 0.3 or mean_agg >= 0.4) and (mean_tnf >= 0.1 or mean_euc >= 3)) \
-                                    or bin_size >= 13e6:
+                            if (((mean_md >= 0.35 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3)) \
+                                    or bin_size >= 13e6):
                                 if debug:
                                     logging.debug("Forcing bin %d" % bin)
                                     self.compare_bins(bin)
                                 force_new_clustering.append(True) # send it to turbo hell
                                 reembed_if_no_cluster.append(True)
-                            else:
+                            elif bin_size > 1e6:
                                 if debug:
                                     print("Reclustering bin %d" % bin)
                                 force_new_clustering.append(False) # send it to regular hell
@@ -835,8 +847,9 @@ class Binner():
             elif size_only:
                 logging.debug("Size only check when size only is ", size_only)
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
+                bin_size = contigs['contigLen'].sum()
 
-                if contigs['contigLen'].sum() >= 13e6 and bin!=0:
+                if bin_size >= 13e6 and bin!=0:
                     # larger than most bacterial genomes, way larger than archaeal
                     # Likely strains getting bunched together. But they won't disentangle, so just dismantle the bin
                     # rescuing any large contigs. Only way I can think  of atm to deal with this.
@@ -846,7 +859,7 @@ class Binner():
                         reembed_separately.append(bin)
                         reembed_if_no_cluster.append(True)
                         force_new_clustering.append(True) # turbo hell
-                elif contigs['contigLen'].sum() >= 1e6 and bin!=0:
+                elif bin_size >= 1e6 and bin!=0:
                     try:
                         mean_md, \
                         mean_tnf, \
@@ -911,7 +924,8 @@ class Binner():
                                 print('contigs removed: ', len(tids))
                                 _, _, _, _ = self.compare_bins(bin)
 
-                        if (mean_md >= 0.3 or mean_agg >= 0.4) and (mean_tnf >= 0.1 or mean_euc >= 3):
+                        if (mean_md >= 0.35 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3) \
+                                and bin_size > 1e6:
                             if debug:
                                 print("In final bit. ", bin)
                                 self.compare_bins(bins)
@@ -1374,8 +1388,8 @@ class Binner():
                 print("Max and min valid and noise: ", max_validity, min_validity, noise)
 
             findem = [
-                # 'contig_361_pilon', 'contig_706_pilon', 'contig_334_pilon', 'contig_398_pilon', 'contig_380_pilon']
-                      'contig_591_pilon', 'contig_941_pilon']
+                'contig_108_pilon', 'contig_1250_pilon',
+                'scaffold_1715_pilon', 'contig_1687_pilon', 'contig_1719_pilon', 'contig_1718_pilon']
 
             names = list(contigs['contigName'])
             indices = []

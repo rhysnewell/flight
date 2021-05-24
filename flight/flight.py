@@ -477,7 +477,8 @@ def bin(args):
                                                       0))
                             clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
 
-                            clusterer.plot(['contig_591_pilon', 'contig_941_pilon'])
+                            clusterer.plot(['contig_108_pilon', 'contig_1250_pilon',
+                                            'scaffold_1715_pilon', 'contig_1687_pilon', 'contig_1719_pilon', 'contig_1718_pilon'])
 
 
                             logging.info("Reclustering individual bins.")
@@ -491,6 +492,7 @@ def bin(args):
                                               delete_unbinned=True,
                                               force=True)
 
+                            clusterer.sort_bins()
                             # If after everything there are excessively large clusters hanging around
                             # This is where we send them to turbo hell. This step is probably the main
                             # reason Rosella won't work on eukaryotic genomes, if we made this step optional
@@ -504,6 +506,7 @@ def bin(args):
                                                                         y_min, y_max,
                                                                         size_only=True,
                                                                         reembed=True)
+                                clusterer.sort_bins()
                                 n += 1
                                 if not clusterer.overclustered:
                                     break  # no more clusters have broken
@@ -521,6 +524,7 @@ def bin(args):
                                                                         x_min, x_max,
                                                                         y_min, y_max,
                                                                         reembed=True)
+                                clusterer.sort_bins()
                                 n += 1
                                 if not clusterer.overclustered:
                                     break # no more clusters have broken
@@ -533,28 +537,28 @@ def bin(args):
                             # get rid of them is to just use this smooth brain method
                             # n = 0
                             # while n <= 5:
-                            #     plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
-                            #                                             big_only=True)
-                            #
+                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
+                                                                    big_only=True)
+                            # #
                             #     n += 1
 
                             # Bin unfiltered but keep
-                            clusterer.bin_filtered(1e6, keep_unbinned=True)
-                            plots, n = clusterer.pairwise_distances(plots, n,
-                                                                    x_min, x_max,
-                                                                    y_min, y_max,
-                                                                    dissolve=True)
+                            # clusterer.bin_filtered(1e6, keep_unbinned=True)
+                            # plots, n = clusterer.pairwise_distances(plots, n,
+                            #                                         x_min, x_max,
+                            #                                         y_min, y_max,
+                            #                                         dissolve=True)
+                            #
+                            # clusterer.reembed(clusterer.unbinned_tids,
+                            #                   max(clusterer.bins.keys()), plots,
+                            #                   x_min, x_max, y_min, y_max, n, 100,
+                            #                   reembed=True,
+                            #                   delete_unbinned=True,
+                            #                   force=True,
+                            #                   skip_clustering=True)
 
-                            clusterer.reembed(clusterer.unbinned_tids,
-                                              max(clusterer.bins.keys()), plots,
-                                              x_min, x_max, y_min, y_max, n, 100,
-                                              reembed=True,
-                                              delete_unbinned=True,
-                                              force=True,
-                                              skip_clustering=True)
 
-
-                            clusterer.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=True)
+                            clusterer.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
                         else:
                             clusterer.rescue_contigs(int(args.min_bin_size))
                     else:
