@@ -334,11 +334,11 @@ class Binner():
         try:
 
             # We check the euclidean distances of large contigs as well.
-            disconnections = self.check_contigs(self.large_contigs[self.large_contigs['contigLen'] > 1e6]['tid'])
+            disconnections = self.check_contigs(self.large_contigs[self.large_contigs['contigLen'] > 2e6]['tid'])
 
             logging.info("Running UMAP Filter - %s" % self.rho_reducer)
             self.rho_reducer.n_neighbors = 5
-            self.rho_reducer.disconnection_distance = 0.05
+            self.rho_reducer.disconnection_distance = 0.15
 
             filterer_rho = self.rho_reducer.fit(
                 np.concatenate((self.log_lengths.values[:, None],
@@ -626,7 +626,7 @@ class Binner():
 
                 bin_size = contigs['contigLen'].sum()
 
-                if bin_size >= 5e6:
+                if bin_size >= 3e6:
                     # while filtering:
 
                     # Extract current contigs and get statistics
@@ -653,39 +653,45 @@ class Binner():
                     if len(tids) == 2:
                         # Higher thresholds for fewer contigs
                         md_filt = 0.35
-                        agg_filt = 0.4
+                        agg_filt = 0.45
                         euc_filt = 2
                         rho_filt = 0.05
                         # Two contigs by themselves that are relatively distant. Remove them separately
-                        together = False
+                        together = True
                     elif len(tids) <= 5:
                         # Higher thresholds for fewer contigs
                         md_filt = 0.35
-                        agg_filt = 0.4
+                        agg_filt = 0.45
                         euc_filt = 2
                         rho_filt = 0.05
-                        together = False
+                        together = True
                     else:
                         # Lower thresholds for fewer contigs
                         md_filt = 0.35
-                        agg_filt = 0.4
+                        agg_filt = 0.45
                         euc_filt = 2
                         rho_filt = 0.05
-                        together = False
+                        together = True
 
 
 
-                    if mean_md >= 0.15 or mean_agg >= 0.3:
-                        md_std = max(np.std(per_contig_avg[:, 0]), 0.15)
+                    if mean_md >= 0.15 or mean_agg >= 0.25:
+                        if debug:
+                            print("Checking big contigs for bin: ", bin)
+                        md_std = max(np.std(per_contig_avg[:, 0]), 0.1)
                         rho_std = max(np.std(per_contig_avg[:, 1]), 0.05)
                         euc_std = max(np.std(per_contig_avg[:, 2]), 0.5)
-                        agg_std = max(np.std(per_contig_avg[:, 3]), 0.15)
+                        agg_std = max(np.std(per_contig_avg[:, 3]), 0.1)
                         for max_idx in range(per_contig_avg.shape[0]):
                             # max_idx = np.argmax(per_contig_avg[:, 3]) # Check mean_agg first
                             max_values = per_contig_avg[max_idx, :]
                             contig_length = contigs['contigLen'].iloc[max_idx]
+                            if debug:
+                                print("Contig size and tid: ", contig_length, tids[max_idx])
 
-                            if contig_length >= min(bin_size // 2, 3e6):
+                            if contig_length >= 1e6:
+                                if debug:
+                                    print("Found large contig: ", max_idx, tids[max_idx])
                                 if (max_values[3] >= agg_filt or max_values[0] >= md_filt
                                     or max_values[3] >= (mean_agg + agg_std)
                                     or max_values[0] >= (mean_md + md_std)) and \
@@ -693,13 +699,16 @@ class Binner():
                                           or max_values[1] >= (mean_tnf + rho_std))
                                          or (max_values[2] >= euc_filt
                                              or max_values[2] >= (mean_euc + euc_std))):
+
+                                    if debug:
+                                        print("Removing contig: ", max_idx, tids[max_idx])
                                     if together:
                                         removed_inner.append(tids[max_idx])
                                         removed_together.append(tids[max_idx])
                                     else:
                                         removed_inner.append(tids[max_idx])
                                         removed_single.append(tids[max_idx])
-                                elif (max_values[1] >= 0.2 or max_values[2] >= 4):
+                                elif (max_values[1] >= 0.25 or max_values[2] >= 6.5):
                                     if together:
                                         removed_inner.append(tids[max_idx])
                                         removed_together.append(tids[max_idx])
@@ -767,8 +776,8 @@ class Binner():
                     if mean_md >= 0.15 or mean_agg >= 0.25:
                         # Simply remove
                         for (tid, avgs) in zip(tids, per_contig_avg):
-                            if (avgs[0] >= 0.6 and
-                                 (avgs[1] > 0.1 or avgs[2] >= 4.5)):
+                            if ((avgs[0] >= 0.6 or avgs[3] >= 0.45) and
+                                 (avgs[1] > 0.1 or avgs[2] >= 4)):
                                 removed.append(tid)
 
                     remove = False
@@ -819,12 +828,15 @@ class Binner():
                                 and bin_size > 1e6) or bin_size >= 12e6:
                             logging.debug(bin, mean_md, mean_tnf, mean_agg, len(tids))
                             reembed_separately.append(bin)
-                            if (((mean_md >= 0.35 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3)) \
+                            if (((mean_md >= 0.35 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3))
                                     or bin_size >= 13e6):
                                 if debug:
                                     logging.debug("Forcing bin %d" % bin)
                                     self.compare_bins(bin)
-                                force_new_clustering.append(True) # send it to turbo hell
+                                if bin_size >= 13e6:
+                                    force_new_clustering.append(True) # send it to turbo hell
+                                else:
+                                    force_new_clustering.append(False)
                                 reembed_if_no_cluster.append(True)
                             elif bin_size > 1e6:
                                 if debug:
@@ -832,13 +844,13 @@ class Binner():
                                 force_new_clustering.append(False) # send it to regular hell
                                 reembed_if_no_cluster.append(True)
                         else:
-                            # reembed_separately.append(bin)
-                            # force_new_clustering.append(False)  # send it to regular hell
-                            # reembed_if_no_cluster.append(False) # take it easy, okay?
-                            if debug:
-                                print("bin survived %d" % bin)
-                                self.compare_bins(bin)
-                            self.survived.append(bin)
+                            reembed_separately.append(bin)
+                            force_new_clustering.append(False)  # send it to regular hell
+                            reembed_if_no_cluster.append(False) # take it easy, okay?
+                            # if debug:
+                            #     print("bin survived %d" % bin)
+                            #     self.compare_bins(bin)
+                            # self.survived.append(bin)
                 else:
                     logging.debug(bin, self.survived)
                 
@@ -883,8 +895,8 @@ class Binner():
                     if mean_md >= 0.15 or mean_agg >= 0.25:
                         # Simply remove
                         for (tid, avgs) in zip(tids, per_contig_avg):
-                            if (avgs[0] >= 0.6 and
-                                    (avgs[1] > 0.1 or avgs[2] >= 4.5)):
+                            if ((avgs[0] >= 0.6 or avgs[3] >= 0.45) and
+                                    (avgs[1] > 0.1 or avgs[2] >= 4)):
                                 removed.append(tid)
 
                     remove = False
@@ -928,10 +940,10 @@ class Binner():
                                 and bin_size > 1e6:
                             if debug:
                                 print("In final bit. ", bin)
-                                self.compare_bins(bins)
+                                self.compare_bins(bin)
                             reembed_separately.append(bin)
                             reembed_if_no_cluster.append(True)
-                            force_new_clustering.append(True)  # send it to turbo hell
+                            force_new_clustering.append(False)  # send it to turbo hell
                         else:
                             # self.survived.append(bin)
                             pass
@@ -948,7 +960,7 @@ class Binner():
         except ValueError:
             max_bin_id = 1
         for k, v in new_bins.items():
-            self.bins[max_bin_id + k] = list(set(np.sort(np.array(v))))
+            self.bins[max_bin_id + k] = list(np.sort(np.array(v)))
             
         for bin, force_new, reembed_cluster in zip(reembed_separately, force_new_clustering, reembed_if_no_cluster):
             tids = self.bins[bin]
@@ -961,11 +973,6 @@ class Binner():
 
             if isinstance(max_bin_id, np.int64):
                 max_bin_id = max_bin_id.item()
-
-            if bin == problem_bin:
-                debug = True
-            else:
-                debug = False
                 
             plots, remove = self.reembed(tids, max_bin_id, plots,
                                     x_min, x_max, y_min, y_max, n,
@@ -978,6 +985,7 @@ class Binner():
                 if debug:
                     print("Removing bin %d..." % bin)
                 bins_to_remove.append(bin)
+                self.overclustered = True
             elif force_new:
                 logging.debug("Removing bin %d through force..." % bin)
                 big_tids = big_tids + self.bins[bin]
@@ -989,7 +997,7 @@ class Binner():
 
         for k in bins_to_remove:
             try:
-                result = self.bins.pop(k)
+                _ = self.bins.pop(k)
             except KeyError:
                 pass
 
@@ -1211,6 +1219,10 @@ class Binner():
         original_size = contigs['contigLen'].sum()
         min_validity = 1
 
+        if not reembed and not force:
+            strict = True
+        else:
+            strict = False
 
         if original_size >= 14e6:
             force = True
@@ -1295,15 +1307,24 @@ class Binner():
                         self.labels = labels_precomputed
                         max_validity = max_precom
                         precomputed = True
-                        min_validity = 0.7
+                        if strict:
+                            min_validity = 0.8
+                        else:
+                            min_validity = 0.7
                     elif max(max_single, max_multi) == max_single:
                         self.labels = labels_single
                         max_validity = max_single
-                        min_validity = 0.85
+                        if strict:
+                            min_validity = 0.9
+                        else:
+                            min_validity = 0.85
                     else:
                         self.labels = labels_multi
                         max_validity = max_multi
-                        min_validity = 0.85
+                        if strict:
+                            min_validity = 0.9
+                        else:
+                            min_validity = 0.85
 
                     # get original size of bin
 

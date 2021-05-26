@@ -493,11 +493,16 @@ def bin(args):
                                               force=True)
 
                             clusterer.sort_bins()
+
+                            n = 0
+                            # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
+                            #                                         big_only=True)
+                            # clusterer.sort_bins()
                             # If after everything there are excessively large clusters hanging around
                             # This is where we send them to turbo hell. This step is probably the main
                             # reason Rosella won't work on eukaryotic genomes, if we made this step optional
                             # then it might work on them but I don't have any good benchmarks to test on.
-                            n = 0
+
                             while n <= 100:
                                 logging.debug("iteration: ", n)
                                 clusterer.overclustered = False  # large clusters
@@ -535,12 +540,12 @@ def bin(args):
                             # These are just contigs that either belong by themselves or are
                             # just noise that UMAP decided to put with other stuff. Only way to
                             # get rid of them is to just use this smooth brain method
-                            # n = 0
-                            # while n <= 5:
-                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
-                                                                    big_only=True)
-                            # #
-                            #     n += 1
+                            n = 0
+                            while n <= 5:
+                                plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
+                                                                        big_only=True)
+                                clusterer.sort_bins()
+                                n += 1
 
                             # Bin unfiltered but keep
                             # clusterer.bin_filtered(1e6, keep_unbinned=True)
