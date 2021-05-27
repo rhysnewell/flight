@@ -334,7 +334,7 @@ class Binner():
         try:
 
             # We check the euclidean distances of large contigs as well.
-            disconnections = self.check_contigs(self.large_contigs[self.large_contigs['contigLen'] > 2e6]['tid'])
+            disconnections = self.check_contigs(self.large_contigs[self.large_contigs['contigLen'] > 1.5e6]['tid'], 0.1, 2)
 
             logging.info("Running UMAP Filter - %s" % self.rho_reducer)
             self.rho_reducer.n_neighbors = 5
@@ -549,7 +549,7 @@ class Binner():
     def pairwise_distances(self, plots, n, x_min, x_max, y_min, y_max,
                            bin_unbinned=False, reembed=False,
                            size_only=False, big_only=False,
-                           dissolve=False, debug=False):
+                           quick_filter=False, debug=False):
         """
         Function for deciding whether a bin needs to be reembedded or split up
         Uses internal bin statistics, mainly mean ADP and Rho values
@@ -585,7 +585,7 @@ class Binner():
             # if len(tids) != len(set(tids)):
             #     tids = list(set(tids))
             #     self.bins[bin] = tids
-            if dissolve:
+            if quick_filter:
 
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
                 bin_size = contigs['contigLen'].sum()
@@ -610,10 +610,32 @@ class Binner():
                         # Only one contig left, break out
                         break
 
-                    # IFF the bin is extra busted just obliterate it
-                    if (mean_md >= 0.45 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3):
-                        self.unbinned_tids = self.unbinned_tids + tids
-                        bins_to_remove.append(bin)
+                    removed = []
+
+                    if debug:
+                        print('before check for distant contigs: ', len(tids))
+                        _, _, _, _ = self.compare_bins(bin)
+
+                    if mean_md >= 0.15 or mean_agg >= 0.25:
+                        # Simply remove
+                        for (tid, avgs) in zip(tids, per_contig_avg):
+                            if ((avgs[0] >= 0.8 or avgs[3] >= 0.8) and
+                                    (avgs[1] > 0.1 or avgs[2] >= 4)):
+                                removed.append(tid)
+
+                    remove = False
+                    if len(removed) > 0 and len(removed) != len(tids):
+                        new_bins[new_bin_counter] = []
+                        [(tids.remove(r), new_bins[new_bin_counter].append(r)) for r in removed]
+                        new_bin_counter += 1
+
+                        current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
+                        if current_contigs['contigLen'].sum() <= self.min_bin_size:
+                            [self.unbinned_tids.append(tid) for tid in tids]
+                            remove = True
+
+                        if len(tids) == 0 or remove:
+                            bins_to_remove.append(bin)
 
 
             elif big_only:
@@ -708,7 +730,7 @@ class Binner():
                                     else:
                                         removed_inner.append(tids[max_idx])
                                         removed_single.append(tids[max_idx])
-                                elif (max_values[1] >= 0.25 or max_values[2] >= 6.5):
+                                elif (max_values[0] >= 0.6 or max_values[1] >= 0.25 or max_values[2] >= 6.5):
                                     if together:
                                         removed_inner.append(tids[max_idx])
                                         removed_together.append(tids[max_idx])
@@ -833,7 +855,7 @@ class Binner():
                                 if debug:
                                     logging.debug("Forcing bin %d" % bin)
                                     self.compare_bins(bin)
-                                if bin_size >= 13e6:
+                                if bin_size >= 13e6 or mean_tnf >= 0.2:
                                     force_new_clustering.append(True) # send it to turbo hell
                                 else:
                                     force_new_clustering.append(False)
@@ -943,7 +965,10 @@ class Binner():
                                 self.compare_bins(bin)
                             reembed_separately.append(bin)
                             reembed_if_no_cluster.append(True)
-                            force_new_clustering.append(False)  # send it to turbo hell
+                            if mean_tnf >= 0.2:
+                                force_new_clustering.append(True)  # send it to turbo hell
+                            else:
+                                force_new_clustering.append(False)
                         else:
                             # self.survived.append(bin)
                             pass

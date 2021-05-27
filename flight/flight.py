@@ -493,6 +493,12 @@ def bin(args):
                                               force=True)
 
                             clusterer.sort_bins()
+                            plots, n = clusterer.pairwise_distances(plots, 0,
+                                                                    x_min, x_max,
+                                                                    y_min, y_max,
+                                                                    quick_filter=True)
+                            clusterer.sort_bins()
+
 
                             n = 0
                             # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
@@ -549,10 +555,7 @@ def bin(args):
 
                             # Bin unfiltered but keep
                             # clusterer.bin_filtered(1e6, keep_unbinned=True)
-                            # plots, n = clusterer.pairwise_distances(plots, n,
-                            #                                         x_min, x_max,
-                            #                                         y_min, y_max,
-                            #                                         dissolve=True)
+
                             #
                             # clusterer.reembed(clusterer.unbinned_tids,
                             #                   max(clusterer.bins.keys()), plots,
