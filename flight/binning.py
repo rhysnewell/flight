@@ -619,8 +619,10 @@ class Binner():
                     if mean_md >= 0.15 or mean_agg >= 0.25:
                         # Simply remove
                         for (tid, avgs) in zip(tids, per_contig_avg):
-                            if ((avgs[0] >= 0.8 or avgs[3] >= 0.8) and
-                                    (avgs[1] > 0.1 or avgs[2] >= 4)):
+                            if ((avgs[0] >= 0.85 or avgs[3] >= 0.85) and
+                                    (avgs[1] > 0.15 or avgs[2] >= 4)) or \
+                                ((avgs[0] >= 0.3 or avgs[3] >= 0.5) and
+                                    (avgs[1] > 1 or avgs[2] >= 10)):
                                 removed.append(tid)
 
                     remove = False
