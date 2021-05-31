@@ -549,7 +549,7 @@ class Binner():
     def pairwise_distances(self, plots, n, x_min, x_max, y_min, y_max,
                            bin_unbinned=False, reembed=False,
                            size_only=False, big_only=False,
-                           quick_filter=False, debug=False):
+                           quick_filter=False, debug=False, dissolve=False):
         """
         Function for deciding whether a bin needs to be reembedded or split up
         Uses internal bin statistics, mainly mean ADP and Rho values
@@ -585,7 +585,37 @@ class Binner():
             # if len(tids) != len(set(tids)):
             #     tids = list(set(tids))
             #     self.bins[bin] = tids
-            if quick_filter:
+            if dissolve:
+
+                contigs, log_lengths, tnfs = self.extract_contigs(tids)
+                bin_size = contigs['contigLen'].sum()
+                if bin_size < 1e6:
+                    self.unbinned_tids = self.unbinned_tids + tids
+                    bins_to_remove.append(bin)
+                else:
+                    try:
+                        mean_md, \
+                        mean_tnf, \
+                        mean_euc, \
+                        mean_agg, \
+                        per_contig_avg = \
+                            metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                 log_lengths.values[:, None],
+                                                                 tnfs.iloc[:, 2:].values), axis=1),
+                                                 n_samples,
+                                                 sample_distances)
+
+                        per_contig_avg = np.array(per_contig_avg)
+                    except ZeroDivisionError:
+                        # Only one contig left, break out
+                        break
+
+                    # IFF the bin is extra busted just obliterate it
+                    if (mean_md >= 0.8 or mean_agg >= 0.8) and (mean_tnf >= 0.3 or mean_euc >= 6):
+                        self.unbinned_tids = self.unbinned_tids + tids
+                        bins_to_remove.append(bin)
+
+            elif quick_filter:
 
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
                 bin_size = contigs['contigLen'].sum()
@@ -619,8 +649,8 @@ class Binner():
                     if mean_md >= 0.15 or mean_agg >= 0.25:
                         # Simply remove
                         for (tid, avgs) in zip(tids, per_contig_avg):
-                            if ((avgs[0] >= 0.85 or avgs[3] >= 0.85) and
-                                    (avgs[1] > 0.15 or avgs[2] >= 4)) or \
+                            if ((avgs[0] >= 0.75 or avgs[3] >= 0.75) and
+                                    (avgs[1] > 0.1 or avgs[2] >= 3)) or \
                                 ((avgs[0] >= 0.3 or avgs[3] >= 0.5) and
                                     (avgs[1] > 1 or avgs[2] >= 10)):
                                 removed.append(tid)
@@ -797,26 +827,26 @@ class Binner():
                         print('before check for distant contigs: ', len(tids))
                         _, _, _, _ = self.compare_bins(bin)
 
-                    if mean_md >= 0.15 or mean_agg >= 0.25:
-                        # Simply remove
-                        for (tid, avgs) in zip(tids, per_contig_avg):
-                            if ((avgs[0] >= 0.6 or avgs[3] >= 0.45) and
-                                 (avgs[1] > 0.1 or avgs[2] >= 4)):
-                                removed.append(tid)
+                    # if mean_md >= 0.15 or mean_agg >= 0.25:
+                    #     # Simply remove
+                    #     for (tid, avgs) in zip(tids, per_contig_avg):
+                    #         if ((avgs[0] >= 0.6 or avgs[3] >= 0.45) and
+                    #              (avgs[1] > 0.1 or avgs[2] >= 4)):
+                    #             removed.append(tid)
 
                     remove = False
-                    if len(removed) > 0 and len(removed) != len(tids):
-                        new_bins[new_bin_counter] = []
-                        [(tids.remove(r), new_bins[new_bin_counter].append(r)) for r in removed]
-                        new_bin_counter += 1
-
-                        current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
-                        if current_contigs['contigLen'].sum() <= self.min_bin_size:
-                            [self.unbinned_tids.append(tid) for tid in tids]
-                            remove = True
-
-                        if len(tids) == 0 or remove:
-                            bins_to_remove.append(bin)
+                    # if len(removed) > 0 and len(removed) != len(tids):
+                    #     new_bins[new_bin_counter] = []
+                    #     [(tids.remove(r), new_bins[new_bin_counter].append(r)) for r in removed]
+                    #     new_bin_counter += 1
+                    #
+                    #     current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
+                    #     if current_contigs['contigLen'].sum() <= self.min_bin_size:
+                    #         [self.unbinned_tids.append(tid) for tid in tids]
+                    #         remove = True
+                    #
+                    #     if len(tids) == 0 or remove:
+                    #         bins_to_remove.append(bin)
 
                     if not remove:
                         f_level = 0.15
@@ -912,30 +942,30 @@ class Binner():
 
                     removed = []
 
-                    if debug:
-                        print('before check for distant contigs: ', len(tids))
-                        _, _, _, _ = self.compare_bins(bin)
-
-                    if mean_md >= 0.15 or mean_agg >= 0.25:
-                        # Simply remove
-                        for (tid, avgs) in zip(tids, per_contig_avg):
-                            if ((avgs[0] >= 0.6 or avgs[3] >= 0.45) and
-                                    (avgs[1] > 0.1 or avgs[2] >= 4)):
-                                removed.append(tid)
+                    # if debug:
+                    #     print('before check for distant contigs: ', len(tids))
+                    #     _, _, _, _ = self.compare_bins(bin)
+                    #
+                    # if mean_md >= 0.15 or mean_agg >= 0.25:
+                    #     # Simply remove
+                    #     for (tid, avgs) in zip(tids, per_contig_avg):
+                    #         if ((avgs[0] >= 0.6 or avgs[3] >= 0.45) and
+                    #                 (avgs[1] > 0.1 or avgs[2] >= 4)):
+                    #             removed.append(tid)
 
                     remove = False
-                    if len(removed) > 0 and len(removed) != len(tids):
-                        new_bins[new_bin_counter] = []
-                        [(tids.remove(r), new_bins[new_bin_counter].append(r)) for r in removed]
-                        new_bin_counter += 1
-
-                        current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
-                        if current_contigs['contigLen'].sum() <= self.min_bin_size:
-                            [self.unbinned_tids.append(tid) for tid in tids]
-                            remove = True
-
-                        if len(tids) == 0 or remove:
-                            bins_to_remove.append(bin)
+                    # if len(removed) > 0 and len(removed) != len(tids):
+                    #     new_bins[new_bin_counter] = []
+                    #     [(tids.remove(r), new_bins[new_bin_counter].append(r)) for r in removed]
+                    #     new_bin_counter += 1
+                    #
+                    #     current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
+                    #     if current_contigs['contigLen'].sum() <= self.min_bin_size:
+                    #         [self.unbinned_tids.append(tid) for tid in tids]
+                    #         remove = True
+                    #
+                    #     if len(tids) == 0 or remove:
+                    #         bins_to_remove.append(bin)
 
                     if not remove:
                         if len(removed) >= 1:
@@ -1436,8 +1466,7 @@ class Binner():
                 print("Max and min valid and noise: ", max_validity, min_validity, noise)
 
             findem = [
-                'contig_108_pilon', 'contig_1250_pilon',
-                'scaffold_1715_pilon', 'contig_1687_pilon', 'contig_1719_pilon', 'contig_1718_pilon']
+                'contig_1357_pilon', 'contig_1570_pilon', 'contig_810_pilon', 'scaffold_1358_pilon']
 
             names = list(contigs['contigName'])
             indices = []
