@@ -549,7 +549,8 @@ class Binner():
     def pairwise_distances(self, plots, n, x_min, x_max, y_min, y_max,
                            bin_unbinned=False, reembed=False,
                            size_only=False, big_only=False,
-                           quick_filter=False, debug=False, dissolve=False):
+                           quick_filter=False, debug=False,
+                           force=False, dissolve=False):
         """
         Function for deciding whether a bin needs to be reembedded or split up
         Uses internal bin statistics, mainly mean ADP and Rho values
@@ -589,7 +590,7 @@ class Binner():
 
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
                 bin_size = contigs['contigLen'].sum()
-                if bin_size < 1e6:
+                if bin_size < 2e5:
                     self.unbinned_tids = self.unbinned_tids + tids
                     bins_to_remove.append(bin)
                 else:
@@ -827,84 +828,62 @@ class Binner():
                         print('before check for distant contigs: ', len(tids))
                         _, _, _, _ = self.compare_bins(bin)
 
-                    # if mean_md >= 0.15 or mean_agg >= 0.25:
-                    #     # Simply remove
-                    #     for (tid, avgs) in zip(tids, per_contig_avg):
-                    #         if ((avgs[0] >= 0.6 or avgs[3] >= 0.45) and
-                    #              (avgs[1] > 0.1 or avgs[2] >= 4)):
-                    #             removed.append(tid)
+                    f_level = 0.15
+                    m_level = 0.15
+                    shared_level = 0.1
 
-                    remove = False
-                    # if len(removed) > 0 and len(removed) != len(tids):
-                    #     new_bins[new_bin_counter] = []
-                    #     [(tids.remove(r), new_bins[new_bin_counter].append(r)) for r in removed]
-                    #     new_bin_counter += 1
-                    #
-                    #     current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
-                    #     if current_contigs['contigLen'].sum() <= self.min_bin_size:
-                    #         [self.unbinned_tids.append(tid) for tid in tids]
-                    #         remove = True
-                    #
-                    #     if len(tids) == 0 or remove:
-                    #         bins_to_remove.append(bin)
+                    if len(removed) >= 1:
+                        # calc new bin size and stats
+                        contigs, log_lengths, tnfs = self.extract_contigs(tids)
+                        bin_size = contigs['contigLen'].sum()
+                        try:
+                            mean_md, \
+                            mean_tnf, \
+                            mean_euc, \
+                            mean_agg, \
+                            per_contig_avg = \
+                                metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                        log_lengths.values[:, None],
+                                                                        tnfs.iloc[:, 2:].values), axis=1),
+                                                                        n_samples,
+                                                                        sample_distances)
+                        except ZeroDivisionError:
+                            continue
 
-                    if not remove:
-                        f_level = 0.15
-                        m_level = 0.15
-                        shared_level = 0.1
+                        if debug:
+                            print('contigs removed: ', len(tids))
+                            _, _, _, _ = self.compare_bins(bin)
 
-                        if len(removed) >= 1:
-                            # calc new bin size and stats
-                            contigs, log_lengths, tnfs = self.extract_contigs(tids)
-                            bin_size = contigs['contigLen'].sum()
-                            try:
-                                mean_md, \
-                                mean_tnf, \
-                                mean_euc, \
-                                mean_agg, \
-                                per_contig_avg = \
-                                    metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                            log_lengths.values[:, None],
-                                                                            tnfs.iloc[:, 2:].values), axis=1),
-                                                                            n_samples,
-                                                                            sample_distances)
-                            except ZeroDivisionError:
-                                continue
-
+                    if ((mean_md >= m_level
+                        or mean_agg >= f_level
+                        or (mean_md >= shared_level and (mean_tnf >= shared_level or mean_euc >= 2))
+                                or ((mean_md >= 0.05 or mean_agg >= 0.15) and (mean_tnf >= 0.1 or mean_euc >= 2)))
+                            and bin_size > 1e6) or bin_size >= 12e6:
+                        logging.debug(bin, mean_md, mean_tnf, mean_agg, len(tids))
+                        reembed_separately.append(bin)
+                        if (((mean_md >= 0.4 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3))
+                                or bin_size >= 13e6):
                             if debug:
-                                print('contigs removed: ', len(tids))
-                                _, _, _, _ = self.compare_bins(bin)
-
-                        if ((mean_md >= m_level
-                            or mean_agg >= f_level
-                            or (mean_md >= shared_level and (mean_tnf >= shared_level or mean_euc >= 2))
-                                    or ((mean_md >= 0.05 or mean_agg >= 0.15) and (mean_tnf >= 0.1 or mean_euc >= 2)))
-                                and bin_size > 1e6) or bin_size >= 12e6:
-                            logging.debug(bin, mean_md, mean_tnf, mean_agg, len(tids))
-                            reembed_separately.append(bin)
-                            if (((mean_md >= 0.35 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3))
-                                    or bin_size >= 13e6):
-                                if debug:
-                                    logging.debug("Forcing bin %d" % bin)
-                                    self.compare_bins(bin)
-                                if bin_size >= 13e6 or mean_tnf >= 0.2:
-                                    force_new_clustering.append(True) # send it to turbo hell
-                                else:
-                                    force_new_clustering.append(False)
-                                reembed_if_no_cluster.append(True)
-                            elif bin_size > 1e6:
-                                if debug:
-                                    print("Reclustering bin %d" % bin)
-                                force_new_clustering.append(False) # send it to regular hell
-                                reembed_if_no_cluster.append(True)
-                        else:
-                            reembed_separately.append(bin)
-                            force_new_clustering.append(False)  # send it to regular hell
-                            reembed_if_no_cluster.append(False) # take it easy, okay?
-                            # if debug:
-                            #     print("bin survived %d" % bin)
-                            #     self.compare_bins(bin)
-                            # self.survived.append(bin)
+                                logging.debug("Forcing bin %d" % bin)
+                                self.compare_bins(bin)
+                            if bin_size >= 13e6 or ((mean_tnf >= 0.15 or mean_euc >= 3.5) and (bin_size >= 2e6)):
+                                force_new_clustering.append(False) # send it to turbo hell
+                            else:
+                                force_new_clustering.append(False)
+                            reembed_if_no_cluster.append(True)
+                        elif bin_size > 1e6:
+                            if debug:
+                                print("Reclustering bin %d" % bin)
+                            force_new_clustering.append(False) # send it to regular hell
+                            reembed_if_no_cluster.append(True)
+                    else:
+                        reembed_separately.append(bin)
+                        force_new_clustering.append(False)  # send it to regular hell
+                        reembed_if_no_cluster.append(False) # take it easy, okay?
+                        # if debug:
+                        #     print("bin survived %d" % bin)
+                        #     self.compare_bins(bin)
+                        # self.survived.append(bin)
                 else:
                     logging.debug(bin, self.survived)
                 
@@ -940,77 +919,58 @@ class Binner():
                     except ZeroDivisionError:
                         continue
 
-                    removed = []
+                    if (mean_md >= 0.4 or mean_agg >= 0.45) and (mean_tnf >= 0.15 or mean_euc >= 3.5) \
+                            and bin_size > 1e6:
+                        if debug:
+                            print("In final bit. ", bin)
+                            self.compare_bins(bin)
+                        reembed_separately.append(bin)
+                        reembed_if_no_cluster.append(True)
+                        force_new_clustering.append(False)  # send it to turbo hell
 
-                    # if debug:
-                    #     print('before check for distant contigs: ', len(tids))
-                    #     _, _, _, _ = self.compare_bins(bin)
-                    #
-                    # if mean_md >= 0.15 or mean_agg >= 0.25:
-                    #     # Simply remove
-                    #     for (tid, avgs) in zip(tids, per_contig_avg):
-                    #         if ((avgs[0] >= 0.6 or avgs[3] >= 0.45) and
-                    #                 (avgs[1] > 0.1 or avgs[2] >= 4)):
-                    #             removed.append(tid)
+                    else:
+                        # self.survived.append(bin)
+                        pass
 
-                    remove = False
-                    # if len(removed) > 0 and len(removed) != len(tids):
-                    #     new_bins[new_bin_counter] = []
-                    #     [(tids.remove(r), new_bins[new_bin_counter].append(r)) for r in removed]
-                    #     new_bin_counter += 1
-                    #
-                    #     current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
-                    #     if current_contigs['contigLen'].sum() <= self.min_bin_size:
-                    #         [self.unbinned_tids.append(tid) for tid in tids]
-                    #         remove = True
-                    #
-                    #     if len(tids) == 0 or remove:
-                    #         bins_to_remove.append(bin)
+            elif force:
+                contigs, log_lengths, tnfs = self.extract_contigs(tids)
+                bin_size = contigs['contigLen'].sum()
 
-                    if not remove:
-                        if len(removed) >= 1:
-                            # calc new bin size and stats
-                            contigs, log_lengths, tnfs = self.extract_contigs(tids)
-                            bin_size = contigs['contigLen'].sum()
-                            try:
-                                mean_md, \
-                                mean_tnf, \
-                                mean_euc, \
-                                mean_agg, \
-                                per_contig_avg = \
-                                    metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                            log_lengths.values[:, None],
-                                                                            tnfs.iloc[:, 2:].values), axis=1),
-                                                                            n_samples,
-                                                                            sample_distances)
-                            except ZeroDivisionError:
-                                continue
+                if bin_size >= 13e6 and bin != 0:
+                    # larger than most bacterial genomes, way larger than archaeal
+                    # Likely strains getting bunched together. But they won't disentangle, so just dismantle the bin
+                    # rescuing any large contigs. Only way I can think  of atm to deal with this.
+                    # Besides perhaps looking at variation level?? But this seems to be a problem with
+                    # the assembly being TOO good.
+                    if reembed:
+                        reembed_separately.append(bin)
+                        reembed_if_no_cluster.append(True)
+                        force_new_clustering.append(True)  # turbo hell
+                elif bin_size >= 1e6 and bin != 0:
+                    try:
+                        mean_md, \
+                        mean_tnf, \
+                        mean_euc, \
+                        mean_agg, \
+                        per_contig_avg = \
+                            metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                 log_lengths.values[:, None],
+                                                                 tnfs.iloc[:, 2:].values), axis=1),
+                                                 n_samples,
+                                                 sample_distances)
+                    except ZeroDivisionError:
+                        continue
 
-                            if debug:
-                                print('contigs removed: ', len(tids))
-                                _, _, _, _ = self.compare_bins(bin)
-
-                        if (mean_md >= 0.35 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3) \
-                                and bin_size > 1e6:
-                            if debug:
-                                print("In final bit. ", bin)
-                                self.compare_bins(bin)
-                            reembed_separately.append(bin)
-                            reembed_if_no_cluster.append(True)
-                            if mean_tnf >= 0.2:
-                                force_new_clustering.append(True)  # send it to turbo hell
-                            else:
-                                force_new_clustering.append(False)
-                        else:
-                            # self.survived.append(bin)
-                            pass
-
-                # elif (self.large_contigs[self.large_contigs['tid'].isin(tids)]["contigLen"].sum() <= 1e6) \
-                #         and bin != 0 \
-                #         and not reembed:
-                #     for tid in tids:
-                #         self.unbinned_tids.append(tid)
-                #     bins_to_remove.append(bin)
+                    if (mean_md >= 0.4 or mean_agg >= 0.45) and (mean_tnf >= 0.15 or mean_euc >= 3.5) \
+                            and bin_size > 1e6:
+                        if debug:
+                            print("In final bit. ", bin)
+                            self.compare_bins(bin)
+                        reembed_separately.append(bin)
+                        reembed_if_no_cluster.append(True)
+                        force_new_clustering.append(True)  # send it to turbo hell
+                    else:
+                        pass
 
         try:
             max_bin_id = max(self.bins.keys()) + 1
@@ -1629,11 +1589,11 @@ class Binner():
                             self.bins[bin_id] = unbinned
                         else:
                             for contig in contigs.itertuples():
-                                if contig.contigLen >= 2e6:
-                                    self.bins[bin_id] = [self.assembly[contig.contigName]]
-                                    bin_id += 1
-                                else:
-                                    self.unbinned_tids.append(self.assembly[contig.contigName])
+                                # if contig.contigLen >= 2e6:
+                                #     self.bins[bin_id] = [self.assembly[contig.contigName]]
+                                #     bin_id += 1
+                                # else:
+                                self.unbinned_tids.append(self.assembly[contig.contigName])
 
                     else:
                         remove = False
