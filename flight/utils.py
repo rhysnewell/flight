@@ -43,6 +43,7 @@ import imageio
 import seaborn as sns
 import matplotlib
 import matplotlib.pyplot as plt
+import sklearn.metrics as sk_metrics
 from sklearn.metrics.pairwise import pairwise_distances
 
 ###############################################################################                                                                                                                      [44/1010]
@@ -105,12 +106,49 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
         cluster_validity = hdbscan.validity.validity_index(df.astype(np.float64), clust_alg.labels_)
     except ValueError:
         cluster_validity = -1
+
+    # Calculate silhouette scores, will fail if only one label
+    # Silhouette scores don't work too well with HDBSCAN though since it
+    # usually requires pretty uniform clusters to generate a value of use
+    try:
+        silho_score = sk_metrics.silhouette_score(df, clust_alg.labels_)
+    except ValueError:
+        silho_score = -1
     
-    validity_score = clust_alg.relative_validity_
+    validity_score = max(clust_alg.relative_validity_, silho_score, cluster_validity)
     n_clusters = np.max(clust_alg.labels_)
 
     return (min_cluster_size, min_samples, validity_score, n_clusters)
 
+def precomputed_cluster(df, n, gamma, ms, allow_single_cluster=False, threads=1):
+    clust_alg = hdbscan.HDBSCAN(algorithm='best',
+                                metric='precomputed',
+                                min_cluster_size=int(gamma),
+                                min_samples=ms,
+                                allow_single_cluster=allow_single_cluster,
+                                core_dist_n_jobs=threads).fit(df)
+
+    min_cluster_size = clust_alg.min_cluster_size
+    min_samples = clust_alg.min_samples
+
+    try:
+        cluster_validity = hdbscan.validity.validity_index(df.astype(np.float64), clust_alg.labels_)
+    except ValueError:
+        cluster_validity = -1
+
+    # Calculate silhouette scores, will fail if only one label
+    # Silhouette scores don't work too well with HDBSCAN though since it
+    # usually requires pretty uniform clusters to generate a value of use
+    try:
+        silho_precom = sk_metrics.silhouette_score(df, clust_alg.labels_)
+    except ValueError:
+        silho_precom = -1
+
+
+    validity_score = max(cluster_validity, silho_precom)
+    n_clusters = np.max(clust_alg.labels_)
+
+    return (min_cluster_size, min_samples, validity_score, n_clusters)
 
 def hyperparameter_selection(df, cores=10,
                              method='eom', metric='euclidean',
@@ -140,8 +178,11 @@ def hyperparameter_selection(df, cores=10,
         #     result = result.get()
         #     results.append(result)
         for ms in range(starting_size, int(end_size)):
-            mp_results = mp_cluster(df, n, gamma, ms, method,
-                                    metric, allow_single_cluster, cores)
+            if metric == 'precomputed':
+                mp_results = precomputed_cluster(df, n, gamma, ms, allow_single_cluster, cores)
+            else:
+                mp_results = mp_cluster(df, n, gamma, ms, method,
+                                        metric, allow_single_cluster, cores)
             results.append(mp_results)
 
     # pool.close()

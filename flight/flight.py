@@ -413,6 +413,7 @@ def bin(args):
     from .binning import Binner
     import flight.utils as utils
     import threadpoolctl
+    import numpy as np
 
     if args.long_input is None and args.input is None:
         logging.warning("bin requires either short or longread coverage values.")
@@ -484,23 +485,23 @@ def bin(args):
 
                             clusterer.sort_bins()
 
-                            clusterer.reembed(clusterer.unbinned_tids,
-                                              max(clusterer.bins.keys()), plots,
-                                              x_min, x_max, y_min, y_max, 0, 100,
-                                              reembed=True,
-                                              delete_unbinned=True,
-                                              force=True)
-
-                            clusterer.sort_bins()
-                            plots, n = clusterer.pairwise_distances(plots, 0,
+                            # clusterer.reembed(clusterer.unbinned_tids,
+                            #                   max(clusterer.bins.keys()), plots,
+                            #                   x_min, x_max, y_min, y_max, 0, 100,
+                            #                   reembed=True,
+                            #                   delete_unbinned=True,
+                            #                   force=True)
+                            #
+                            # clusterer.sort_bins()
+                            plots, n = clusterer.validate_bins(plots, 0,
                                                                     x_min, x_max,
                                                                     y_min, y_max,
                                                                     quick_filter=True)
                             clusterer.sort_bins()
 
 
-                            n = 0
-                            # plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
+                            # n = 0
+                            # plots, n = clusterer.validate_bins(plots, n, x_min, x_max, y_min, y_max,
                             #                                         big_only=True)
                             # clusterer.sort_bins()
                             # If after everything there are excessively large clusters hanging around
@@ -508,18 +509,18 @@ def bin(args):
                             # reason Rosella won't work on eukaryotic genomes, if we made this step optional
                             # then it might work on them but I don't have any good benchmarks to test on.
 
-                            while n <= 100:
-                                logging.debug("iteration: ", n)
-                                clusterer.overclustered = False  # large clusters
-                                plots, n = clusterer.pairwise_distances(plots, n,
-                                                                        x_min, x_max,
-                                                                        y_min, y_max,
-                                                                        size_only=True,
-                                                                        reembed=True)
-                                clusterer.sort_bins()
-                                n += 1
-                                if not clusterer.overclustered:
-                                    break  # no more clusters have broken
+                            # while n <= 100:
+                            #     logging.debug("iteration: ", n)
+                            #     clusterer.overclustered = False  # large clusters
+                            #     plots, n = clusterer.validate_bins(plots, n,
+                            #                                             x_min, x_max,
+                            #                                             y_min, y_max,
+                            #                                             size_only=True,
+                            #                                             reembed=True)
+                            #     clusterer.sort_bins()
+                            #     n += 1
+                            #     if not clusterer.overclustered:
+                            #         break  # no more clusters have broken
 
                             # This took so much refinement holy shit. This is what makes Rosella work
                             # Each cluster is checked for internal metrics. If the metrics look bad then
@@ -530,7 +531,7 @@ def bin(args):
                             n = 0
                             while n <= 100:
                                 clusterer.overclustered = False # large clusters
-                                plots, n = clusterer.pairwise_distances(plots, n,
+                                plots, n = clusterer.validate_bins(plots, n,
                                                                         x_min, x_max,
                                                                         y_min, y_max,
                                                                         reembed=True)
@@ -539,58 +540,89 @@ def bin(args):
                                 if not clusterer.overclustered:
                                     break # no more clusters have broken
 
-
                             # THIS WILL BREAK BINS, Try not to use it
                             # Quickly filter any busted contigs
                             # These are just contigs that either belong by themselves or are
                             # just noise that UMAP decided to put with other stuff. Only way to
                             # get rid of them is to just use this smooth brain method
-                            n = 0
-                            while n <= 5:
-                                plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
-                                                                        big_only=True)
-                                clusterer.sort_bins()
-                                plots, n = clusterer.pairwise_distances(plots, n,
-                                                                        x_min, x_max,
-                                                                        y_min, y_max,
-                                                                        reembed=True)
-                                clusterer.sort_bins()
-                                n += 1
-
-
-                            plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
-                                                                    dissolve=True)
-                            clusterer.sort_bins()
+                            # n = 0
+                            # while n <= 5:
+                            #     plots, n = clusterer.validate_bins(plots, n, x_min, x_max, y_min, y_max,
+                            #                                             big_only=True)
+                            #     clusterer.sort_bins()
+                            #     plots, n = clusterer.validate_bins(plots, n,
+                            #                                             x_min, x_max,
+                            #                                             y_min, y_max,
+                            #                                             reembed=True)
+                            #     clusterer.sort_bins()
+                            #     n += 1
+                            #
+                            #
+                            #
+                            # clusterer.sort_bins()
                             # Bin unfiltered but keep
                             # clusterer.bin_filtered(1e6, keep_unbinned=True)
 
 
-                            clusterer.reembed(clusterer.unbinned_tids,
-                                              max(clusterer.bins.keys()), plots,
-                                              x_min, x_max, y_min, y_max, n, 100,
-                                              reembed=True,
-                                              delete_unbinned=True,
-                                              force=True,
-                                              skip_clustering=True)
-                            clusterer.sort_bins()
+
 
                             n = 0
                             # Only begin forcing after all other options have been exhausted
                             while n <= 5:
-                                plots, n = clusterer.pairwise_distances(plots, n, x_min, x_max, y_min, y_max,
+                                plots, n = clusterer.validate_bins(plots, n, x_min, x_max, y_min, y_max,
                                                                         big_only=True)
                                 clusterer.sort_bins()
-                                plots, n = clusterer.pairwise_distances(plots, n,
+                                plots, n = clusterer.validate_bins(plots, n,
                                                                         x_min, x_max,
                                                                         y_min, y_max,
                                                                         reembed=True)
                                 clusterer.sort_bins()
-                                plots, n = clusterer.pairwise_distances(plots, n,
+                                plots, n = clusterer.validate_bins(plots, n,
                                                                         x_min, x_max,
                                                                         y_min, y_max,
                                                                         force=True)
                                 clusterer.sort_bins()
                                 n += 1
+
+
+                            # Clean up leftover stuff
+                            clusterer.reembed(clusterer.unbinned_tids,
+                                              max(clusterer.bins.keys()), plots,
+                                              x_min, x_max, y_min, y_max, n, delete_unbinned=True,
+                                              skip_clustering=True, reembed=True, force=True,
+                                              update_embeddings=False)
+
+                            clusterer.sort_bins()
+                            # truth_array = \
+                            # clusterer.large_contigs[~clusterer.disconnected][~clusterer.disconnected_intersected][
+                            #     'tid'].isin(clusterer.unbinned_tids)
+
+                            n = 0
+                            while n <= 5:
+                                clusterer.overclustered = False  # large clusters
+                                # plots, n = clusterer.validate_bins(plots, n, x_min, x_max, y_min, y_max,
+                                #                                    big_only=True)
+                                # clusterer.sort_bins()
+                                plots, n = clusterer.validate_bins(plots, n,
+                                                                   x_min, x_max,
+                                                                   y_min, y_max,
+                                                                   reembed=True)
+                                clusterer.sort_bins()
+                                plots, n = clusterer.validate_bins(plots, n,
+                                                                   x_min, x_max,
+                                                                   y_min, y_max,
+                                                                   force=True)
+                                clusterer.sort_bins()
+                                n += 1
+                                if not clusterer.overclustered:
+                                    break  # no more clusters have broken
+
+                            # plots, n = clusterer.validate_bins(plots, n,
+                            #                                    x_min, x_max,
+                            #                                    y_min, y_max,
+                            #                                    reembed=True,
+                            #                                    truth_array=truth_array)
+                            clusterer.sort_bins()
 
                             clusterer.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
                         else:
