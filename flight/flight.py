@@ -410,10 +410,9 @@ def bin(args):
     os.environ["NUMBA_NUM_THREADS"] = args.threads
     os.environ["MKL_NUM_THREADS"] = args.threads
     os.environ["OPENBLAS_NUM_THREADS"] = args.threads
-    from .binning import Binner
+    from flight.rosella.binning import Rosella
     import flight.utils as utils
     import threadpoolctl
-    import numpy as np
 
     if args.long_input is None and args.input is None:
         logging.warning("bin requires either short or longread coverage values.")
@@ -423,11 +422,11 @@ def bin(args):
         os.makedirs(prefix)
 
     if not args.precomputed:
-        clusterer = Binner(args.input,
-                           args.long_input,
-                           args.kmer_frequencies,
-                           prefix,
-                           args.assembly,
+        clusterer = Rosella(count_path=args.input,
+                           long_count_path=args.long_input,
+                           kmer_frequencies=args.kmer_frequencies,
+                           output_prefix=prefix,
+                           assembly=args.assembly,
                            n_neighbors=int(args.n_neighbors),
                            min_contig_size=int(args.min_contig_size),
                            min_dist=float(args.min_dist),
@@ -436,6 +435,7 @@ def bin(args):
                            b=float(args.b),
                            initialization='spectral'
                            )
+        clusterer.update_umap_params(clusterer.large_contigs.shape[0])
 
         kwargs_write = {'fps': 1.0, 'quantizer': 'nq'}
         plots = []
@@ -450,22 +450,20 @@ def bin(args):
                     if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors) * 5:
                         # Second pass intersection filtering
                         clusterer.update_parameters()
-                        found_disconnections = clusterer.fit_disconnect()
+                        clusterer.fit_disconnect()
                         if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[
                             0] > int(args.n_neighbors) * 2:
                             # Final fully filtered embedding to cluster on
                             clusterer.update_umap_params(clusterer.large_contigs[~clusterer.disconnected][~clusterer.disconnected_intersected].shape[0])
-                            if found_disconnections:
-                                clusterer.fit_transform(clusterer.large_contigs[~clusterer.disconnected][~clusterer.disconnected_intersected]['tid'],
-                                                        int(args.n_neighbors))
+                            clusterer.fit_transform(clusterer.large_contigs[~clusterer.disconnected][~clusterer.disconnected_intersected]['tid'],
+                                                    int(args.n_neighbors))
                             clusterer.embeddings = clusterer.intersection_mapper.embedding_
 
-                            clusterer.min_cluster_size = 2
                             logging.info("HDBSCAN - Performing initial clustering.")
                             clusterer.labels = clusterer.iterative_clustering(clusterer.embeddings,
                                                                               prediction_data=True,
                                                                               allow_single_cluster=False,
-                                                                              double=True)
+                                                                              double=False)
 
                             ## Plot limits
                             x_min = min(clusterer.embeddings[:, 0]) - 10
@@ -485,20 +483,22 @@ def bin(args):
 
                             clusterer.sort_bins()
 
-                            # clusterer.reembed(clusterer.unbinned_tids,
-                            #                   max(clusterer.bins.keys()), plots,
-                            #                   x_min, x_max, y_min, y_max, 0, 100,
-                            #                   reembed=True,
-                            #                   delete_unbinned=True,
-                            #                   force=True)
-                            #
-                            # clusterer.sort_bins()
-                            plots, n = clusterer.validate_bins(plots, 0,
-                                                                    x_min, x_max,
-                                                                    y_min, y_max,
-                                                                    quick_filter=True)
-                            clusterer.sort_bins()
+                            # Clean up leftover stuff
+                            clusterer.reembed(clusterer.unbinned_tids,
+                                              max(clusterer.bins.keys()), plots,
+                                              x_min, x_max, y_min, y_max, 0, delete_unbinned=True,
+                                              skip_clustering=True, reembed=True, force=True,
+                                              update_embeddings=False)
 
+                            clusterer.sort_bins()
+                            n = 0
+                            while n <= 1:
+                                plots, n = clusterer.validate_bins(plots, n,
+                                                                        x_min, x_max,
+                                                                        y_min, y_max,
+                                                                        quick_filter=True)
+                                clusterer.sort_bins()
+                                n += 1
 
                             # n = 0
                             # plots, n = clusterer.validate_bins(plots, n, x_min, x_max, y_min, y_max,
@@ -577,22 +577,15 @@ def bin(args):
                                                                         y_min, y_max,
                                                                         reembed=True)
                                 clusterer.sort_bins()
-                                plots, n = clusterer.validate_bins(plots, n,
-                                                                        x_min, x_max,
-                                                                        y_min, y_max,
-                                                                        force=True)
-                                clusterer.sort_bins()
+                                # plots, n = clusterer.validate_bins(plots, n,
+                                #                                         x_min, x_max,
+                                #                                         y_min, y_max,
+                                #                                         force=True)
+                                # clusterer.sort_bins()
                                 n += 1
 
 
-                            # Clean up leftover stuff
-                            clusterer.reembed(clusterer.unbinned_tids,
-                                              max(clusterer.bins.keys()), plots,
-                                              x_min, x_max, y_min, y_max, n, delete_unbinned=True,
-                                              skip_clustering=True, reembed=True, force=True,
-                                              update_embeddings=False)
 
-                            clusterer.sort_bins()
                             # truth_array = \
                             # clusterer.large_contigs[~clusterer.disconnected][~clusterer.disconnected_intersected][
                             #     'tid'].isin(clusterer.unbinned_tids)
@@ -600,6 +593,14 @@ def bin(args):
                             n = 0
                             while n <= 5:
                                 clusterer.overclustered = False  # large clusters
+                                # Clean up leftover stuff
+                                clusterer.reembed(clusterer.unbinned_tids,
+                                                  max(clusterer.bins.keys()), plots,
+                                                  x_min, x_max, y_min, y_max, n, delete_unbinned=True,
+                                                  skip_clustering=True, reembed=True, force=True,
+                                                  update_embeddings=False)
+
+                                clusterer.sort_bins()
                                 # plots, n = clusterer.validate_bins(plots, n, x_min, x_max, y_min, y_max,
                                 #                                    big_only=True)
                                 # clusterer.sort_bins()
@@ -623,6 +624,11 @@ def bin(args):
                             #                                    reembed=True,
                             #                                    truth_array=truth_array)
                             clusterer.sort_bins()
+
+                            clusterer.get_labels_from_bins()
+                            clusterer.combine_bins()
+                            clusterer.sort_bins()
+                            # clusterer.plot()
 
                             clusterer.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
                         else:
