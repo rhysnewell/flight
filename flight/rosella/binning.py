@@ -416,45 +416,51 @@ class Binner:
             self.bins = {int(k):v for k, v in self.bins.items()}
 
 
-    def compare_contigs(self, contig1, contig2):
-        tnf1 = np.concatenate((np.log(self.large_contigs[self.large_contigs['contigName']==contig1]['contigLen'].values[:, None]) / np.log(self.large_contigs['contigLen'].mean()),
-                                    self.tnfs[self.tnfs['contigName']==contig1].iloc[:, 2:]),
-                                    axis=1)
-        tnf2 = np.concatenate((np.log(self.large_contigs[self.large_contigs['contigName']==contig2]['contigLen'].values[:, None]) / np.log(self.large_contigs['contigLen'].mean()),
-                                            self.tnfs[self.tnfs['contigName']==contig2].iloc[:, 2:]),
-                                            axis=1)
-        t_euc = metrics.tnf_euclidean(tnf1[0], tnf2[0])
+    def compare_contigs(self, tid1, tid2, n_samples, sample_distances, debug=False):
+        depth1, log_length1, tnfs1 = self.extract_contigs([tid1])
+        depth2, log_length2, tnfs2 = self.extract_contigs([tid2])
+        w = (n_samples) / (n_samples + 1)  # weighting by number of samples same as in metabat2
 
-        all1 = np.concatenate((self.large_contigs[self.large_contigs['contigName']==contig1].iloc[:, 3:], tnf1), axis = 1)
-        all2 = np.concatenate((self.large_contigs[self.large_contigs['contigName']==contig2].iloc[:, 3:], tnf2), axis = 1)
-        
-        
-        d1 = self.large_contigs[self.large_contigs['contigName']==contig1].iloc[:, 3:].values
-        d2 = self.large_contigs[self.large_contigs['contigName']==contig2].iloc[:, 3:].values
+        contig1 = np.concatenate((depth1.iloc[:, 3:].values,
+                                     log_length1.values[:, None],
+                                     tnfs1.iloc[:, 2:].values), axis=1)
 
-        if self.long_samples > 0:
-            long1 = self.long_depths[self.long_depths['contigName'] == contig1].iloc[:, 3:].values
-            long2 = self.long_depths[self.long_depths['contigName'] == contig2].iloc[:, 3:].values
-            print("Metabat long: ", metrics.metabat_distance(long1[0], long2[0], self.long_samples, self.long_sample_distance))
-            print("Hellinger normal long: ", metrics.hellinger_distance_normal(long1[0], long2[0], self.long_samples, self.long_sample_distance))
-            print("Hellinger poisson long: ", metrics.hellinger_distance_poisson(long1[0], long2[0], self.long_samples, self.long_sample_distance))
-        print("N samples: ", self.n_samples)
-        print("TNF Euclidean distance: ", t_euc)
-        print("TNF Correlation: ", metrics.tnf_correlation(tnf1[0], tnf2[0]))
-        print("TNF Rho: ", metrics.rho(tnf1[0], tnf2[0]))
-        print("Aggegate score: ", metrics.aggregate_tnf(all1[0], all2[0], self.n_samples, self.short_sample_distance))
-        print("Metabat: ", metrics.metabat_distance(d1[0], d2[0], self.n_samples, self.short_sample_distance))
-        print("Hellinger normal: ", metrics.hellinger_distance_normal(d1[0], d2[0], self.n_samples, self.short_sample_distance))
-        print("Hellinger poisson: ", metrics.hellinger_distance_poisson(d1[0], d2[0], self.n_samples, self.short_sample_distance))
+        contig2 = np.concatenate((depth2.iloc[:, 3:].values,
+                                  log_length2.values[:, None],
+                                  tnfs2.iloc[:, 2:].values), axis=1)
 
-    
-    def compare_bins(self, bin_id):        
+        md = metrics.metabat_distance(
+            contig1[:n_samples * 2],
+            contig2[:n_samples * 2],
+            n_samples, sample_distances
+        )
+
+        rho = metrics.rho(
+            contig1[n_samples * 2:],
+            contig2[n_samples * 2:],
+        )
+
+        euc = metrics.tnf_euclidean(
+            contig1[n_samples * 2:],
+            contig2[n_samples * 2:],
+        )
+
+        agg = np.sqrt((md ** w) * (rho ** (1 - w)))
+
+        return md, rho, euc, agg
+
+    def get_n_samples_and_distances(self):
         if self.n_samples > 0:
             n_samples = self.n_samples
             sample_distances = self.short_sample_distance
         else:
             n_samples = self.long_samples
             sample_distances = self.long_sample_distance
+
+        return n_samples, sample_distances
+
+    def bin_stats(self, bin_id):
+        n_samples, sample_distances = self.get_n_samples_and_distances()
             
         tids = self.bins[bin_id]
         contigs, log_lengths, tnfs = self.extract_contigs(tids)

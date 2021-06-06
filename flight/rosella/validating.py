@@ -92,12 +92,7 @@ class Validator(Clusterer, Embedder):
         Uses internal bin statistics, mainly mean ADP and Rho values
         """
 
-        if self.n_samples > 0:
-            n_samples = self.n_samples
-            sample_distances = self.short_sample_distance
-        else:
-            n_samples = self.long_samples
-            sample_distances = self.long_sample_distance
+        n_samples, sample_distances = self.get_n_samples_and_distances()
 
         bins_to_remove = []
         new_bins = {}
@@ -175,7 +170,7 @@ class Validator(Clusterer, Embedder):
 
                     if debug:
                         print('before check for distant contigs: ', len(tids))
-                        _, _, _, _ = self.compare_bins(bin)
+                        _, _, _, _ = self.bin_stats(bin)
 
                     if mean_md >= 0.15 or mean_agg >= 0.25:
                         # Simply remove
@@ -353,7 +348,7 @@ class Validator(Clusterer, Embedder):
 
                     if debug:
                         print('before check for distant contigs: ', len(tids))
-                        _, _, _, _ = self.compare_bins(bin)
+                        _, _, _, _ = self.bin_stats(bin)
 
                     f_level = 0.15
                     m_level = 0.15
@@ -379,7 +374,7 @@ class Validator(Clusterer, Embedder):
 
                         if debug:
                             print('contigs removed: ', len(tids))
-                            _, _, _, _ = self.compare_bins(bin)
+                            _, _, _, _ = self.bin_stats(bin)
 
                     if ((mean_md >= m_level
                          or mean_agg >= f_level
@@ -392,7 +387,7 @@ class Validator(Clusterer, Embedder):
                                 or bin_size >= 13e6):
                             if debug:
                                 logging.debug("Forcing bin %d" % bin)
-                                self.compare_bins(bin)
+                                self.bin_stats(bin)
                             if bin_size >= 13e6 or ((mean_tnf >= 0.15 or mean_euc >= 3.5) and (bin_size >= 2e6)):
                                 force_new_clustering.append(False)  # send it to turbo hell
                             else:
@@ -409,7 +404,7 @@ class Validator(Clusterer, Embedder):
                         reembed_if_no_cluster.append(False)  # take it easy, okay?
                         # if debug:
                         #     print("bin survived %d" % bin)
-                        #     self.compare_bins(bin)
+                        #     self.bin_stats(bin)
                         # self.survived.append(bin)
                 else:
                     logging.debug(bin, self.survived)
@@ -450,7 +445,7 @@ class Validator(Clusterer, Embedder):
                             and bin_size > 1e6:
                         if debug:
                             print("In final bit. ", bin)
-                            self.compare_bins(bin)
+                            self.bin_stats(bin)
                         reembed_separately.append(bin)
                         reembed_if_no_cluster.append(True)
                         force_new_clustering.append(False)  # send it to turbo hell
@@ -482,7 +477,7 @@ class Validator(Clusterer, Embedder):
                             and bin_size > 1e6:
                         if debug:
                             print("In final bit. ", bin)
-                            self.compare_bins(bin)
+                            self.bin_stats(bin)
                         reembed_separately.append(bin)
                         reembed_if_no_cluster.append(True)
                         force_new_clustering.append(True)  # send it to turbo hell
@@ -580,7 +575,7 @@ class Validator(Clusterer, Embedder):
         try:
             sorted_labels.remove(-1)
         except KeyError:
-            None
+            pass
 
         sorted_labels = np.array(sorted_labels)
 
@@ -1062,3 +1057,66 @@ class Validator(Clusterer, Embedder):
                         self.bins[0] = [idx]
 
         return plots, remove
+
+
+    def compare_contig_to_bin(self, tid, current_depths, bin_id, n_samples, sample_distances):
+        logging.debug("Beginning check on bin: ", bin_id)
+        tids = self.bins[bin_id]
+        if len(tids) == 1:
+            return self.compare_contigs(tid, tids[0])
+
+        elif bin_id == 0:
+            pass
+        else:
+            ## Dissolve very small or loq quality bins for re-emebedding
+            contigs, log_lengths, tnfs = self.extract_contigs(tids)
+
+            try:
+                other_depths = np.concatenate((contigs.iloc[:, 3:].values,
+                                                log_lengths.values[:, None],
+                                                tnfs.iloc[:, 2:].values), axis=1)
+                mean_md, \
+                mean_rho, \
+                mean_euc, \
+                mean_agg, \
+                _ = \
+                    metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
+                                                         log_lengths.values[:, None],
+                                                         tnfs.iloc[:, 2:].values), axis=1),
+                                         n_samples,
+                                         sample_distances)
+
+                return metrics.get_single_contig_averages(
+                    current_depths,
+                    other_depths,
+                    n_samples,
+                    sample_distances
+                )
+
+            except ZeroDivisionError:
+                # Only one contig left, break out
+                return self.compare_contigs(tid, tids[0])
+            
+
+    def verify_contig_is_in_right_bin(self, tid, current_bin):
+        bins = self.bins.keys()
+        n_samples, sample_distances = self.get_n_samples_and_distances()
+
+        current_contig, current_log_lengths, current_tnfs = self.extract_contigs([tid])
+        current_depths = np.concatenate((current_contig.iloc[:, 3:].values,
+                                     current_log_lengths.values[:, None],
+                                     current_tnfs.iloc[:, 2:].values), axis=1)
+        current_md, current_rho, current_euc, current_agg = self.compare_contig_to_bin(
+            tid,
+            current_depths,
+            current_bin
+        )
+
+        lowest_md = -1
+        lowest_rho = -1
+        lowest_euc = -1
+        lowest_agg = -1
+        best_neighbour_bin = -1
+
+        for bin_id in bins:
+            self.compare_contig_to_bin(tid, current_depths, bin_id, n_samples, sample_distances)

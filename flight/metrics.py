@@ -678,6 +678,31 @@ def check_connections(current, others, n_samples, rho_threshold=0.05, euc_thresh
     return rho_connected, euc_connected
 
 @njit(fastmath=True)
+def get_single_contig_averages(contig_depth, depths, n_samples, sample_distances):
+    values = List([0.0, 0.0, 0.0, 0.0])
+    # distances = np.zeros((depths.shape[0], depths.shape[0]))
+    w = (n_samples) / (n_samples + 1)  # weighting by number of samples same as in metabat2
+
+    for i in depths.shape[0]:
+        md = metabat_distance(contig_depth[:n_samples * 2], depths[i, :n_samples * 2], n_samples, sample_distances)
+        tnf_dist = rho(contig_depth[n_samples * 2:], depths[i, n_samples * 2:])
+        tnf_euc = tnf_euclidean(contig_depth[n_samples * 2:], depths[i, n_samples * 2:])
+
+        agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
+
+        values[0] += md
+        values[1] += tnf_dist
+        values[2] += tnf_euc
+        values[3] += agg
+
+    values[0] /= (len(depths.shape[0]))
+    values[1] /= (len(depths.shape[0]))
+    values[2] /= (len(depths.shape[0]))
+    values[3] /= (len(depths.shape[0]))
+
+    return values
+
+@njit(fastmath=True)
 def get_averages(depths, n_samples, sample_distances):
     contigs = List()
     tids = List()
@@ -685,7 +710,7 @@ def get_averages(depths, n_samples, sample_distances):
     w = (n_samples) / (n_samples + 1) # weighting by number of samples same as in metabat2
 
     [(contigs.append(List([0.0, 0.0, 0.0, 0.0])), tids.append(x)) for x in range(depths.shape[0])]
-    
+
     pairs = combinations(tids, 2)
     mean_md = 0
     mean_tnf = 0
