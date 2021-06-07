@@ -87,10 +87,10 @@ class Binner:
     def __init__(
             self,
             count_path,
-            long_count_path,
             kmer_frequencies,
             output_prefix,
             assembly,
+            long_count_path=None,
             n_neighbors=100,
             min_dist=0.1,
             min_contig_size=2500,
@@ -279,6 +279,8 @@ class Binner:
             random_state=random_seed
         )
 
+
+        # Embedder options
         self.n_neighbors = n_neighbors
         self.n_components = n_components
         self.min_dist = min_dist
@@ -291,9 +293,13 @@ class Binner:
         self.intersection_mapper = None
         self.embeddings = None
 
+        # Clusterer options
         self.unbinned_tids = []
         self.labels = None
         self.soft_clusters = None
+
+        # Validator options
+        self.overclustered = False  # large cluster
 
 
     def n50(self):
@@ -430,24 +436,168 @@ class Binner:
                                   tnfs2.iloc[:, 2:].values), axis=1)
 
         md = metrics.metabat_distance(
-            contig1[:n_samples * 2],
-            contig2[:n_samples * 2],
+            contig1[0, :n_samples * 2],
+            contig2[0, :n_samples * 2],
             n_samples, sample_distances
         )
 
         rho = metrics.rho(
-            contig1[n_samples * 2:],
-            contig2[n_samples * 2:],
+            contig1[0, n_samples * 2:],
+            contig2[0, n_samples * 2:],
         )
 
         euc = metrics.tnf_euclidean(
-            contig1[n_samples * 2:],
-            contig2[n_samples * 2:],
+            contig1[0, n_samples * 2:],
+            contig2[0, n_samples * 2:],
         )
 
         agg = np.sqrt((md ** w) * (rho ** (1 - w)))
 
+        if debug:
+            print("Tid compared to other tid: ", tid1, tid2, md, rho, euc, agg)
+
         return md, rho, euc, agg
+
+    def compare_contig_to_bin(self, tid, current_depths, bin_id, n_samples, sample_distances, debug=False):
+        """
+        Compares a given contig to given bin. If the bin has one contig, return the distances of current bin
+        to that bin. If the bin has multiple contigs, only return the distances if the contig being compared
+        had a mean distance less than or equal to the mean distance of all points in the bin already
+
+        :returns: distances to bin or None
+        """
+        logging.debug("Beginning check on bin: ", bin_id)
+        tids = self.bins[bin_id]
+        if tid not in tids:
+            if len(tids) == 1:
+                return self.compare_contigs(tid, tids[0], n_samples, sample_distances, debug)
+
+            elif bin_id == 0:
+                return None
+            else:
+                contigs, log_lengths, tnfs = self.extract_contigs(tids)
+
+                try:
+                    other_depths = np.concatenate((contigs.iloc[:, 3:].values,
+                                                    log_lengths.values[:, None],
+                                                    tnfs.iloc[:, 2:].values), axis=1)
+                    mean_md, \
+                    mean_rho, \
+                    mean_euc, \
+                    mean_agg,\
+                        _ = \
+                        metrics.get_averages(other_depths,
+                                             n_samples,
+                                             sample_distances)
+
+                    other_md, \
+                    other_rho, \
+                    other_euc, \
+                    other_agg = \
+                        metrics.get_single_contig_averages(
+                                            current_depths,
+                                            other_depths,
+                                            n_samples,
+                                            sample_distances
+                                        )
+
+                    if other_md <= mean_md and (other_rho <= mean_rho or other_euc <= mean_euc):
+                        # if other_md <= 0.3 and (other_rho <= 0.1 or other_euc <= 2):
+                        if debug:
+                            print("Tid compared to other bin: ", tid, bin_id, other_md, other_rho, other_euc, other_agg)
+                        return other_md, other_rho, other_euc, other_agg
+                        # else:
+                        #     return None
+                    else:
+                        return None
+
+                except ZeroDivisionError:
+                    # Only one contig left, break out
+                    return self.compare_contigs(tid, tids[0], n_samples, sample_distances, debug)
+        else:
+            return None
+
+
+    def find_best_bin_for_contig(self, tid, current_bin, current_depths, n_samples, sample_distances, debug=False):
+        """
+        Finds the bin for which the contig had the best concordance with depending on the the ADP and
+        rho or euclidean distance values
+        :params:
+            @tid - contig id to look at
+            @current_bin - the contigs current bin_id
+            @current_depths - the current depth matrix of the current bin
+
+        :returns: bin_id or None
+        """
+        bins = self.bins.keys()
+        result = None
+
+        if current_bin != 0 and current_depths.shape[0] > 1:
+            result = self.compare_contig_to_bin(
+                tid,
+                current_depths,
+                current_bin,
+                n_samples,
+                sample_distances
+            )
+            if result is None:
+                # Original bin had only one contig
+                current_md, current_rho, current_euc, current_agg = -1, -1, -1, -1
+            else:
+                if debug:
+                    print("Tid compared to own bin in finding best bin: ", tid, result)
+                current_md, current_rho, current_euc, current_agg = result
+        else:
+            # original bin was unbinned contigs
+            current_md, current_rho, current_euc, current_agg = -1, -1, -1, -1
+
+        best_md = -1
+        best_rho = -1
+        best_euc = -1
+        best_agg = -1
+        best_bin_id = -1
+
+        if debug:
+            print("Before testing: ", tid, result)
+
+        for bin_id in bins:
+            if bin_id == 0 or bin_id == current_bin:
+                continue
+            else:
+                result = self.compare_contig_to_bin(
+                    tid,
+                    current_depths,
+                    bin_id,
+                    n_samples,
+                    sample_distances,
+                    debug
+                )
+                if result is None:
+                    if debug:
+                        print("Found nothing: ", tid, result)
+                    continue
+                else:
+                    if debug:
+                        print("Found something: ", tid, result)
+                    other_md, other_rho, other_euc, other_agg = result
+                    if best_md == -1:
+                        best_md, best_rho, best_euc, best_agg = other_md, other_rho, other_euc, other_agg
+                        best_bin_id = bin_id
+                    elif other_md < best_md and (other_rho < best_rho or other_euc < best_euc):
+                        best_md, best_rho, best_euc, best_agg = other_md, other_rho, other_euc, other_agg
+                        best_bin_id = bin_id
+
+        if best_bin_id != -1:
+            if current_md == -1:
+                if best_md <= 0.3 and (best_rho <= 0.15 or best_euc <= 3):
+                    return best_bin_id
+
+            elif best_md < current_md and (best_rho < current_rho or best_euc < current_euc):
+                if best_md <= 0.3 and (best_rho <= 0.15 or best_euc <= 3):
+                    return best_bin_id
+
+        return None
+
 
     def get_n_samples_and_distances(self):
         if self.n_samples > 0:
@@ -531,10 +681,10 @@ class Binner:
                                 xycoords='data')
                     plotted_label.append(label)
 
-        for i, index in enumerate(indices):
-            if index != -1:
-                ax.annotate(findem[i], xy=(self.embeddings[index, 0],
-                                           self.embeddings[index, 1]),
+        for i, idx in enumerate(indices):
+            if idx != -1:
+                ax.annotate(findem[i], xy=(self.embeddings[idx, 0],
+                                           self.embeddings[idx, 1]),
                             xycoords='data')
 
         plt.gca().set_aspect('equal', 'datalim')
@@ -685,11 +835,6 @@ class Binner:
         with open(self.path + '/rosella_bins.json', 'w') as fp:
             json.dump(writing_bins, fp, cls=NpEncoder)
 
-
-
-from flight.rosella.validating import Validator
-class Rosella(Validator):
-    pass
 
 class NpEncoder(json.JSONEncoder):
     """

@@ -683,11 +683,12 @@ def get_single_contig_averages(contig_depth, depths, n_samples, sample_distances
     # distances = np.zeros((depths.shape[0], depths.shape[0]))
     w = (n_samples) / (n_samples + 1)  # weighting by number of samples same as in metabat2
 
-    for i in depths.shape[0]:
-        md = metabat_distance(contig_depth[:n_samples * 2], depths[i, :n_samples * 2], n_samples, sample_distances)
-        tnf_dist = rho(contig_depth[n_samples * 2:], depths[i, n_samples * 2:])
-        tnf_euc = tnf_euclidean(contig_depth[n_samples * 2:], depths[i, n_samples * 2:])
-
+    for i in range(depths.shape[0]):
+        md = metabat_distance(contig_depth[0, :n_samples * 2],
+                              depths[i, :n_samples * 2],
+                              n_samples, sample_distances)
+        tnf_dist = rho(contig_depth[0, n_samples * 2:], depths[i, n_samples * 2:])
+        tnf_euc = tnf_euclidean(contig_depth[0, n_samples * 2:], depths[i, n_samples * 2:])
         agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
 
         values[0] += md
@@ -695,10 +696,10 @@ def get_single_contig_averages(contig_depth, depths, n_samples, sample_distances
         values[2] += tnf_euc
         values[3] += agg
 
-    values[0] /= (len(depths.shape[0]))
-    values[1] /= (len(depths.shape[0]))
-    values[2] /= (len(depths.shape[0]))
-    values[3] /= (len(depths.shape[0]))
+    values[0] /= depths.shape[0]
+    values[1] /= depths.shape[0]
+    values[2] /= depths.shape[0]
+    values[3] /= depths.shape[0]
 
     return values
 

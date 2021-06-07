@@ -410,9 +410,7 @@ def bin(args):
     os.environ["NUMBA_NUM_THREADS"] = args.threads
     os.environ["MKL_NUM_THREADS"] = args.threads
     os.environ["OPENBLAS_NUM_THREADS"] = args.threads
-    from flight.rosella.binning import Rosella
-    import flight.utils as utils
-    import threadpoolctl
+    from flight.rosella.rosella import Rosella
 
     if args.long_input is None and args.input is None:
         logging.warning("bin requires either short or longread coverage values.")
@@ -422,7 +420,7 @@ def bin(args):
         os.makedirs(prefix)
 
     if not args.precomputed:
-        clusterer = Rosella(count_path=args.input,
+        rosella = Rosella(count_path=args.input,
                            long_count_path=args.long_input,
                            kmer_frequencies=args.kmer_frequencies,
                            output_prefix=prefix,
@@ -435,214 +433,9 @@ def bin(args):
                            b=float(args.b),
                            initialization='spectral'
                            )
-        clusterer.update_umap_params(clusterer.large_contigs.shape[0])
 
-        kwargs_write = {'fps': 1.0, 'quantizer': 'nq'}
-        plots = []
-        with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
+        rosella.perform_binning(args)
 
-                if clusterer.tnfs.values.shape[0] > int(args.n_neighbors):
-                    # First pass quick TNF filter to speed up next steps and remove large contigs that
-                    # are too distant from other contigs. These contigs tend to break UMAP results
-                    clusterer.filter()
-                    if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors) * 5:
-                        # Second pass intersection filtering
-                        clusterer.update_parameters()
-                        clusterer.fit_disconnect()
-                        if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[
-                            0] > int(args.n_neighbors) * 2:
-                            # Final fully filtered embedding to cluster on
-                            clusterer.update_umap_params(clusterer.large_contigs[~clusterer.disconnected][~clusterer.disconnected_intersected].shape[0])
-                            clusterer.fit_transform(clusterer.large_contigs[~clusterer.disconnected][~clusterer.disconnected_intersected]['tid'],
-                                                    int(args.n_neighbors))
-                            clusterer.embeddings = clusterer.intersection_mapper.embedding_
-
-                            logging.info("HDBSCAN - Performing initial clustering.")
-                            clusterer.labels = clusterer.iterative_clustering(clusterer.embeddings,
-                                                                              prediction_data=True,
-                                                                              allow_single_cluster=False,
-                                                                              double=False)
-
-                            ## Plot limits
-                            x_min = min(clusterer.embeddings[:, 0]) - 10
-                            x_max = max(clusterer.embeddings[:, 0]) + 10
-                            y_min = min(clusterer.embeddings[:, 1]) - 10
-                            y_max = max(clusterer.embeddings[:, 1]) + 10
-
-                            plots.append(
-                                utils.plot_for_offset(clusterer.embeddings, clusterer.labels, x_min, x_max, y_min, y_max,
-                                                      0))
-                            clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-
-                            clusterer.plot(['contig_1357_pilon', 'contig_1570_pilon', 'contig_810_pilon', 'scaffold_1358_pilon'])
-
-
-                            logging.info("Reclustering individual bins.")
-
-                            clusterer.sort_bins()
-
-                            # Clean up leftover stuff
-                            clusterer.reembed(clusterer.unbinned_tids,
-                                              max(clusterer.bins.keys()), plots,
-                                              x_min, x_max, y_min, y_max, 0, delete_unbinned=True,
-                                              skip_clustering=True, reembed=True, force=True,
-                                              update_embeddings=False)
-
-                            clusterer.sort_bins()
-                            n = 0
-                            while n <= 1:
-                                plots, n = clusterer.validate_bins(plots, n,
-                                                                        x_min, x_max,
-                                                                        y_min, y_max,
-                                                                        quick_filter=True)
-                                clusterer.sort_bins()
-                                n += 1
-
-                            # n = 0
-                            # plots, n = clusterer.validate_bins(plots, n, x_min, x_max, y_min, y_max,
-                            #                                         big_only=True)
-                            # clusterer.sort_bins()
-                            # If after everything there are excessively large clusters hanging around
-                            # This is where we send them to turbo hell. This step is probably the main
-                            # reason Rosella won't work on eukaryotic genomes, if we made this step optional
-                            # then it might work on them but I don't have any good benchmarks to test on.
-
-                            # while n <= 100:
-                            #     logging.debug("iteration: ", n)
-                            #     clusterer.overclustered = False  # large clusters
-                            #     plots, n = clusterer.validate_bins(plots, n,
-                            #                                             x_min, x_max,
-                            #                                             y_min, y_max,
-                            #                                             size_only=True,
-                            #                                             reembed=True)
-                            #     clusterer.sort_bins()
-                            #     n += 1
-                            #     if not clusterer.overclustered:
-                            #         break  # no more clusters have broken
-
-                            # This took so much refinement holy shit. This is what makes Rosella work
-                            # Each cluster is checked for internal metrics. If the metrics look bad then
-                            # Recluster -> re-embed -> recluster. If any of the new clusters look better
-                            # Than the previous clusters then take them instead (Within reason).
-                            # Kind of time consuming, could potentially be sped up with multiprocessing
-                            # but thread control might get a bit heckers.
-                            n = 0
-                            while n <= 100:
-                                clusterer.overclustered = False # large clusters
-                                plots, n = clusterer.validate_bins(plots, n,
-                                                                        x_min, x_max,
-                                                                        y_min, y_max,
-                                                                        reembed=True)
-                                clusterer.sort_bins()
-                                n += 1
-                                if not clusterer.overclustered:
-                                    break # no more clusters have broken
-
-                            # THIS WILL BREAK BINS, Try not to use it
-                            # Quickly filter any busted contigs
-                            # These are just contigs that either belong by themselves or are
-                            # just noise that UMAP decided to put with other stuff. Only way to
-                            # get rid of them is to just use this smooth brain method
-                            # n = 0
-                            # while n <= 5:
-                            #     plots, n = clusterer.validate_bins(plots, n, x_min, x_max, y_min, y_max,
-                            #                                             big_only=True)
-                            #     clusterer.sort_bins()
-                            #     plots, n = clusterer.validate_bins(plots, n,
-                            #                                             x_min, x_max,
-                            #                                             y_min, y_max,
-                            #                                             reembed=True)
-                            #     clusterer.sort_bins()
-                            #     n += 1
-                            #
-                            #
-                            #
-                            # clusterer.sort_bins()
-                            # Bin unfiltered but keep
-                            # clusterer.bin_filtered(1e6, keep_unbinned=True)
-
-
-
-
-                            n = 0
-                            # Only begin forcing after all other options have been exhausted
-                            while n <= 5:
-                                plots, n = clusterer.validate_bins(plots, n, x_min, x_max, y_min, y_max,
-                                                                        big_only=True)
-                                clusterer.sort_bins()
-                                plots, n = clusterer.validate_bins(plots, n,
-                                                                        x_min, x_max,
-                                                                        y_min, y_max,
-                                                                        reembed=True)
-                                clusterer.sort_bins()
-                                # plots, n = clusterer.validate_bins(plots, n,
-                                #                                         x_min, x_max,
-                                #                                         y_min, y_max,
-                                #                                         force=True)
-                                # clusterer.sort_bins()
-                                n += 1
-
-
-
-                            # truth_array = \
-                            # clusterer.large_contigs[~clusterer.disconnected][~clusterer.disconnected_intersected][
-                            #     'tid'].isin(clusterer.unbinned_tids)
-
-                            n = 0
-                            while n <= 5:
-                                clusterer.overclustered = False  # large clusters
-                                # Clean up leftover stuff
-                                clusterer.reembed(clusterer.unbinned_tids,
-                                                  max(clusterer.bins.keys()), plots,
-                                                  x_min, x_max, y_min, y_max, n, delete_unbinned=True,
-                                                  skip_clustering=True, reembed=True, force=True,
-                                                  update_embeddings=False)
-
-                                clusterer.sort_bins()
-                                # plots, n = clusterer.validate_bins(plots, n, x_min, x_max, y_min, y_max,
-                                #                                    big_only=True)
-                                # clusterer.sort_bins()
-                                plots, n = clusterer.validate_bins(plots, n,
-                                                                   x_min, x_max,
-                                                                   y_min, y_max,
-                                                                   reembed=True)
-                                clusterer.sort_bins()
-                                plots, n = clusterer.validate_bins(plots, n,
-                                                                   x_min, x_max,
-                                                                   y_min, y_max,
-                                                                   force=True)
-                                clusterer.sort_bins()
-                                n += 1
-                                if not clusterer.overclustered:
-                                    break  # no more clusters have broken
-
-                            # plots, n = clusterer.validate_bins(plots, n,
-                            #                                    x_min, x_max,
-                            #                                    y_min, y_max,
-                            #                                    reembed=True,
-                            #                                    truth_array=truth_array)
-                            clusterer.sort_bins()
-
-                            clusterer.get_labels_from_bins()
-                            clusterer.combine_bins()
-                            clusterer.sort_bins()
-                            # clusterer.plot()
-
-                            clusterer.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
-                        else:
-                            clusterer.rescue_contigs(int(args.min_bin_size))
-                    else:
-                        clusterer.rescue_contigs(int(args.min_bin_size))
-                else:
-                    clusterer.rescue_contigs(int(args.min_bin_size))
-            logging.debug("Writing bins...", len(clusterer.bins.keys()))
-            clusterer.write_bins(int(args.min_bin_size))
-            try:
-                imageio.mimsave(clusterer.path + '/UMAP_projections.gif', plots, fps=1)
-            except RuntimeError:  # no plotting has occurred due to no embedding
-                pass
 
 
 def filter(args):

@@ -1058,65 +1058,110 @@ class Validator(Clusterer, Embedder):
 
         return plots, remove
 
+    def verify_contigs_are_in_best_bin(self, tids, current_bin, n_samples, sample_distances, debug=False):
+        """
+        Finds the best bin for a contig in a set of contigs
+        based on distance metrics and returns a boolean
 
-    def compare_contig_to_bin(self, tid, current_depths, bin_id, n_samples, sample_distances):
-        logging.debug("Beginning check on bin: ", bin_id)
-        tids = self.bins[bin_id]
-        if len(tids) == 1:
-            return self.compare_contigs(tid, tids[0])
+        :returns: boolean indicating if a contig has been removed or not
+        """
 
-        elif bin_id == 0:
-            pass
-        else:
-            ## Dissolve very small or loq quality bins for re-emebedding
-            contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
-            try:
-                other_depths = np.concatenate((contigs.iloc[:, 3:].values,
-                                                log_lengths.values[:, None],
-                                                tnfs.iloc[:, 2:].values), axis=1)
-                mean_md, \
-                mean_rho, \
-                mean_euc, \
-                mean_agg, \
-                _ = \
-                    metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
-                                                         log_lengths.values[:, None],
-                                                         tnfs.iloc[:, 2:].values), axis=1),
-                                         n_samples,
-                                         sample_distances)
+        # Calculate the stats of current bin
+        current_contig, current_log_lengths, current_tnfs = self.extract_contigs(tids)
+        current_depths = np.concatenate((current_contig.iloc[:, 3:].values,
+                                         current_log_lengths.values[:, None],
+                                         current_tnfs.iloc[:, 2:].values), axis=1)
 
-                return metrics.get_single_contig_averages(
-                    current_depths,
-                    other_depths,
-                    n_samples,
-                    sample_distances
-                )
 
-            except ZeroDivisionError:
-                # Only one contig left, break out
-                return self.compare_contigs(tid, tids[0])
-            
+        for tid in tids:
 
-    def verify_contig_is_in_right_bin(self, tid, current_bin):
-        bins = self.bins.keys()
+            result = self.find_best_bin_for_contig(
+                tid,
+                current_bin,
+                current_depths,
+                n_samples,
+                sample_distances,
+                debug
+            )
+
+            if debug:
+                print("Tid result: ", tid, result)
+            if result is not None:
+                self.bins[result].append(tid)
+                self.bins[current_bin].remove(tid)
+                return True # contigs were moved
+            else:
+                return False # contigs weren't moved
+
+
+    def check_bad_bins_and_unbinned(self, min_bin_size=5e5, debug=False):
         n_samples, sample_distances = self.get_n_samples_and_distances()
 
-        current_contig, current_log_lengths, current_tnfs = self.extract_contigs([tid])
-        current_depths = np.concatenate((current_contig.iloc[:, 3:].values,
-                                     current_log_lengths.values[:, None],
-                                     current_tnfs.iloc[:, 2:].values), axis=1)
-        current_md, current_rho, current_euc, current_agg = self.compare_contig_to_bin(
-            tid,
-            current_depths,
-            current_bin
-        )
-
-        lowest_md = -1
-        lowest_rho = -1
-        lowest_euc = -1
-        lowest_agg = -1
-        best_neighbour_bin = -1
-
+        logging.debug("Checking bin internal distances...")
+        a_contig_has_moved = False
+        bins = self.bins.keys()
+        if debug:
+            print(min_bin_size, " bin size minimum")
         for bin_id in bins:
-            self.compare_contig_to_bin(tid, current_depths, bin_id, n_samples, sample_distances)
+            logging.debug("Beginning check on bin: ", bin_id)
+            tids = self.bins[bin_id]
+            if bin_id != 0 or len(tids) == 1:
+                ## Dissolve very small or loq quality bins for re-emebedding
+                contigs, log_lengths, tnfs = self.extract_contigs(tids)
+                bin_size = contigs['contigLen'].sum()
+                if debug:
+                    print(bin_size, " current bin size")
+                if min_bin_size is not None:
+
+                    if bin_size <= min_bin_size:
+                        if debug:
+                            print(bin_size, " bin size")
+                        if self.verify_contigs_are_in_best_bin(tids, bin_id, n_samples, sample_distances, debug):
+                            a_contig_has_moved = True
+
+                    else:
+                        try:
+                            mean_md, \
+                            mean_tnf, \
+                            mean_euc, \
+                            mean_agg, \
+                            _ = \
+                                metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                     log_lengths.values[:, None],
+                                                                     tnfs.iloc[:, 2:].values), axis=1),
+                                                     n_samples,
+                                                     sample_distances)
+
+                        except ZeroDivisionError:
+                            # Only one contig left, break out
+                            break
+
+                        if (mean_md >= 0.45 or mean_agg >= 0.45) and (mean_tnf >= 0.15 or mean_euc >= 3.5):
+                            if debug:
+                                print(mean_md, mean_agg, mean_tnf, mean_euc, " checking bin due to bad stats")
+                            if self.verify_contigs_are_in_best_bin(tids, bin_id, n_samples, sample_distances, debug):
+                                a_contig_has_moved = True
+                else:
+                    if self.verify_contigs_are_in_best_bin(tids, bin_id, n_samples, sample_distances, debug):
+                        a_contig_has_moved = True
+            else:
+                for tid in tids:
+                    contigs, log_lengths, tnfs = self.extract_contigs([tid])
+                    bin_size = contigs['contigLen'].sum()
+                    if debug:
+                        print("Checking unbinned contig ", tid, bin_size)
+                    if min_bin_size is not None:
+                        if bin_size <= min_bin_size:
+                            if self.verify_contigs_are_in_best_bin(
+                                    [tid], bin_id, n_samples, sample_distances, debug
+                            ):
+                                a_contig_has_moved = True
+                    elif self.verify_contigs_are_in_best_bin(
+                                [tid], bin_id, n_samples, sample_distances, debug
+                        ):
+                            a_contig_has_moved = True
+
+
+
+        return a_contig_has_moved
