@@ -500,20 +500,21 @@ class Binner:
                                             n_samples,
                                             sample_distances
                                         )
-
+                    if debug:
+                        print("Tid compared to other bin: ", tid, bin_id, other_md, other_rho, other_euc, other_agg)
                     if other_md <= mean_md and (other_rho <= mean_rho or other_euc <= mean_euc):
-                        # if other_md <= 0.3 and (other_rho <= 0.1 or other_euc <= 2):
-                        if debug:
-                            print("Tid compared to other bin: ", tid, bin_id, other_md, other_rho, other_euc, other_agg)
-                        return other_md, other_rho, other_euc, other_agg
-                        # else:
-                        #     return None
+                        if (other_md <= 0.3 and (other_rho <= 0.2 or other_euc <= 4)) and other_agg <= 0.5:
+                            if debug:
+                                print("Moving contig to: ", bin_id)
+                            return other_md, other_rho, other_euc, other_agg
+                        else:
+                            return None
                     else:
                         return None
 
                 except ZeroDivisionError:
                     # Only one contig left, break out
-                    return self.compare_contigs(tid, tids[0], n_samples, sample_distances, debug)
+                    return None
         else:
             return None
 
@@ -592,9 +593,9 @@ class Binner:
                 if best_md <= 0.3 and (best_rho <= 0.15 or best_euc <= 3):
                     return best_bin_id
 
-            elif best_md < current_md and (best_rho < current_rho or best_euc < current_euc):
-                if best_md <= 0.3 and (best_rho <= 0.15 or best_euc <= 3):
-                    return best_bin_id
+            elif best_md <= current_md and (best_rho <= current_rho or best_euc <= current_euc):
+                # if best_md <= 0.3 and (best_rho <= 0.15 or best_euc <= 3):
+                return best_bin_id
 
         return None
 

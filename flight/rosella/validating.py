@@ -42,7 +42,6 @@ import sklearn.metrics as sk_metrics
 # self imports
 import flight.metrics as metrics
 import flight.utils as utils
-from flight.rosella.binning import Binner
 from flight.rosella.clustering import Clusterer
 from flight.rosella.embedding import Embedder
 
@@ -1095,18 +1094,19 @@ class Validator(Clusterer, Embedder):
                 return False # contigs weren't moved
 
 
-    def check_bad_bins_and_unbinned(self, min_bin_size=5e5, debug=False):
+    def check_bad_bins_and_unbinned(self, min_bin_size=2e5, debug=False):
         n_samples, sample_distances = self.get_n_samples_and_distances()
 
         logging.debug("Checking bin internal distances...")
         a_contig_has_moved = False
         bins = self.bins.keys()
+        bins_to_remove = []
         if debug:
             print(min_bin_size, " bin size minimum")
         for bin_id in bins:
             logging.debug("Beginning check on bin: ", bin_id)
             tids = self.bins[bin_id]
-            if bin_id != 0 or len(tids) == 1:
+            if bin_id != 0 and len(tids) > 1:
                 ## Dissolve very small or loq quality bins for re-emebedding
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
                 bin_size = contigs['contigLen'].sum()
@@ -1120,28 +1120,43 @@ class Validator(Clusterer, Embedder):
                         if self.verify_contigs_are_in_best_bin(tids, bin_id, n_samples, sample_distances, debug):
                             a_contig_has_moved = True
 
-                    else:
-                        try:
-                            mean_md, \
-                            mean_tnf, \
-                            mean_euc, \
-                            mean_agg, \
-                            _ = \
-                                metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                     log_lengths.values[:, None],
-                                                                     tnfs.iloc[:, 2:].values), axis=1),
-                                                     n_samples,
-                                                     sample_distances)
+                    # else:
+                    #     try:
+                    #         mean_md, \
+                    #         mean_tnf, \
+                    #         mean_euc, \
+                    #         mean_agg, \
+                    #         per_contig_avg = \
+                    #             metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
+                    #                                                  log_lengths.values[:, None],
+                    #                                                  tnfs.iloc[:, 2:].values), axis=1),
+                    #                                  n_samples,
+                    #                                  sample_distances)
+                    #         per_contig_avg = np.array(per_contig_avg)
+                    #
+                    #     except ZeroDivisionError:
+                    #         # Only one contig left, break out
+                    #         break
+                    #
+                    #     if (mean_md >= 0.45 or mean_agg >= 0.45) and (mean_tnf >= 0.15 or mean_euc >= 3.5):
+                    #         if debug:
+                    #             print(mean_md, mean_agg, mean_tnf, mean_euc, " checking bin due to bad stats")
+                    #         if self.verify_contigs_are_in_best_bin(tids, bin_id, n_samples, sample_distances, debug):
+                    #             a_contig_has_moved = True
+                    #     else:
+                    #         if (mean_md >= 0.3 or mean_agg >= 0.35) and (mean_tnf >= 0.1 or mean_euc >= 3):
+                    #             # check each contig individually
+                    #             contigs_to_check = []
+                    #             for idx, contig_averages in enumerate(per_contig_avg):
+                    #                 if (contig_averages[0] >= mean_md or contig_averages[3] >= mean_agg) \
+                    #                     and (contig_averages[1] >= mean_tnf or contig_averages[2] >= mean_euc):
+                    #                     contigs_to_check.append(tids[idx])
+                    #
+                    #             if len(contigs_to_check) > 0:
+                    #                 if self.verify_contigs_are_in_best_bin(contigs_to_check, bin_id, n_samples, sample_distances,
+                    #                                                        debug):
+                    #                     a_contig_has_moved = True
 
-                        except ZeroDivisionError:
-                            # Only one contig left, break out
-                            break
-
-                        if (mean_md >= 0.45 or mean_agg >= 0.45) and (mean_tnf >= 0.15 or mean_euc >= 3.5):
-                            if debug:
-                                print(mean_md, mean_agg, mean_tnf, mean_euc, " checking bin due to bad stats")
-                            if self.verify_contigs_are_in_best_bin(tids, bin_id, n_samples, sample_distances, debug):
-                                a_contig_has_moved = True
                 else:
                     if self.verify_contigs_are_in_best_bin(tids, bin_id, n_samples, sample_distances, debug):
                         a_contig_has_moved = True
@@ -1162,6 +1177,13 @@ class Validator(Clusterer, Embedder):
                         ):
                             a_contig_has_moved = True
 
+            if len(tids) == 0:
+                bins_to_remove.append(bin_id)
 
+        for bin_id in bins_to_remove:
+            try:
+                _ = self.bins.pop(bin_id)
+            except KeyError:
+                pass
 
         return a_contig_has_moved
