@@ -878,8 +878,8 @@ class Validator(Clusterer, Embedder):
                     self.labels = np.array([-1 for i in range(unbinned_embeddings.shape[0])])
 
             if relaxed:
-                min_validity = 0.5
-                min_distance = 0.5
+                min_validity = 0.7
+                # min_distance = 0.5
 
             set_labels = set(self.labels)
 

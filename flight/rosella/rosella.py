@@ -258,13 +258,13 @@ class Rosella(Validator):
                             self.big_contig_filter(plots, 0, 5, x_min, x_max, y_min, y_max)
                             self.force_splitting(plots, 0, 5, x_min, x_max, y_min, y_max)
 
-                            self.get_labels_from_bins()
-                            self.combine_bins(threshold=0.001)
-                            self.sort_bins()
+                            # self.get_labels_from_bins()
+                            # self.combine_bins(threshold=0.001)
+                            # self.sort_bins()
 
 
                             self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
-                            # self.assign_unbinned(0, 1, 2e5)
+                            # self.assign_unbinned(0, 0, 2e5)
 
                         else:
                             self.rescue_contigs(int(args.min_bin_size))
