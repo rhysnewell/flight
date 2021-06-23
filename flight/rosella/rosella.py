@@ -194,6 +194,21 @@ class Rosella(Validator):
                 self.sort_bins()
                 break  # no more clusters have broken
 
+    def check_if_bins_should_combine(self, n=0, n_max=5, threshold=0.001):
+        old_labels = None
+        while n <= n_max:
+            self.get_labels_from_bins()
+            if old_labels is None:
+                old_labels = self.labels
+            elif (old_labels == self.labels).all():
+                break
+            else:
+                old_labels = self.labels
+
+            self.combine_bins(threshold=threshold)
+            self.sort_bins()
+            n += 1
+
     def perform_binning(self, args):
         self.update_umap_params(self.large_contigs.shape[0])
         plots = []
@@ -253,15 +268,12 @@ class Rosella(Validator):
                                               update_embeddings=False)
 
                             self.sort_bins()
+
                             self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
                             self.slow_refine(plots, 0, 100, x_min, x_max, y_min, y_max)
                             self.big_contig_filter(plots, 0, 5, x_min, x_max, y_min, y_max)
-                            self.force_splitting(plots, 0, 5, x_min, x_max, y_min, y_max)
-
-                            # self.get_labels_from_bins()
-                            # self.combine_bins(threshold=0.001)
-                            # self.sort_bins()
-
+                            # self.force_splitting(plots, 0, 5, x_min, x_max, y_min, y_max)
+                            # self.check_if_bins_should_combine(0, 1, 0.01)
 
                             self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
                             # self.assign_unbinned(0, 0, 2e5)

@@ -118,22 +118,39 @@ class Embedder(Binner):
         try:
 
             # We check the euclidean distances of large contigs as well.
-            disconnections = self._check_contigs(self.large_contigs[self.large_contigs['contigLen'] > 1.5e6]['tid'], 0.1, 2)
+            disconnections_very_big = self._check_contigs(self.large_contigs[self.large_contigs['contigLen'] >= 2.5e6]['tid'], 0.05, 2)
+            disconnections_big = self._check_contigs(self.large_contigs[(self.large_contigs['contigLen'] >= 1.5e6)
+                                                                        & (self.large_contigs['contigLen'] < 2.5e6)]['tid'], 0.1, 2)
+            disconnections_small = self._check_contigs(self.large_contigs[(self.large_contigs['contigLen'] > 2.5e3)
+                                                                        & (self.large_contigs['contigLen'] <= 1e4)]['tid'], 0.1, 2)
+            disconnections_very_small = self._check_contigs(self.large_contigs[self.large_contigs['contigLen'] <= 2.5e3]['tid'], 0.05, 2)
 
+            initial_disconnections = disconnections_very_big + disconnections_big + \
+                             disconnections_small + disconnections_very_small
             logging.info("Running UMAP Filter - %s" % self.rho_reducer)
             self.rho_reducer.n_neighbors = 5
             self.rho_reducer.disconnection_distance = 0.15
 
-            filterer_rho = self.rho_reducer.fit(
-                np.concatenate((self.log_lengths.values[:, None],
-                                self.tnfs.iloc[:, 2:]), axis = 1))
+            contigs, log_lengths, tnfs = self.extract_contigs(
+                self.large_contigs[~initial_disconnections]['tid']
+            )
 
-            disconnected = umap.utils.disconnected_vertices(filterer_rho) + disconnections
+            filterer_rho = self.rho_reducer.fit(
+                np.concatenate((log_lengths.values[:, None],
+                                tnfs.iloc[:, 2:]), axis=1))
+
+            disconnected_umap = umap.utils.disconnected_vertices(filterer_rho)
+
+            disconnected = initial_disconnections + np.array(self.large_contigs['tid'].isin(
+                self.large_contigs[~initial_disconnections][disconnected_umap]['tid']
+            ))
 
         except ValueError: # Everything was disconnected
             disconnected = np.array([True for i in range(self.large_contigs.values.shape[0])])
 
         self.disconnected = disconnected
+
+
 
     def _check_contigs(self, tids, rho_threshold=0.05, euc_threshold=2):
         logging.info("Checking TNF connections...")
@@ -212,6 +229,13 @@ class Embedder(Binner):
 
         self.disconnected_intersected = disconnected_intersected
 
+        # if np.median(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigLen']) < 25000:
+        #     # Lower median can use euclidean UMAP
+        #     self.use_euclidean = True
+        # else:
+        #     # Distribution of contigs tends to be larger, so euclidean distance breaks down
+        #     self.use_euclidean = False
+
 
     def fit_transform(self, tids, n_neighbors):
         """
@@ -253,3 +277,104 @@ class Embedder(Binner):
             intersection_mapper = depth_mapping * tnf_mapping
 
         self.intersection_mapper = intersection_mapper
+
+
+    def rho_md_transform(self, tids, n_neighbors):
+        self.depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+        self.depth_reducer.disconnection_distance = 0.99
+        self.tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+        self.tnf_reducer.disconnection_distance = 1
+
+        # self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
+        contigs, log_lengths, tnfs = self.extract_contigs(tids)
+
+        logging.debug("Running UMAP - %s" % self.tnf_reducer)
+        tnf_mapping = self.tnf_reducer.fit(
+            np.concatenate(
+                (log_lengths.values[:, None],
+                 tnfs.iloc[:, 2:]),
+                axis=1))
+
+        logging.debug("Running UMAP - %s" % self.depth_reducer)
+        depth_mapping = self.depth_reducer.fit(np.concatenate(
+            (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
+
+
+        intersection_mapper = depth_mapping * tnf_mapping
+
+        self.intersection_mapper = intersection_mapper
+
+    def euc_md_transform(self, tids, n_neighbors):
+        """
+        Main function for performing UMAP embeddings and intersections
+        """
+        # update parameters to artificially high values to avoid disconnected vertices in the final manifold
+        self.depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+        self.depth_reducer.disconnection_distance = 0.99
+        self.euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+        self.euc_reducer.disconnection_distance = 100
+
+        # self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
+        contigs, log_lengths, tnfs = self.extract_contigs(tids)
+
+        logging.debug("Running UMAP - %s" % self.depth_reducer)
+        depth_mapping = self.depth_reducer.fit(np.concatenate(
+            (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
+
+        logging.debug("Running UMAP - %s" % self.euc_reducer)
+        euc_mapping = self.euc_reducer.fit(
+            np.concatenate(
+                (log_lengths.values[:, None],
+                 tnfs.iloc[:, 2:]),
+                axis=1))
+        ## Intersect all of the embeddings
+        intersection_mapper = depth_mapping * euc_mapping
+
+        self.intersection_mapper = intersection_mapper
+
+
+    def multi_transform(self, tids, n_neighbors, switch=0):
+        """
+        Main function for performing UMAP embeddings and intersections
+        """
+        # update parameters to artificially high values to avoid disconnected vertices in the final manifold
+        self.depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+        self.depth_reducer.disconnection_distance = 0.99
+        self.tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+        self.tnf_reducer.disconnection_distance = 1
+        self.euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+        self.euc_reducer.disconnection_distance = 100
+
+        # self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
+        contigs, log_lengths, tnfs = self.extract_contigs(tids)
+
+        logging.debug("Running UMAP - %s" % self.depth_reducer)
+        self.depth_mapping = self.depth_reducer.fit(np.concatenate(
+            (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
+
+        logging.debug("Running UMAP - %s" % self.tnf_reducer)
+        self.tnf_mapping = self.tnf_reducer.fit(
+            np.concatenate(
+                (log_lengths.values[:, None],
+                 tnfs.iloc[:, 2:]),
+                    axis=1))
+        if (switch == 0 and self.use_euclidean) or switch == 2:
+            logging.debug("Running UMAP - %s" % self.euc_reducer)
+            self.euc_mapping = self.euc_reducer.fit(
+                np.concatenate(
+                    (log_lengths.values[:, None],
+                     tnfs.iloc[:, 2:]),
+                    axis=1))
+
+
+    def switch_intersector(self, switch=0):
+        if switch == 0 and self.use_euclidean:
+            # All
+            self.intersection_mapper = self.depth_mapping * self.euc_mapping * self.tnf_mapping
+        elif switch == 1 or (switch==0 and not self.use_euclidean):
+            # Rho and MD
+            self.intersection_mapper = self.depth_mapping * self.tnf_mapping
+        else:
+            self.intersection_mapper = self.depth_mapping * self.euc_mapping * self.tnf_mapping
+
+

@@ -204,7 +204,7 @@ class Binner:
             sys.exit("Contig ordering incorrect for kmer table or coverage table")
 
         if np.median(self.large_contigs['contigLen']) < 10000:
-            # Lower mean can use euclidean UMAP
+            # Lower median can use euclidean UMAP
             self.use_euclidean = True
         else:
             # Distribution of contigs tends to be larger, so euclidean distance breaks down
@@ -292,6 +292,9 @@ class Binner:
         self.disconnected_intersected = None
         self.intersection_mapper = None
         self.embeddings = None
+        self.euc_mapping = None
+        self.depth_mapping = None
+        self.tnf_mapping = None
 
         # Clusterer options
         self.unbinned_tids = []
@@ -300,6 +303,7 @@ class Binner:
 
         # Validator options
         self.overclustered = False  # large cluster
+
 
 
     def n50(self):

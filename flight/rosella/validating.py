@@ -100,7 +100,9 @@ class Validator(Clusterer, Embedder):
         big_tids = []
         reembed_separately = []  # container for bin ids that look like chimeras
         force_new_clustering = []
+        lower_thresholds = []
         reembed_if_no_cluster = []
+        switches = []
         bins = self.bins.keys()
         for bin in bins:
             logging.debug("Beginning check on bin: ", bin)
@@ -230,35 +232,35 @@ class Validator(Clusterer, Embedder):
                     removed_inner = []  # inner container that is rewritten every iteration
 
                     if len(tids) == 2:
-                        # Higher thresholds for fewer contigs
-                        md_filt = 0.35
-                        agg_filt = 0.45
-                        euc_filt = 2
+                        # Lower thresholds for fewer contigs
+                        md_filt = 0.2
+                        agg_filt = 0.4
+                        euc_filt = 3
                         rho_filt = 0.05
                         # Two contigs by themselves that are relatively distant. Remove them separately
-                        together = True
+                        together = False
                     elif len(tids) <= 5:
-                        # Higher thresholds for fewer contigs
+                        # Higher thresholds
                         md_filt = 0.35
                         agg_filt = 0.45
                         euc_filt = 2
                         rho_filt = 0.05
                         together = True
                     else:
-                        # Lower thresholds for fewer contigs
+
                         md_filt = 0.35
                         agg_filt = 0.45
                         euc_filt = 2
                         rho_filt = 0.05
                         together = True
 
-                    if mean_md >= 0.15 or mean_agg >= 0.25:
+                    if mean_md >= 0.15 or mean_agg >= 0.25 or mean_euc >= 2 or mean_tnf >= 0.25:
                         if debug:
                             print("Checking big contigs for bin: ", bin)
-                        md_std = max(np.std(per_contig_avg[:, 0]), 0.1)
-                        rho_std = max(np.std(per_contig_avg[:, 1]), 0.05)
-                        euc_std = max(np.std(per_contig_avg[:, 2]), 0.5)
-                        agg_std = max(np.std(per_contig_avg[:, 3]), 0.1)
+                        md_std = max(np.std(per_contig_avg[:, 0]), 0.025)
+                        rho_std = max(np.std(per_contig_avg[:, 1]), 0.025)
+                        euc_std = max(np.std(per_contig_avg[:, 2]), 0.25)
+                        agg_std = max(np.std(per_contig_avg[:, 3]), 0.025)
                         for max_idx in range(per_contig_avg.shape[0]):
                             # max_idx = np.argmax(per_contig_avg[:, 3]) # Check mean_agg first
                             max_values = per_contig_avg[max_idx, :]
@@ -266,7 +268,7 @@ class Validator(Clusterer, Embedder):
                             if debug:
                                 print("Contig size and tid: ", contig_length, tids[max_idx])
 
-                            if contig_length >= 1e6:
+                            if contig_length >= 1e5:
                                 if debug:
                                     print("Found large contig: ", max_idx, tids[max_idx])
                                 if (max_values[3] >= agg_filt or max_values[0] >= md_filt
@@ -285,13 +287,13 @@ class Validator(Clusterer, Embedder):
                                     else:
                                         removed_inner.append(tids[max_idx])
                                         removed_single.append(tids[max_idx])
-                                elif (max_values[0] >= 0.6 or max_values[1] >= 0.25 or max_values[2] >= 6.5):
-                                    if together:
-                                        removed_inner.append(tids[max_idx])
-                                        removed_together.append(tids[max_idx])
-                                    else:
-                                        removed_inner.append(tids[max_idx])
-                                        removed_single.append(tids[max_idx])
+                                # elif (max_values[0] >= 0.6 or max_values[1] >= 0.25 or max_values[2] >= 6.5):
+                                #     if together:
+                                #         removed_inner.append(tids[max_idx])
+                                #         removed_together.append(tids[max_idx])
+                                #     else:
+                                #         removed_inner.append(tids[max_idx])
+                                #         removed_single.append(tids[max_idx])
 
                         if len(removed_inner) > 0:
                             [tids.remove(r) for r in removed_inner]
@@ -382,29 +384,42 @@ class Validator(Clusterer, Embedder):
                         and bin_size > 1e6) or bin_size >= 12e6:
                         logging.debug(bin, mean_md, mean_tnf, mean_agg, len(tids))
                         reembed_separately.append(bin)
-                        if (((mean_md >= 0.4 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3))
+                        if (((mean_md >= 0.25 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3))
                                 or bin_size >= 13e6):
                             if debug:
                                 logging.debug("Forcing bin %d" % bin)
                                 self.bin_stats(bin)
-                            if bin_size >= 13e6 or ((mean_tnf >= 0.15 or mean_euc >= 3.5) and (bin_size >= 2e6)):
+                            if bin_size >= 13e6 or ((mean_tnf >= 0.15 or mean_euc >= 4) and (bin_size >= 2e6)):
                                 force_new_clustering.append(False)  # send it to turbo hell
+                                lower_thresholds.append(True)
                             else:
                                 force_new_clustering.append(False)
+                                lower_thresholds.append(False)
                             reembed_if_no_cluster.append(True)
                         elif bin_size > 1e6:
                             if debug:
                                 print("Reclustering bin %d" % bin)
                             force_new_clustering.append(False)  # send it to regular hell
+                            lower_thresholds.append(False)
                             reembed_if_no_cluster.append(True)
                     else:
                         reembed_separately.append(bin)
                         force_new_clustering.append(False)  # send it to regular hell
                         reembed_if_no_cluster.append(False)  # take it easy, okay?
+                        lower_thresholds.append(False)
                         # if debug:
                         #     print("bin survived %d" % bin)
                         #     self.bin_stats(bin)
                         # self.survived.append(bin)
+
+                    if mean_tnf >= shared_level and mean_euc >= 2:
+                        switches.append(0)
+                    elif mean_tnf >= shared_level and mean_euc <= 1.5:
+                        switches.append(1)
+                    elif mean_tnf < 0.1 and mean_euc >= 2:
+                        switches.append(2)
+                    else:
+                        switches.append(0)
                 else:
                     logging.debug(bin, self.survived)
 
@@ -425,6 +440,7 @@ class Validator(Clusterer, Embedder):
                         reembed_separately.append(bin)
                         reembed_if_no_cluster.append(True)
                         force_new_clustering.append(False)  # turbo hell
+                        lower_thresholds.append(False)
                 elif bin_size >= 1e6 and bin != 0:
                     try:
                         mean_md, \
@@ -448,6 +464,7 @@ class Validator(Clusterer, Embedder):
                         reembed_separately.append(bin)
                         reembed_if_no_cluster.append(True)
                         force_new_clustering.append(False)  # send it to turbo hell
+                        lower_thresholds.append(False)
 
                     else:
                         # self.survived.append(bin)
@@ -472,14 +489,24 @@ class Validator(Clusterer, Embedder):
                     except ZeroDivisionError:
                         continue
 
-                    if (mean_md >= 0.5 or mean_agg >= 0.45) and (mean_tnf >= 0.15 or mean_euc >= 3.5) \
+                    if (mean_md >= 0.15 or mean_agg >= 0.3) and (mean_tnf >= 0.1 or mean_euc >= 3.5) \
                             and bin_size > 1e6:
                         if debug:
                             print("In final bit. ", bin)
                             self.bin_stats(bin)
                         reembed_separately.append(bin)
                         reembed_if_no_cluster.append(True)
+                        force_new_clustering.append(False)  # send it to turbo hell
+                        lower_thresholds.append(True)
+                    elif (mean_md >= 0.6 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3) \
+                            and bin_size > 1e6:
+                        if debug:
+                            print("Forcing. ", bin)
+                            self.bin_stats(bin)
+                        reembed_separately.append(bin)
+                        reembed_if_no_cluster.append(True)
                         force_new_clustering.append(True)  # send it to turbo hell
+                        lower_thresholds.append(True)
                     else:
                         pass
 
@@ -490,7 +517,13 @@ class Validator(Clusterer, Embedder):
         for k, v in new_bins.items():
             self.bins[max_bin_id + k] = list(np.sort(np.array(v)))
 
-        for bin, force_new, reembed_cluster in zip(reembed_separately, force_new_clustering, reembed_if_no_cluster):
+        for bin, force_new, relaxed, reembed_cluster, switch in zip(
+            reembed_separately,
+            force_new_clustering,
+            lower_thresholds,
+            reembed_if_no_cluster,
+            switches
+        ):
             tids = self.bins[bin]
 
             logging.debug("Checking bin %d..." % bin)
@@ -504,8 +537,10 @@ class Validator(Clusterer, Embedder):
 
             plots, remove = self.reembed(tids, max_bin_id, plots,
                                          x_min, x_max, y_min, y_max, n,
-                                         relaxed=force_new,
+                                         relaxed=relaxed,
+                                         force=force_new,
                                          reembed=reembed_cluster,
+                                         switch=switch,
                                          truth_array=truth_array, debug=debug)
             if debug:
                 print("Problem bin result... removing: ", remove)
@@ -636,6 +671,7 @@ class Validator(Clusterer, Embedder):
                 skip_clustering=False,
                 update_embeddings=False,
                 truth_array=None,
+                switch=0,
                 debug=False):
         """
         Recluster -> Re-embedding -> Reclustering on the specified set of contigs
@@ -677,6 +713,8 @@ class Validator(Clusterer, Embedder):
 
         if original_size >= 14e6:
             force = True
+        elif original_size >= 13e6:
+            relaxed = True
 
         if len(set(tids)) > 1:
 
@@ -820,8 +858,8 @@ class Validator(Clusterer, Embedder):
 
                 try:
 
-                    self.fit_transform(tids, max_n_neighbours)
-
+                    self.multi_transform(tids, max_n_neighbours, switch=switch)
+                    self.switch_intersector(switch=switch)
                     new_embeddings = self.intersection_mapper.embedding_
                     if update_embeddings:
                         self.embeddings = new_embeddings
@@ -853,6 +891,7 @@ class Validator(Clusterer, Embedder):
                                 min_validity = 0.85
                                 if precomputed:
                                     precomputed = False  # No longer the best results
+
                         else:
                             if debug:
                                 print('using non re-embedded... %f' % max_validity)
@@ -867,10 +906,10 @@ class Validator(Clusterer, Embedder):
                                 min_validity = 0.85
                                 if precomputed:
                                     precomputed = False  # No longer the best results
+
                         else:
                             if debug:
                                 print('using non re-embedded... %f' % max_validity)
-
 
 
 
@@ -878,7 +917,7 @@ class Validator(Clusterer, Embedder):
                     self.labels = np.array([-1 for i in range(unbinned_embeddings.shape[0])])
 
             if relaxed:
-                min_validity = 0.7
+                min_validity = min(min_validity, 0.8)
                 # min_distance = 0.5
 
             set_labels = set(self.labels)
