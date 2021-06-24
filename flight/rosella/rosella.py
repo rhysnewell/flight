@@ -237,7 +237,7 @@ class Rosella(Validator):
 
                             logging.info("HDBSCAN - Performing initial clustering.")
                             self.labels = self.iterative_clustering(self.embeddings,
-                                                                              prediction_data=True,
+                                                                              prediction_data=False,
                                                                               allow_single_cluster=False,
                                                                               double=False)
 
@@ -249,12 +249,11 @@ class Rosella(Validator):
 
                             plots.append(
                                 utils.plot_for_offset(self.embeddings, self.labels, x_min, x_max, y_min,
-                                                      y_max,
-                                                      0))
+                                                      y_max, 0))
                             self.bin_contigs(args.assembly, int(args.min_bin_size))
 
                             self.plot(
-                                ['contig_1357_pilon', 'contig_1570_pilon', 'contig_810_pilon', 'scaffold_1358_pilon'])
+                                ['contig_731_pilon', 'contig_2371_pilon', 'contig_1088_pilon'])
 
                             logging.info("Reclustering individual bins.")
 
@@ -262,7 +261,7 @@ class Rosella(Validator):
 
                             # Clean up leftover stuff
                             self.reembed(self.unbinned_tids,
-                                              max(self.bins.keys()), plots,
+                                              max(self.bins.keys()) + 1, plots,
                                               x_min, x_max, y_min, y_max, 0, delete_unbinned=True,
                                               skip_clustering=True, reembed=True, force=True,
                                               update_embeddings=False)

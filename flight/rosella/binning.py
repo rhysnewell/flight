@@ -374,7 +374,7 @@ class Binner:
                  n = 0, x_min = 20, x_max = 20, y_min = 20, y_max = 20, max_validity = -1, precomputed = False):
 
         findem = [
-            'contig_1357_pilon', 'contig_1570_pilon', 'contig_810_pilon', 'scaffold_1358_pilon']
+            'contig_731_pilon', 'contig_2371_pilon', 'contig_1088_pilon']
 
         names = list(contigs['contigName'])
         indices = []

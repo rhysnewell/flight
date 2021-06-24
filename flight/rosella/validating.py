@@ -146,7 +146,7 @@ class Validator(Clusterer, Embedder):
                 ## Remove stuff that is obviously wrong
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
                 bin_size = contigs['contigLen'].sum()
-                if bin_size < 1e6:
+                if bin_size < self.min_bin_size:
                     self.unbinned_tids = self.unbinned_tids + tids
                     bins_to_remove.append(bin)
                 else:
@@ -163,39 +163,38 @@ class Validator(Clusterer, Embedder):
                                                  sample_distances)
 
                         per_contig_avg = np.array(per_contig_avg)
+
+                        removed = []
+
+                        if debug:
+                            print('before check for distant contigs: ', len(tids))
+                            _, _, _, _ = self.bin_stats(bin)
+
+                        if mean_md >= 0.15 or mean_agg >= 0.25:
+                            # Simply remove
+                            for (tid, avgs) in zip(tids, per_contig_avg):
+                                if ((avgs[0] >= 0.7 or avgs[3] >= 0.5) and
+                                    (avgs[1] > 0.15 or avgs[2] >= 4)) or \
+                                        ((avgs[0] >= 0.5 or avgs[3] >= 0.5) and
+                                         (avgs[1] >= 0.5 or avgs[2] >= 6)):
+                                    removed.append(tid)
+
+                        remove = False
+                        if len(removed) > 0 and len(removed) != len(tids):
+                            new_bins[new_bin_counter] = []
+                            [(tids.remove(r), new_bins[new_bin_counter].append(r)) for r in removed]
+                            new_bin_counter += 1
+
+                            current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
+                            if current_contigs['contigLen'].sum() <= self.min_bin_size:
+                                [self.unbinned_tids.append(tid) for tid in tids]
+                                remove = True
+
+                            if len(tids) == 0 or remove:
+                                bins_to_remove.append(bin)
                     except ZeroDivisionError:
                         # Only one contig left, break out
-                        break
-
-                    removed = []
-
-                    if debug:
-                        print('before check for distant contigs: ', len(tids))
-                        _, _, _, _ = self.bin_stats(bin)
-
-                    if mean_md >= 0.15 or mean_agg >= 0.25:
-                        # Simply remove
-                        for (tid, avgs) in zip(tids, per_contig_avg):
-                            if ((avgs[0] >= 0.7 or avgs[3] >= 0.5) and
-                                (avgs[1] > 0.15 or avgs[2] >= 4)) or \
-                                    ((avgs[0] >= 0.5 or avgs[3] >= 0.5) and
-                                     (avgs[1] >= 0.5 or avgs[2] >= 6)):
-                                removed.append(tid)
-
-                    remove = False
-                    if len(removed) > 0 and len(removed) != len(tids):
-                        new_bins[new_bin_counter] = []
-                        [(tids.remove(r), new_bins[new_bin_counter].append(r)) for r in removed]
-                        new_bin_counter += 1
-
-                        current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
-                        if current_contigs['contigLen'].sum() <= self.min_bin_size:
-                            [self.unbinned_tids.append(tid) for tid in tids]
-                            remove = True
-
-                        if len(tids) == 0 or remove:
-                            bins_to_remove.append(bin)
-
+                        continue
 
             elif big_only:
 
@@ -233,23 +232,15 @@ class Validator(Clusterer, Embedder):
 
                     if len(tids) == 2:
                         # Lower thresholds for fewer contigs
-                        md_filt = 0.2
-                        agg_filt = 0.4
-                        euc_filt = 3
+                        md_filt = max(0.2, mean_md)
+                        agg_filt = max(0.4, mean_agg)
+                        euc_filt = 2
                         rho_filt = 0.05
                         # Two contigs by themselves that are relatively distant. Remove them separately
                         together = False
-                    elif len(tids) <= 5:
-                        # Higher thresholds
-                        md_filt = 0.35
-                        agg_filt = 0.45
-                        euc_filt = 2
-                        rho_filt = 0.05
-                        together = True
                     else:
-
-                        md_filt = 0.35
-                        agg_filt = 0.45
+                        md_filt = max(0.35, mean_md)
+                        agg_filt = max(0.45, mean_agg)
                         euc_filt = 2
                         rho_filt = 0.05
                         together = True
@@ -268,7 +259,7 @@ class Validator(Clusterer, Embedder):
                             if debug:
                                 print("Contig size and tid: ", contig_length, tids[max_idx])
 
-                            if contig_length >= 1e5:
+                            if contig_length >= self.min_bin_size:
                                 if debug:
                                     print("Found large contig: ", max_idx, tids[max_idx])
                                 if (max_values[3] >= agg_filt or max_values[0] >= md_filt
@@ -287,13 +278,25 @@ class Validator(Clusterer, Embedder):
                                     else:
                                         removed_inner.append(tids[max_idx])
                                         removed_single.append(tids[max_idx])
-                                # elif (max_values[0] >= 0.6 or max_values[1] >= 0.25 or max_values[2] >= 6.5):
-                                #     if together:
-                                #         removed_inner.append(tids[max_idx])
-                                #         removed_together.append(tids[max_idx])
-                                #     else:
-                                #         removed_inner.append(tids[max_idx])
-                                #         removed_single.append(tids[max_idx])
+                            elif mean_agg >= 0.45 or mean_md >= 0.35:
+                                if debug:
+                                    print("checking small contig: ", max_idx, tids[max_idx])
+                                if (max_values[3] >= agg_filt or max_values[0] >= md_filt
+                                    or max_values[3] >= (mean_agg + agg_std)
+                                    or max_values[0] >= (mean_md + md_std)) and \
+                                        ((max_values[1] >= rho_filt
+                                          or max_values[1] >= (mean_tnf + rho_std))
+                                         or (max_values[2] >= euc_filt
+                                             or max_values[2] >= (mean_euc + euc_std))):
+
+                                    if debug:
+                                        print("Removing contig: ", max_idx, tids[max_idx])
+                                    if together:
+                                        removed_inner.append(tids[max_idx])
+                                        removed_together.append(tids[max_idx])
+                                    else:
+                                        removed_inner.append(tids[max_idx])
+                                        removed_single.append(tids[max_idx])
 
                         if len(removed_inner) > 0:
                             [tids.remove(r) for r in removed_inner]
@@ -391,7 +394,7 @@ class Validator(Clusterer, Embedder):
                                 self.bin_stats(bin)
                             if bin_size >= 13e6 or ((mean_tnf >= 0.15 or mean_euc >= 4) and (bin_size >= 2e6)):
                                 force_new_clustering.append(False)  # send it to turbo hell
-                                lower_thresholds.append(True)
+                                lower_thresholds.append(False)
                             else:
                                 force_new_clustering.append(False)
                                 lower_thresholds.append(False)
@@ -422,93 +425,6 @@ class Validator(Clusterer, Embedder):
                         switches.append(0)
                 else:
                     logging.debug(bin, self.survived)
-
-
-
-            elif size_only:
-                logging.debug("Size only check when size only is ", size_only)
-                contigs, log_lengths, tnfs = self.extract_contigs(tids)
-                bin_size = contigs['contigLen'].sum()
-
-                if bin_size >= 13e6 and bin != 0:
-                    # larger than most bacterial genomes, way larger than archaeal
-                    # Likely strains getting bunched together. But they won't disentangle, so just dismantle the bin
-                    # rescuing any large contigs. Only way I can think  of atm to deal with this.
-                    # Besides perhaps looking at variation level?? But this seems to be a problem with
-                    # the assembly being TOO good.
-                    if reembed:
-                        reembed_separately.append(bin)
-                        reembed_if_no_cluster.append(True)
-                        force_new_clustering.append(False)  # turbo hell
-                        lower_thresholds.append(False)
-                elif bin_size >= 1e6 and bin != 0:
-                    try:
-                        mean_md, \
-                        mean_tnf, \
-                        mean_euc, \
-                        mean_agg, \
-                        per_contig_avg = \
-                            metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                 log_lengths.values[:, None],
-                                                                 tnfs.iloc[:, 2:].values), axis=1),
-                                                 n_samples,
-                                                 sample_distances)
-                    except ZeroDivisionError:
-                        continue
-
-                    if (mean_md >= 0.4 or mean_agg >= 0.45) and (mean_tnf >= 0.15 or mean_euc >= 3.5) \
-                            and bin_size > 1e6:
-                        if debug:
-                            print("In final bit. ", bin)
-                            self.bin_stats(bin)
-                        reembed_separately.append(bin)
-                        reembed_if_no_cluster.append(True)
-                        force_new_clustering.append(False)  # send it to turbo hell
-                        lower_thresholds.append(False)
-
-                    else:
-                        # self.survived.append(bin)
-                        pass
-
-            elif force:
-                contigs, log_lengths, tnfs = self.extract_contigs(tids)
-                bin_size = contigs['contigLen'].sum()
-
-                if bin_size >= 1e6 and bin != 0:
-                    try:
-                        mean_md, \
-                        mean_tnf, \
-                        mean_euc, \
-                        mean_agg, \
-                        per_contig_avg = \
-                            metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                 log_lengths.values[:, None],
-                                                                 tnfs.iloc[:, 2:].values), axis=1),
-                                                 n_samples,
-                                                 sample_distances)
-                    except ZeroDivisionError:
-                        continue
-
-                    if (mean_md >= 0.15 or mean_agg >= 0.3) and (mean_tnf >= 0.1 or mean_euc >= 3.5) \
-                            and bin_size > 1e6:
-                        if debug:
-                            print("In final bit. ", bin)
-                            self.bin_stats(bin)
-                        reembed_separately.append(bin)
-                        reembed_if_no_cluster.append(True)
-                        force_new_clustering.append(False)  # send it to turbo hell
-                        lower_thresholds.append(True)
-                    elif (mean_md >= 0.6 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3) \
-                            and bin_size > 1e6:
-                        if debug:
-                            print("Forcing. ", bin)
-                            self.bin_stats(bin)
-                        reembed_separately.append(bin)
-                        reembed_if_no_cluster.append(True)
-                        force_new_clustering.append(True)  # send it to turbo hell
-                        lower_thresholds.append(True)
-                    else:
-                        pass
 
         try:
             max_bin_id = max(self.bins.keys()) + 1
@@ -595,7 +511,6 @@ class Validator(Clusterer, Embedder):
                         self.bins[0] = [idx]
 
         return plots, n
-
 
     def combine_bins(self, threshold = 0.001):
         """
