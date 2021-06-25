@@ -153,7 +153,6 @@ class Embedder(Binner):
 
 
     def _check_contigs(self, tids, rho_threshold=0.05, euc_threshold=2):
-        logging.info("Checking TNF connections...")
         disconnected_tids = []
         if self.n_samples > 0:
             n_samples = self.n_samples

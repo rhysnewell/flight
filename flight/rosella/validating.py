@@ -38,6 +38,7 @@ from numba import njit
 import seaborn as sns
 import matplotlib
 import sklearn.metrics as sk_metrics
+import sklearn.cluster as sk_cluster
 
 # self imports
 import flight.metrics as metrics
@@ -112,37 +113,7 @@ class Validator(Clusterer, Embedder):
             elif bin == 0:
                 continue
 
-            if dissolve:
-                ## Dissolve very small or loq quality bins for re-emebedding
-                contigs, log_lengths, tnfs = self.extract_contigs(tids)
-                bin_size = contigs['contigLen'].sum()
-                if bin_size <= 5e5:
-                    self.unbinned_tids = self.unbinned_tids + tids
-                    bins_to_remove.append(bin)
-                else:
-                    try:
-                        mean_md, \
-                        mean_tnf, \
-                        mean_euc, \
-                        mean_agg, \
-                        per_contig_avg = \
-                            metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                 log_lengths.values[:, None],
-                                                                 tnfs.iloc[:, 2:].values), axis=1),
-                                                 n_samples,
-                                                 sample_distances)
-
-                        per_contig_avg = np.array(per_contig_avg)
-                    except ZeroDivisionError:
-                        # Only one contig left, break out
-                        break
-
-                    # IFF the bin is extra busted just obliterate it
-                    if (mean_md >= 0.5 or mean_agg >= 0.5) and (mean_tnf >= 0.2 or mean_euc >= 3.5):
-                        self.unbinned_tids = self.unbinned_tids + tids
-                        bins_to_remove.append(bin)
-
-            elif quick_filter:
+            if quick_filter:
                 ## Remove stuff that is obviously wrong
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
                 bin_size = contigs['contigLen'].sum()
@@ -201,16 +172,15 @@ class Validator(Clusterer, Embedder):
                 # filtering = True
                 remove = False  # Whether to completely remove original bin
                 removed_single = []  # Single contig bin
-                removed_together = []  # These contigs form their own bin
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
                 bin_size = contigs['contigLen'].sum()
+                recluster = False
 
                 if bin_size >= 3e6:
                     # while filtering:
 
                     # Extract current contigs and get statistics
-                    # contigs, log_lengths, tnfs = self.extract_contigs(tids)
                     try:
                         mean_md, \
                         mean_tnf, \
@@ -228,7 +198,6 @@ class Validator(Clusterer, Embedder):
                         # Only one contig left, break out
                         break
 
-                    removed_inner = []  # inner container that is rewritten every iteration
 
                     if len(tids) == 2:
                         # Lower thresholds for fewer contigs
@@ -248,10 +217,10 @@ class Validator(Clusterer, Embedder):
                     if mean_md >= 0.15 or mean_agg >= 0.25 or mean_euc >= 2 or mean_tnf >= 0.25:
                         if debug:
                             print("Checking big contigs for bin: ", bin)
-                        md_std = max(np.std(per_contig_avg[:, 0]), 0.025)
-                        rho_std = max(np.std(per_contig_avg[:, 1]), 0.025)
-                        euc_std = max(np.std(per_contig_avg[:, 2]), 0.25)
-                        agg_std = max(np.std(per_contig_avg[:, 3]), 0.025)
+                        md_std = max(np.std(per_contig_avg[:, 0]), 0.1)
+                        rho_std = max(np.std(per_contig_avg[:, 1]), 0.1)
+                        euc_std = max(np.std(per_contig_avg[:, 2]), 0.5)
+                        agg_std = max(np.std(per_contig_avg[:, 3]), 0.1)
                         for max_idx in range(per_contig_avg.shape[0]):
                             # max_idx = np.argmax(per_contig_avg[:, 3]) # Check mean_agg first
                             max_values = per_contig_avg[max_idx, :]
@@ -273,42 +242,57 @@ class Validator(Clusterer, Embedder):
                                     if debug:
                                         print("Removing contig: ", max_idx, tids[max_idx])
                                     if together:
-                                        removed_inner.append(tids[max_idx])
-                                        removed_together.append(tids[max_idx])
+                                        # removed_together.append(tids[max_idx])
+                                        recluster = True
+                                        break
                                     else:
-                                        removed_inner.append(tids[max_idx])
                                         removed_single.append(tids[max_idx])
-                            elif mean_agg >= 0.45 or mean_md >= 0.35:
-                                if debug:
-                                    print("checking small contig: ", max_idx, tids[max_idx])
-                                if (max_values[3] >= agg_filt or max_values[0] >= md_filt
-                                    or max_values[3] >= (mean_agg + agg_std)
-                                    or max_values[0] >= (mean_md + md_std)) and \
-                                        ((max_values[1] >= rho_filt
-                                          or max_values[1] >= (mean_tnf + rho_std))
-                                         or (max_values[2] >= euc_filt
-                                             or max_values[2] >= (mean_euc + euc_std))):
-
-                                    if debug:
-                                        print("Removing contig: ", max_idx, tids[max_idx])
-                                    if together:
-                                        removed_inner.append(tids[max_idx])
-                                        removed_together.append(tids[max_idx])
-                                    else:
-                                        removed_inner.append(tids[max_idx])
-                                        removed_single.append(tids[max_idx])
-
-                        if len(removed_inner) > 0:
-                            [tids.remove(r) for r in removed_inner]
+                            elif np.std(per_contig_avg[:, 3]) >= 0.1 or np.std(per_contig_avg[:, 0]) >= 0.1:
+                                # generally unstable cluster
+                                recluster = True
+                                break
 
                     # logging.debug(filtering, len(removed_single), len(removed_together), bin)
-                    if len(removed_single) > 0 or len(removed_together) > 0:
-                        [big_tids.append(r) for r in removed_single]
+                    if len(removed_single) > 0:
+                        [(big_tids.append(r), tids.remove(r)) for r in removed_single]
 
-                        new_bins[new_bin_counter] = []
-                        [new_bins[new_bin_counter].append(r) for r in removed_together]
-                        new_bin_counter += 1
+                        # new_bins[new_bin_counter] = []
+                        # [new_bins[new_bin_counter].append(r) for r in removed_together]
+                        # new_bin_counter += 1
 
+                        current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
+                        if current_contigs['contigLen'].sum() <= self.min_bin_size:
+                            [self.unbinned_tids.append(tid) for tid in tids]
+                            remove = True
+
+                        if bin in self.survived:
+                            self.survived.remove(bin)
+
+                        if len(tids) == 0 or remove:
+                            bins_to_remove.append(bin)
+                    elif recluster:
+                        # Quick k-means recluster with two centres
+                        distances = metrics.distance_matrix(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                            log_lengths.values[:, None],
+                                                                            tnfs.iloc[:, 2:].values), axis=1),
+                                                                            n_samples,
+                                                                            sample_distances)
+                        kmeans = sk_cluster.KMeans(n_clusters=2, random_state=self.random_seed).fit(distances)
+
+                        removed_from_cluster = []
+                        for (idx, label) in enumerate(kmeans.labels_):
+                            if label != -1:
+                                tid = tids[idx]
+                                bin_key = new_bin_counter + label.item() + 1
+                                if isinstance(bin_key, np.int64):
+                                    bin_key = bin_key.item()
+                                try:
+                                    new_bins[bin_key].append(tid)  # inputs values as tid
+                                except KeyError:
+                                    new_bins[bin_key] = [tid]
+                                removed_from_cluster.append(tid)
+
+                        [tids.remove(tid) for tid in removed_from_cluster]
                         current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
                         if current_contigs['contigLen'].sum() <= self.min_bin_size:
                             [self.unbinned_tids.append(tid) for tid in tids]
@@ -348,8 +332,6 @@ class Validator(Clusterer, Embedder):
                     except ZeroDivisionError:
                         continue
 
-                    removed = []
-
                     if debug:
                         print('before check for distant contigs: ', len(tids))
                         _, _, _, _ = self.bin_stats(bin)
@@ -358,28 +340,6 @@ class Validator(Clusterer, Embedder):
                     m_level = 0.15
                     shared_level = 0.1
 
-                    if len(removed) >= 1:
-                        # calc new bin size and stats
-                        contigs, log_lengths, tnfs = self.extract_contigs(tids)
-                        bin_size = contigs['contigLen'].sum()
-                        try:
-                            mean_md, \
-                            mean_tnf, \
-                            mean_euc, \
-                            mean_agg, \
-                            per_contig_avg = \
-                                metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                     log_lengths.values[:, None],
-                                                                     tnfs.iloc[:, 2:].values), axis=1),
-                                                     n_samples,
-                                                     sample_distances)
-                        except ZeroDivisionError:
-                            continue
-
-                        if debug:
-                            print('contigs removed: ', len(tids))
-                            _, _, _, _ = self.bin_stats(bin)
-
                     if ((mean_md >= m_level
                          or mean_agg >= f_level
                          or (mean_md >= shared_level and (mean_tnf >= shared_level or mean_euc >= 2))
@@ -387,24 +347,11 @@ class Validator(Clusterer, Embedder):
                         and bin_size > 1e6) or bin_size >= 12e6:
                         logging.debug(bin, mean_md, mean_tnf, mean_agg, len(tids))
                         reembed_separately.append(bin)
-                        if (((mean_md >= 0.25 or mean_agg >= 0.45) and (mean_tnf >= 0.1 or mean_euc >= 3))
-                                or bin_size >= 13e6):
-                            if debug:
-                                logging.debug("Forcing bin %d" % bin)
-                                self.bin_stats(bin)
-                            if bin_size >= 13e6 or ((mean_tnf >= 0.15 or mean_euc >= 4) and (bin_size >= 2e6)):
-                                force_new_clustering.append(False)  # send it to turbo hell
-                                lower_thresholds.append(False)
-                            else:
-                                force_new_clustering.append(False)
-                                lower_thresholds.append(False)
-                            reembed_if_no_cluster.append(True)
-                        elif bin_size > 1e6:
-                            if debug:
-                                print("Reclustering bin %d" % bin)
-                            force_new_clustering.append(False)  # send it to regular hell
-                            lower_thresholds.append(False)
-                            reembed_if_no_cluster.append(True)
+                        if debug:
+                            print("Reclustering bin %d" % bin)
+                        force_new_clustering.append(False)  # send it to regular hell
+                        lower_thresholds.append(False)
+                        reembed_if_no_cluster.append(True)
                     else:
                         reembed_separately.append(bin)
                         force_new_clustering.append(False)  # send it to regular hell
@@ -619,10 +566,10 @@ class Validator(Clusterer, Embedder):
         tids = list(np.sort(tids))
         contigs, log_lengths, tnfs = self.extract_contigs(tids)
         original_size = contigs['contigLen'].sum()
-        min_validity = 1
+        min_validity = 0.85
 
         if not reembed and not force:
-            strict = True
+            strict = False
         else:
             strict = False
 
@@ -632,7 +579,6 @@ class Validator(Clusterer, Embedder):
             relaxed = True
 
         if len(set(tids)) > 1:
-
             if not skip_clustering:
 
                 # Keep embeddings size consistent if they have been updated
@@ -651,14 +597,17 @@ class Validator(Clusterer, Embedder):
                 else:
                     self.min_cluster_size = 2
                 try:
+                    # + 1 because we don't want unlabelled
                     labels_single = self.iterative_clustering(unbinned_embeddings,
                                                               allow_single_cluster=True,
                                                               prediction_data=False,
                                                               double=False)
+                    labels_single = list(np.array(labels_single) + 1)
                     labels_multi = self.iterative_clustering(unbinned_embeddings,
                                                              allow_single_cluster=False,
                                                              prediction_data=False,
                                                              double=False)
+                    labels_multi = list(np.array(labels_multi) + 1)
 
                     # if max_validity == -1:
                     # Try out precomputed method, validity metric does not work here
@@ -681,6 +630,7 @@ class Validator(Clusterer, Embedder):
                     distances = np.nan_to_num(distances)
 
                     labels_precomputed = self.iterative_clustering(distances, metric="precomputed")
+                    labels_precomputed = list(np.array(labels_precomputed) + 1)
 
                     validity_single, _ = self._validity(labels_single, unbinned_embeddings)
                     validity_multi, _ = self._validity(labels_multi, unbinned_embeddings)
@@ -769,7 +719,7 @@ class Validator(Clusterer, Embedder):
 
             if max_validity < 0.95 and reembed and len(tids) >= 5:
                 # Generate new emebddings if clustering seems fractured
-                contigs, log_lengths, tnfs = self.extract_contigs(tids)
+                # contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
                 try:
 
@@ -787,6 +737,9 @@ class Validator(Clusterer, Embedder):
                                                              allow_single_cluster=False,
                                                              prediction_data=False,
                                                              double=False)
+
+                    labels_single = list(np.array(labels_single) + 1)
+                    labels_multi = list(np.array(labels_multi) + 1)
 
                     validity_single, _ = self._validity(labels_single, new_embeddings)
                     validity_multi, _ = self._validity(labels_multi, new_embeddings)
@@ -885,11 +838,6 @@ class Validator(Clusterer, Embedder):
                     for bin, new_tids in new_bins.items():
                         contigs, log_lengths, tnfs = self.extract_contigs(new_tids)
                         bin_size = contigs['contigLen'].sum()
-                        # if bin_size < self.min_bin_size:
-                        #     if debug:
-                        #         print("Didn't recover enough: %d of %d" % (bin_size, original_size))
-                        #     not_recovered += bin_size
-                        # else:
                         new_bin_ids.append(bin)
                         logging.debug("Recovered enough: %d of %d" % (bin_size, original_size))
 
@@ -907,17 +855,13 @@ class Validator(Clusterer, Embedder):
                         split = False
                         remove = False
                 if split:
-                    # ## Get cluster distances.
-                    # cluster_separation = utils.cluster_distances(unbinned_embeddings, self.labels)
-                    # new_bins = []
+
                     # Half the original input has been binned if reembedding
                     for bin, new_tids in new_bins.items():
                         new_tids = list(np.sort(new_tids))
                         contigs, log_lengths, tnfs = self.extract_contigs(new_tids)
                         bin_size = contigs['contigLen'].sum()
-                        if (bin_size >= 1e6 and reembed) \
-                                or (not reembed and bin_size >= self.min_bin_size) \
-                                or (force and bin_size >= self.min_bin_size):
+                        if bin_size >= self.min_bin_size:
                             #  Keep this bin
                             if debug:
                                 print("Removing original bin, keeping bin: ", bin)
@@ -964,10 +908,6 @@ class Validator(Clusterer, Embedder):
                             self.bins[bin_id] = unbinned
                         else:
                             for contig in contigs.itertuples():
-                                # if contig.contigLen >= 2e6:
-                                #     self.bins[bin_id] = [self.assembly[contig.contigName]]
-                                #     bin_id += 1
-                                # else:
                                 self.unbinned_tids.append(self.assembly[contig.contigName])
 
                     else:
@@ -980,34 +920,10 @@ class Validator(Clusterer, Embedder):
                     if debug:
                         print("No new bin added")
         else:
-            try:
-                max_bin_id = max(self.bins.keys())
-            except ValueError:
-                max_bin_id = 1
+            remove = False
+            if debug:
+                print("No new bin added")
 
-            for idx in tids:
-                if self.large_contigs[self.large_contigs['tid'] == idx]['contigLen'].iloc[0] >= self.min_bin_size:
-                    max_bin_id += 1
-                    self.bins[max_bin_id] = [idx]
-
-        try:
-            max_bin_id = max(self.bins.keys())
-        except ValueError:
-            max_bin_id = 1
-
-        if isinstance(max_bin_id, np.int64):
-            max_bin_id = max_bin_id.item()
-
-        if bin_unbinned:
-            for idx in self.unbinned_tids:
-                if self.large_contigs[self.large_contigs['tid'] == idx]['contigLen'].iloc[0] >= self.min_bin_size:
-                    max_bin_id += 1
-                    self.bins[max_bin_id] = [idx]
-                else:
-                    try:
-                        self.bins[0].append(idx)
-                    except KeyError:
-                        self.bins[0] = [idx]
 
         return plots, remove
 
