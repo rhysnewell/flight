@@ -270,7 +270,7 @@ class Rosella(Validator):
 
                             self.quick_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
                             self.slow_refine(plots, 0, 100, x_min, x_max, y_min, y_max)
-                            self.big_contig_filter(plots, 0, 5, x_min, x_max, y_min, y_max)
+                            self.big_contig_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
                             # self.force_splitting(plots, 0, 5, x_min, x_max, y_min, y_max)
                             # self.check_if_bins_should_combine(0, 1, 0.01)
 

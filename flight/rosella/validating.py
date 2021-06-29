@@ -215,7 +215,16 @@ class Validator(Clusterer, Embedder):
                         rho_filt = 0.05
                         together = True
 
-                    if mean_md >= 0.15 or mean_agg >= 0.25 or mean_euc >= 2 or mean_tnf >= 0.25:
+                    f_level = 0.3
+                    m_level = 0.2
+
+                    if ((mean_md >= m_level
+                         or mean_agg >= f_level or mean_euc >= 4 or mean_tnf >= 0.15)
+                        and bin_size > 1e6) or bin_size >= 12e6 \
+                        or (round(per_contig_avg[:, 0].std(), 2) >= 0.1
+                        or round(per_contig_avg[:, 3].std(), 2) >= 0.1
+                        or round(per_contig_avg[:, 1].std(), 2) >= 0.15
+                        or round(per_contig_avg[:, 2].std(), 2) >= 1):
                         if debug:
                             print("Checking big contigs for bin: ", bin)
                         md_std = max(np.std(per_contig_avg[:, 0]), 0.05)
@@ -223,7 +232,6 @@ class Validator(Clusterer, Embedder):
                         euc_std = max(np.std(per_contig_avg[:, 2]), 0.5)
                         agg_std = max(np.std(per_contig_avg[:, 3]), 0.05)
                         for max_idx in range(per_contig_avg.shape[0]):
-                            # max_idx = np.argmax(per_contig_avg[:, 3]) # Check mean_agg first
                             max_values = per_contig_avg[max_idx, :]
                             contig_length = contigs['contigLen'].iloc[max_idx]
                             if debug:
@@ -248,7 +256,8 @@ class Validator(Clusterer, Embedder):
                                         break
                                     else:
                                         removed_single.append(tids[max_idx])
-                            elif np.std(per_contig_avg[:, 3]) >= 0.05 or np.std(per_contig_avg[:, 0]) >= 0.05:
+                            elif np.std(per_contig_avg[:, 3]) >= 0.05 \
+                                    or np.std(per_contig_avg[:, 0]) >= 0.05:
                                 # generally unstable cluster
                                 recluster = True
                                 break
@@ -269,7 +278,7 @@ class Validator(Clusterer, Embedder):
 
                         score = sk_metrics.silhouette_score(distances, kmeans.labels_)
 
-                        if score >= 0.75:
+                        if score >= 0.6:
                             removed_from_cluster = []
                             for (idx, label) in enumerate(kmeans.labels_):
                                 if label != -1:
@@ -285,10 +294,10 @@ class Validator(Clusterer, Embedder):
 
                             [tids.remove(tid) for tid in removed_from_cluster]
 
-                        elif len(removed_together) <= 2:
-                            new_bins[new_bin_counter] = []
-                            [(new_bins[new_bin_counter].append(r), tids.remove(r)) for r in removed_together]
-                            new_bin_counter += 1
+                        # elif len(removed_together) <= 2:
+                        #     new_bins[new_bin_counter] = []
+                        #     [(new_bins[new_bin_counter].append(r), tids.remove(r)) for r in removed_together]
+                        #     new_bin_counter += 1
 
 
                         current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
@@ -327,6 +336,8 @@ class Validator(Clusterer, Embedder):
                                                                  tnfs.iloc[:, 2:].values), axis=1),
                                                  n_samples,
                                                  sample_distances)
+                        per_contig_avg = np.array(per_contig_avg)
+
                     except ZeroDivisionError:
                         continue
 
@@ -334,15 +345,18 @@ class Validator(Clusterer, Embedder):
                         print('before check for distant contigs: ', len(tids))
                         _, _, _, _ = self.bin_stats(bin)
 
-                    f_level = 0.15
-                    m_level = 0.15
+                    f_level = 0.3
+                    m_level = 0.2
                     shared_level = 0.1
 
+
                     if ((mean_md >= m_level
-                         or mean_agg >= f_level
-                         or (mean_md >= shared_level and (mean_tnf >= shared_level or mean_euc >= 2))
-                         or ((mean_md >= 0.05 or mean_agg >= 0.15) and (mean_tnf >= 0.1 or mean_euc >= 2)))
-                        and bin_size > 1e6) or bin_size >= 12e6:
+                        or mean_agg >= f_level)
+                        and bin_size > 1e6) or bin_size >= 12e6 \
+                        or (round(per_contig_avg[:, 0].std(), 2) >= 0.1
+                            or round(per_contig_avg[:, 3].std(), 2) >= 0.1
+                            or round(per_contig_avg[:, 1].std(), 2) >= 0.1
+                            or round(per_contig_avg[:, 2].std(), 2) >= 1):
                         logging.debug(bin, mean_md, mean_tnf, mean_agg, len(tids))
                         reembed_separately.append(bin)
                         if debug:
