@@ -38,6 +38,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib
 import umap
+import scipy.stats as sp_stats
 
 # self imports
 import flight.metrics as metrics
@@ -80,53 +81,39 @@ class Embedder(Binner):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def update_umap_params(self, nrows):
-        if nrows <= 20000:  # high gear
-            # Small datasets can have larger n_neighbors without being prohibitively slow
-            if nrows <= 1000:  # wheels fell off
-                self.tnf_reducer.n_neighbors = nrows // 10
-                self.euc_reducer.n_neighbors = nrows // 10
-                self.depth_reducer.n_neighbors = nrows // 10
-            else:
-                self.tnf_reducer.n_neighbors = 100
-                self.euc_reducer.n_neighbors = 100
-                self.depth_reducer.n_neighbors = 100
-            # self.tnf_reducer.n_epochs = 500
-            # self.depth_reducer.n_epochs = 500
-        elif nrows <= 100000:  # mid gear
-            # Things start to get too slow around here, so scale back params
-            self.tnf_reducer.n_neighbors = 100
-            self.euc_reducer.n_neighbors = 100
-            # self.tnf_reducer.n_epochs = 500
-            self.depth_reducer.n_neighbors = 100
-            # self.depth_reducer.n_epochs = 500
-        else:  # low gear
-            # This is the super slow zone, but don't want to dip values below this
-            # Hopefully pick out easy bins, then scale data down with each iterations
-            # Allowing the params to bump up into other gears
-            self.tnf_reducer.n_neighbors = 100
-            self.euc_reducer.n_neighbors = 100
-            # self.tnf_reducer.n_epochs = 500
-            self.depth_reducer.n_neighbors = 100
-            # self.depth_reducer.n_epochs = 500
-
-
     def filter(self):
         """
         Performs quick UMAP embeddings with stringent disconnection distances
         """
         try:
 
+            # size_thresholds = self.nx_calculations()
             # We check the euclidean distances of large contigs as well.
-            disconnections_very_big = self._check_contigs(self.large_contigs[self.large_contigs['contigLen'] >= 2.5e6]['tid'], 0.05, 2)
-            disconnections_big = self._check_contigs(self.large_contigs[(self.large_contigs['contigLen'] >= 1.5e6)
-                                                                        & (self.large_contigs['contigLen'] < 2.5e6)]['tid'], 0.1, 2)
-            disconnections_small = self._check_contigs(self.large_contigs[(self.large_contigs['contigLen'] > 2.5e3)
-                                                                        & (self.large_contigs['contigLen'] <= 1e4)]['tid'], 0.1, 2)
-            disconnections_very_small = self._check_contigs(self.large_contigs[self.large_contigs['contigLen'] <= 2.5e3]['tid'], 0.05, 2)
+            # disconnections_n90 = self.check_contigs(
+            #     self.large_contigs[self.large_contigs['contigLen'] >=
+            #                        size_thresholds["N90"][1]]['tid'], 0.05, 1.5, 0.05)
+            # disconnections_n75_and_up = self.check_contigs(
+            #     self.large_contigs[(self.large_contigs['contigLen'] >= size_thresholds["N75"][1])
+            #                        & (self.large_contigs['contigLen'] < size_thresholds["N90"][1])]['tid'], 0.05, 1.5, 0.05)
+            # disconnections_n50_to_n75 = self.check_contigs(
+            #     self.large_contigs[(self.large_contigs['contigLen'] >= size_thresholds["N50"][1])
+            #                        & (self.large_contigs['contigLen'] < size_thresholds["N75"][1])]['tid'], 0.1, 3.0, 0.1)
+            # disconnections_n25_to_n50 = self.check_contigs(
+            #     self.large_contigs[(self.large_contigs['contigLen'] >= size_thresholds["N25"][1])
+            #                        & (self.large_contigs['contigLen'] < size_thresholds["N50"][1])]['tid'], 0.15, 5.0, 0.15)
+            # disconnections_n10_to_n25 = self.check_contigs(
+            #     self.large_contigs[(self.large_contigs['contigLen'] >= size_thresholds["N10"][1])
+            #                        & (self.large_contigs['contigLen'] < size_thresholds["N25"][1])]['tid'], 0.15, 5.0, 0.15)
+            # disconnections_n05_to_n10 = self.check_contigs(
+            #     self.large_contigs[(self.large_contigs['contigLen'] >= size_thresholds["N05"][1]) &
+            #                        (self.large_contigs['contigLen'] < size_thresholds["N10"][1])]['tid'], 0.1, 3.0, 0.1)
+            # disconnections_under_n05 = self.check_contigs(
+            #     self.large_contigs[self.large_contigs['contigLen'] <= size_thresholds["N05"][1]]['tid'], 0.05, 1.5, 0.05)
+            
+            # initial_disconnections = disconnections_very_big + disconnections_big + disconnections_medium + \
+            #                          disconnections_decent + disconnections_small + disconnections_very_small
+            initial_disconnections = self.check_contigs(self.large_contigs['tid'])
 
-            initial_disconnections = disconnections_very_big + disconnections_big + \
-                             disconnections_small + disconnections_very_small
             logging.info("Running UMAP Filter - %s" % self.rho_reducer)
             self.rho_reducer.n_neighbors = 5
             self.rho_reducer.disconnection_distance = 0.15
@@ -144,15 +131,24 @@ class Embedder(Binner):
             disconnected = initial_disconnections + np.array(self.large_contigs['tid'].isin(
                 self.large_contigs[~initial_disconnections][disconnected_umap]['tid']
             ))
-
         except ValueError: # Everything was disconnected
             disconnected = np.array([True for i in range(self.large_contigs.values.shape[0])])
 
         self.disconnected = disconnected
 
+    def validation_settings(self, op_mix_ratio=1):
+        self.depth_reducer.set_op_mix_ratio = op_mix_ratio
+        self.tnf_reducer.set_op_mix_ratio = op_mix_ratio
+        self.euc_reducer.set_op_mix_ratio = op_mix_ratio
 
-
-    def _check_contigs(self, tids, rho_threshold=0.05, euc_threshold=2):
+    def check_contigs(self, tids):
+        idx50, n50 = self.nX()
+        # create a skewed normal distribution, where a is the abs diff mean of logs - log scaled n50 value, the loc is
+        # mean of log scaled lengths and scale is the std
+        mean_of_logs = np.log10(self.large_contigs['contigLen']).mean()
+        skew_dist = sp_stats.skewnorm(np.log10(n50) - mean_of_logs,
+                                   loc = mean_of_logs,
+                                   scale = np.log10(self.large_contigs['contigLen']).std() * 2)
         disconnected_tids = []
         if self.n_samples > 0:
             n_samples = self.n_samples
@@ -162,9 +158,12 @@ class Embedder(Binner):
             sample_distances = self.long_sample_distance
 
         for tid in tids:
-
             current_contigs, current_log_lengths, current_tnfs = \
                 self.extract_contigs([tid])
+
+            # Use skew dist to get PDF value of current contig
+            prob = min(skew_dist.pdf(np.log10(current_contigs.values[0, 1])), 1)
+
             other_contigs, other_log_lengths, other_tnfs = \
                 self.extract_contigs(self.large_contigs[self.large_contigs['tid'] != tid]['tid'])
 
@@ -173,31 +172,60 @@ class Embedder(Binner):
                                       current_tnfs.iloc[:, 2:].values), axis=1)
 
             others = np.concatenate((other_contigs.iloc[:, 3:].values,
-                                    other_log_lengths.values[:, None],
-                                    other_tnfs.iloc[:, 2:].values), axis=1)
+                                     other_log_lengths.values[:, None],
+                                     other_tnfs.iloc[:, 2:].values), axis=1)
+
+            # Scale the thresholds based on the probability distribution
+            rho_thresh = (prob * (0.25 - 0.05)) + 0.05
+            euc_thresh = (prob * (5 - 1.0)) + 1.0
+            dep_thresh = (prob * (0.25 - 0.05)) + 0.1
 
 
-            rho_connected, euc_connected = metrics.check_connections(
-                current, others, n_samples, rho_threshold=rho_threshold, euc_threshold=euc_threshold
+            connections = metrics.check_connections(
+                current, others, n_samples, sample_distances,
+                rho_threshold=rho_thresh, euc_threshold=euc_thresh, dep_threshold=dep_thresh
             )
 
-            if not rho_connected or not euc_connected:
-                # print(tid, self.large_contigs[self.large_contigs['tid'] == tid])
-                # idx = self.large_contigs.index[self.large_contigs['tid'] == tid].tolist()
-                # print(idx)
-                # disconnections[idx[0]] = True
+            if sum(connections) <= 2:
                 disconnected_tids.append(tid)
+
 
         disconnections = np.array(self.large_contigs['tid'].isin(disconnected_tids))
 
         return disconnections
+
+    def check_contig(self, tid, rho_threshold=0.05, euc_threshold=2.0, dep_threshold=0.05):
+        if self.n_samples > 0:
+            n_samples = self.n_samples
+            sample_distances = self.short_sample_distance
+        else:
+            n_samples = self.long_samples
+            sample_distances = self.long_sample_distance
+
+        current_contigs, current_log_lengths, current_tnfs = \
+            self.extract_contigs([tid])
+        other_contigs, other_log_lengths, other_tnfs = \
+            self.extract_contigs(self.large_contigs[self.large_contigs['tid'] != tid]['tid'])
+
+        current = np.concatenate((current_contigs.iloc[:, 3:].values,
+                                  current_log_lengths.values[:, None],
+                                  current_tnfs.iloc[:, 2:].values), axis=1)
+
+        others = np.concatenate((other_contigs.iloc[:, 3:].values,
+                                 other_log_lengths.values[:, None],
+                                 other_tnfs.iloc[:, 2:].values), axis=1)
+
+        return metrics.check_connections(
+            current, others, n_samples, sample_distances,
+            rho_threshold=rho_threshold, euc_threshold=euc_threshold, dep_threshold=dep_threshold
+        )
 
     def fit_disconnect(self):
         """
         Filter contigs based on ADP connections
         """
         ## Calculate the UMAP embeddings
-
+        self.md_reducer.disconnection_distance = 0.25
         self.depths = np.nan_to_num(
             np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 3:].drop(['tid'], axis=1),
                             self.log_lengths[~self.disconnected].values[:, None],
@@ -208,8 +236,7 @@ class Embedder(Binner):
         depth_mapping = self.md_reducer.fit(self.depths)
 
         logging.info("Finding disconnections...")
-        disconnected_intersected = umap.utils.disconnected_vertices(depth_mapping)  # + \
-        # umap.utils.disconnected_vertices(tnf_mapping)
+        disconnected_intersected = umap.utils.disconnected_vertices(depth_mapping)
 
         # Only disconnect big contigs
         for i, dis in enumerate(disconnected_intersected):
@@ -227,13 +254,6 @@ class Embedder(Binner):
             .to_csv(self.path + "/disconnected_contigs.tsv", sep="\t", header=True)
 
         self.disconnected_intersected = disconnected_intersected
-
-        # if np.median(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigLen']) < 25000:
-        #     # Lower median can use euclidean UMAP
-        #     self.use_euclidean = True
-        # else:
-        #     # Distribution of contigs tends to be larger, so euclidean distance breaks down
-        #     self.use_euclidean = False
 
 
     def fit_transform(self, tids, n_neighbors):
@@ -284,7 +304,6 @@ class Embedder(Binner):
         self.tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
         self.tnf_reducer.disconnection_distance = 1
 
-        # self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
         contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
         logging.debug("Running UMAP - %s" % self.tnf_reducer)

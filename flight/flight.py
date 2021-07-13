@@ -251,19 +251,19 @@ def main():
         help=
         'Similar to the heavy-tail parameter sometimes used in t-SNE. Directly manipulates the "b" parameter',
         dest="b",
-        default=0.5)
+        default=0.4)
 
     bin_options.add_argument(
         '--min_dist',
         help=
         'Minimum distance used by UMAP during construction of high dimensional graph',
         dest="min_dist",
-        default=0.1)
+        default=0.0)
 
     bin_options.add_argument('--n_components',
                              help='Dimensions to use in UMAP projection',
                              dest="n_components",
-                             default=3)
+                             default=2)
 
     bin_options.add_argument('--metric',
                              help='Metric to use in UMAP projection',
@@ -420,19 +420,20 @@ def bin(args):
         os.makedirs(prefix)
 
     if not args.precomputed:
-        rosella = Rosella(count_path=args.input,
-                           long_count_path=args.long_input,
-                           kmer_frequencies=args.kmer_frequencies,
-                           output_prefix=prefix,
-                           assembly=args.assembly,
-                           n_neighbors=int(args.n_neighbors),
-                           min_contig_size=int(args.min_contig_size),
-                           min_dist=float(args.min_dist),
-                           threads=int(args.threads),
-                           a=float(args.a),
-                           b=float(args.b),
-                           initialization='spectral'
-                           )
+        rosella = Rosella(
+            count_path=args.input,
+            long_count_path=args.long_input,
+            kmer_frequencies=args.kmer_frequencies,
+            output_prefix=prefix,
+            assembly=args.assembly,
+            n_neighbors=int(args.n_neighbors),
+            min_contig_size=int(args.min_contig_size),
+            min_dist=float(args.min_dist),
+            threads=int(args.threads),
+            a=float(args.a),
+            b=float(args.b),
+            initialization='spectral'
+            )
 
         rosella.perform_binning(args)
 

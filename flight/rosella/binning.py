@@ -255,7 +255,8 @@ class Binner:
         
         self.depth_reducer = umap.UMAP(
             metric=metrics.aggregate_tnf,
-            metric_kwds={"n_samples": self.n_samples, "sample_distances": self.short_sample_distance},
+            metric_kwds={"n_samples": self.n_samples,
+                         "sample_distances": self.short_sample_distance},
             n_neighbors=n_neighbors,
             n_components=n_components,
             min_dist=min_dist,
@@ -306,28 +307,110 @@ class Binner:
 
 
 
-    def n50(self):
+    def nx_calculations(self):
         """
-        Calculates N50 of contigs greater than the min contig size
+        Calculates NX of contigs greater than the min contig size, currently hardcoded to calc n10, n25, n50, n75, n90
+        Returns: A dict object with n values as keys and values a tuple of index and size values
         """
-        lengths = np.sort(self.large_contigs['contigLen'])[::-1]
+        lengths = np.sort(self.large_contigs['contigLen'])
+        lengths_sum = lengths.sum()
 
-        idx, n50 = 0, 0
-        contig_sum = lengths.sum() / 2
+        idx01, n01, done01 = 0, 0, False
+        idx05, n05, done05 = 0, 0, False
+        idx10, n10, done10 = 0, 0, False
+        idx25, n25, done25 = 0, 0, False
+        idx50, n50, done50 = 0, 0, False
+        idx75, n75, done75 = 0, 0, False
+        idx90, n90, done90 = 0, 0, False
+        idx95, n95, done95 = 0, 0, False
+        idx99, n99, done99 = 0, 0, False
+
+
+        sum01 = lengths_sum * 0.01
+        sum05 = lengths_sum * 0.05
+        sum10 = lengths_sum * 0.10
+        sum25 = lengths_sum * 0.25
+        sum50 = lengths_sum * 0.50
+        sum75 = lengths_sum * 0.75
+        sum90 = lengths_sum * 0.90
+        sum95 = lengths_sum * 0.95
+        sum99 = lengths_sum * 0.99
+
+        results = {}
+
         for counter in range(1, len(lengths) + 1):
-            if lengths[0:counter].sum() > contig_sum:
-                idx = counter - 1
+            current_sum = lengths[0:counter].sum()
+
+            # individual checks for each point
+            if current_sum > sum01 and not done01:
+                idx01 = counter - 1
+                n01 = lengths[counter - 1]
+                done01 = True
+                results["N01"] = (idx01, n01)
+            if current_sum > sum05 and not done05:
+                idx05 = counter - 1
+                n05 = lengths[counter - 1]
+                done05 = True
+                results["N05"] = (idx05, n05)
+            if current_sum > sum10 and not done10:
+                idx10 = counter - 1
+                n10 = lengths[counter - 1]
+                done10 = True
+                results["N10"] = (idx10, n10)
+            if current_sum > sum25 and not done25:
+                idx25 = counter - 1
+                n25 = lengths[counter - 1]
+                done25 = True
+                results["N25"] = (idx25, n25)
+            if current_sum > sum50 and not done50:
+                idx50 = counter - 1
+                n50 = lengths[counter - 1]
+                done50 = True
+                results["N50"] = (idx50, n50)
+            if current_sum > sum75 and not done75:
+                idx75 = counter - 1
+                n75 = lengths[counter - 1]
+                done75 = True
+                results["N75"] = (idx75, n75)
+            if current_sum > sum90 and not done90:
+                idx90 = counter - 1
+                n90 = lengths[counter - 1]
+                done90 = True
+                results["N90"] = (idx90, n90)
+            if current_sum > sum95 and not done95:
+                idx95 = counter - 1
+                n95 = lengths[counter - 1]
+                done95 = True
+                results["N95"] = (idx95, n95)
+            if current_sum > sum99 and not done99:
+                idx99 = counter - 1
+                n99 = lengths[counter - 1]
+                done99 = True
+                results["N99"] = (idx99, n99)
+                break
+
+        return results
+
+    def nX(self, x = 50):
+        lengths = np.sort(self.large_contigs['contigLen'])
+        lengths_sum = lengths.sum()
+
+        idx50, n50 = 0, 0
+        sum50 = lengths_sum * (x / 100)
+        for counter in range(1, len(lengths) + 1):
+            current_sum = lengths[0:counter].sum()
+            if current_sum > sum50:
+                idx50 = counter - 1
                 n50 = lengths[counter - 1]
                 break
 
-        return idx, n50
-
+        return idx50, n50
 
     def update_parameters(self):
         """
         Mainly deprecated
         """
-        self.depth_reducer.disconnection_distance = 0.25
+        self.depth_reducer.disconnection_distance = 1
         self.md_reducer.disconnection_distance = 0.15
 
         self.depth_reducer.n_neighbors = 5

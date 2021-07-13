@@ -210,7 +210,6 @@ class Rosella(Validator):
             n += 1
 
     def perform_binning(self, args):
-        self.update_umap_params(self.large_contigs.shape[0])
         plots = []
         with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
             with warnings.catch_warnings():
@@ -227,19 +226,16 @@ class Rosella(Validator):
                         if self.tnfs[~self.disconnected][~self.disconnected_intersected].values.shape[
                             0] > int(args.n_neighbors) * 2:
                             # Final fully filtered embedding to cluster on
-                            self.update_umap_params(self.large_contigs[~self.disconnected][
-                                                             ~self.disconnected_intersected].shape[0])
                             self.fit_transform(
-                                self.large_contigs[~self.disconnected][~self.disconnected_intersected][
-                                    'tid'],
+                                self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'],
                                 int(args.n_neighbors))
                             self.embeddings = self.intersection_mapper.embedding_
 
                             logging.info("HDBSCAN - Performing initial clustering.")
                             self.labels = self.iterative_clustering(self.embeddings,
-                                                                              prediction_data=False,
-                                                                              allow_single_cluster=False,
-                                                                              double=False)
+                                                                      prediction_data=False,
+                                                                      allow_single_cluster=False,
+                                                                      double=False)
 
                             ## Plot limits
                             x_min = min(self.embeddings[:, 0]) - 10
@@ -253,7 +249,9 @@ class Rosella(Validator):
                             self.bin_contigs(args.assembly, int(args.min_bin_size))
 
                             self.plot(
-                                ['contig_731_pilon', 'contig_2371_pilon', 'contig_1088_pilon'])
+                                ['contig_2054_pilon', 'contig_2059_pilon',
+                                 'contig_1352_pilon', 'scaffold_49_pilon']
+                            )
 
                             logging.info("Reclustering individual bins.")
 
@@ -268,9 +266,10 @@ class Rosella(Validator):
 
                             self.sort_bins()
 
+                            self.validation_settings()
                             self.quick_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
                             self.slow_refine(plots, 0, 100, x_min, x_max, y_min, y_max)
-                            self.big_contig_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
+                            self.big_contig_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
                             # self.force_splitting(plots, 0, 5, x_min, x_max, y_min, y_max)
                             # self.check_if_bins_should_combine(0, 1, 0.01)
 

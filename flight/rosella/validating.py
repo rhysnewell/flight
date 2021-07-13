@@ -178,7 +178,7 @@ class Validator(Clusterer, Embedder):
                 bin_size = contigs['contigLen'].sum()
                 recluster = False
 
-                if bin_size >= 2e6:
+                if bin_size >= 1e6:
                     # while filtering:
 
                     # Extract current contigs and get statistics
@@ -218,8 +218,10 @@ class Validator(Clusterer, Embedder):
                     f_level = 0.3
                     m_level = 0.2
 
-                    if ((mean_md >= m_level
-                         or mean_agg >= f_level or mean_euc >= 4 or mean_tnf >= 0.15)
+                    if ((round(mean_md, 2) >= m_level
+                         or round(mean_agg, 2) >= f_level
+                         or round(mean_euc, 2) >= 4
+                         or round(mean_tnf, 2) >= 0.15)
                         and bin_size > 1e6) or bin_size >= 12e6 \
                         or (round(per_contig_avg[:, 0].std(), 2) >= 0.1
                         or round(per_contig_avg[:, 3].std(), 2) >= 0.1
@@ -278,7 +280,7 @@ class Validator(Clusterer, Embedder):
 
                         score = sk_metrics.silhouette_score(distances, kmeans.labels_)
 
-                        if score >= 0.6:
+                        if round(score, 2) >= 0.4:
                             removed_from_cluster = []
                             for (idx, label) in enumerate(kmeans.labels_):
                                 if label != -1:
@@ -293,12 +295,6 @@ class Validator(Clusterer, Embedder):
                                     removed_from_cluster.append(tid)
 
                             [tids.remove(tid) for tid in removed_from_cluster]
-
-                        # elif len(removed_together) <= 2:
-                        #     new_bins[new_bin_counter] = []
-                        #     [(new_bins[new_bin_counter].append(r), tids.remove(r)) for r in removed_together]
-                        #     new_bin_counter += 1
-
 
                         current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
                         if current_contigs['contigLen'].sum() <= self.min_bin_size:
@@ -345,15 +341,15 @@ class Validator(Clusterer, Embedder):
                         print('before check for distant contigs: ', len(tids))
                         _, _, _, _ = self.bin_stats(bin)
 
-                    f_level = 0.3
-                    m_level = 0.2
+                    f_level = 0.25
+                    m_level = 0.15
                     shared_level = 0.1
 
 
                     if ((mean_md >= m_level
-                        or mean_agg >= f_level)
+                        or mean_agg >= f_level) and (mean_tnf >= 0.1 or mean_euc >= 3)
                         and bin_size > 1e6) or bin_size >= 12e6 \
-                        or (round(per_contig_avg[:, 0].std(), 2) >= 0.1
+                        or (round(per_contig_avg[:, 0].std(), 2) >= 0.075
                             or round(per_contig_avg[:, 3].std(), 2) >= 0.1
                             or round(per_contig_avg[:, 1].std(), 2) >= 0.1
                             or round(per_contig_avg[:, 2].std(), 2) >= 1):
@@ -361,17 +357,21 @@ class Validator(Clusterer, Embedder):
                         reembed_separately.append(bin)
                         if debug:
                             print("Reclustering bin %d" % bin)
-                        force_new_clustering.append(False)  # send it to regular hell
-                        if np.array(per_contig_avg)[:, 0].std() >= 0.05 and (mean_tnf >= 0.1 or mean_euc >= 3):
-                            lower_thresholds.append(True)
+                        if (np.array(per_contig_avg)[:, 0].std() >= 0.05 or mean_agg >= 0.25) and (mean_tnf >= 0.1 or mean_euc >= 3):
+                            lower_thresholds.append(0.75)
+                        elif (np.array(per_contig_avg)[:, 0].std() >= 0.075 or mean_agg >= 0.3) and (mean_tnf >= 0.1 or mean_euc >= 3):
+                            lower_thresholds.append(0.5)
+                        elif (np.array(per_contig_avg)[:, 0].std() >= 0.1 or mean_agg >= 0.35) and (mean_tnf >= 0.1 or mean_euc >= 3):
+                            lower_thresholds.append(0.25)
                         else:
-                            lower_thresholds.append(False)
+                            lower_thresholds.append(0.85)
+                        force_new_clustering.append(False)  # send it to regular hell
                         reembed_if_no_cluster.append(True)
                     else:
                         reembed_separately.append(bin)
                         force_new_clustering.append(False)  # send it to regular hell
                         reembed_if_no_cluster.append(False)  # take it easy, okay?
-                        lower_thresholds.append(False)
+                        lower_thresholds.append(0.85)
                         # if debug:
                         #     print("bin survived %d" % bin)
                         #     self.bin_stats(bin)
@@ -395,7 +395,7 @@ class Validator(Clusterer, Embedder):
         for k, v in new_bins.items():
             self.bins[max_bin_id + k] = list(np.sort(np.array(v)))
 
-        for bin, force_new, relaxed, reembed_cluster, switch in zip(
+        for bin, force_new, min_validity, reembed_cluster, switch in zip(
             reembed_separately,
             force_new_clustering,
             lower_thresholds,
@@ -415,7 +415,7 @@ class Validator(Clusterer, Embedder):
 
             plots, remove = self.reembed(tids, max_bin_id, plots,
                                          x_min, x_max, y_min, y_max, n,
-                                         relaxed=relaxed,
+                                         default_min_validity=min_validity,
                                          force=force_new,
                                          reembed=reembed_cluster,
                                          switch=switch,
@@ -540,6 +540,7 @@ class Validator(Clusterer, Embedder):
     def reembed(self, tids, max_bin_id, plots,
                 x_min=20, x_max=20, y_min=20, y_max=20, n=0,
                 max_n_neighbours=50,
+                default_min_validity=0.85,
                 delete_unbinned=False,
                 bin_unbinned=False,
                 force=False,
@@ -644,9 +645,33 @@ class Validator(Clusterer, Embedder):
 
                     labels_precomputed = self.iterative_clustering(distances, metric="precomputed")
 
-                    validity_single, _ = self._validity(labels_single, unbinned_embeddings)
-                    validity_multi, _ = self._validity(labels_multi, unbinned_embeddings)
-                    validity_precom, _ = self._validity(labels_precomputed, unbinned_embeddings)
+                    labels_single_nu = list(np.array(labels_single) + 1)
+                    labels_multi_nu = list(np.array(labels_multi) + 1)
+                    labels_precomputed_nu = list(np.array(labels_precomputed) + 1)
+
+                    validity_single, _ = self.validity(labels_single, unbinned_embeddings)
+                    validity_multi, _ = self.validity(labels_multi, unbinned_embeddings)
+                    validity_precom, _ = self.validity(labels_precomputed, unbinned_embeddings)
+
+                    validity_single_nu, _ = self.validity(labels_single_nu, unbinned_embeddings)
+                    validity_multi_nu, _ = self.validity(labels_multi_nu, unbinned_embeddings)
+                    validity_precom_nu, _ = self.validity(labels_precomputed_nu, unbinned_embeddings)
+
+                    if validity_single_nu >= validity_single:
+                        if debug:
+                            print("binning unlabelled was better single: %.3f vs. %.3f", validity_single_nu, validity_single)
+                        validity_single = validity_single_nu
+                        labels_single = labels_single_nu
+
+                    if validity_multi_nu >= validity_multi:
+                        if debug:
+                            print("binning unlabelled was better multi: %.3f vs. %.3f", validity_multi_nu, validity_multi)
+                        validity_multi = validity_multi_nu
+                        labels_multi = labels_multi_nu
+
+                    if validity_precom_nu >= validity_precom:
+                        validity_precom = validity_precom_nu
+                        labels_precomputed = labels_precomputed_nu
 
 
                     # Calculate silhouette scores, will fail if only one label
@@ -751,8 +776,29 @@ class Validator(Clusterer, Embedder):
                                                              prediction_data=False,
                                                              double=False)
 
-                    validity_single, _ = self._validity(labels_single, new_embeddings)
-                    validity_multi, _ = self._validity(labels_multi, new_embeddings)
+                    validity_single, _ = self.validity(labels_single, new_embeddings)
+                    validity_multi, _ = self.validity(labels_multi, new_embeddings)
+
+                    labels_single_nu = list(np.array(labels_single) + 1)
+                    labels_multi_nu = list(np.array(labels_multi) + 1)
+
+                    validity_single, _ = self.validity(labels_single, unbinned_embeddings)
+                    validity_multi, _ = self.validity(labels_multi, unbinned_embeddings)
+
+                    validity_single_nu, _ = self.validity(labels_single_nu, unbinned_embeddings)
+                    validity_multi_nu, _ = self.validity(labels_multi_nu, unbinned_embeddings)
+
+                    if validity_single_nu >= validity_single:
+                        if debug:
+                            print("binning unlabelled was better single: %.3f vs. %.3f", validity_single_nu, validity_single)
+                        validity_single = validity_single_nu
+                        labels_single = labels_single_nu
+
+                    if validity_multi_nu >= validity_multi:
+                        if debug:
+                            print("binning unlabelled was better multi: %.3f vs. %.3f", validity_multi_nu, validity_multi)
+                        validity_multi = validity_multi_nu
+                        labels_multi = labels_multi_nu
 
                     logging.debug('Allow single cluster validity: ', validity_single)
                     logging.debug('Allow multi cluster validity: ', validity_multi)
@@ -789,15 +835,18 @@ class Validator(Clusterer, Embedder):
                             if debug:
                                 print('using non re-embedded... %f' % max_validity)
 
+                    if debug:
+                        print('Allow single cluster validity: ', max_single)
+                        print('Allow multi cluster validity: ', max_multi)
+                        print('precom cluster validity: ', max_precom)
+
 
 
                 except TypeError:
                     self.labels = np.array([-1 for i in range(unbinned_embeddings.shape[0])])
 
-            if relaxed:
-                min_validity = min(min_validity, 0.75)
-                # min_distance = 0.5
 
+            min_validity = min(min_validity, default_min_validity)
             max_validity = round(max_validity, 2)
 
             set_labels = set(self.labels)

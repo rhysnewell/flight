@@ -658,9 +658,10 @@ def aggregate_md(a, b, n_samples, sample_distances):
     return md
 
 @njit(fastmath=True)
-def check_connections(current, others, n_samples, rho_threshold=0.05, euc_threshold=3):
+def check_connections(current, others, n_samples, sample_distances, rho_threshold=0.05, euc_threshold=3, dep_threshold=0.05):
     rho_connected = False
     euc_connected = False
+    dep_connected = False
     for contig_idx in range(others.shape[0]):
         if not rho_connected:
             rho_value = rho(current[0, n_samples * 2:], others[contig_idx, n_samples * 2:])
@@ -672,10 +673,65 @@ def check_connections(current, others, n_samples, rho_threshold=0.05, euc_thresh
             if euc_value <= euc_threshold:
                 euc_connected = True
 
-        if euc_connected and rho_connected:
+        if not dep_connected:
+            dep_value = metabat_distance(current[0, :n_samples * 2],
+                                         others[contig_idx, :n_samples * 2],
+                                         n_samples, sample_distances)
+            if dep_value <= dep_threshold:
+                dep_connected = True
+
+        if euc_connected and rho_connected and dep_connected:
             break
 
-    return rho_connected, euc_connected
+    return rho_connected, euc_connected, dep_connected
+
+@njit(fastmath=True)
+def average_values_and_min_values(current, others, n_samples, sample_distances):
+    """
+    Computes the average distances for a given contig values compared to all other contigs
+    """
+    rho_sum = 0
+    euc_sum = 0
+    dep_sum = 0
+
+    rho_min = None
+    euc_min = None
+    dep_min = None
+
+    for contig_idx in range(others.shape[0]):
+        rho_value = rho(current[0, n_samples * 2:],
+                        others[contig_idx, n_samples * 2:])
+        rho_sum += rho_value
+        if rho_min is not None:
+            if rho_min > rho_value:
+                rho_min = rho_value
+        else:
+            rho_min = rho_value
+
+        euc_value = tnf_euclidean(current[0, n_samples * 2:],
+                                  others[contig_idx, n_samples * 2:])
+        euc_sum += euc_value
+        if euc_min is not None:
+            if euc_min > euc_value:
+                euc_min = euc_value
+        else:
+            euc_min = euc_value
+
+        dep_value = metabat_distance(current[0, :n_samples * 2],
+                                     others[contig_idx, :n_samples * 2],
+                                     n_samples, sample_distances)
+        dep_sum += dep_value
+        if dep_min is not None:
+            if dep_min > dep_value:
+                dep_min = dep_value
+        else:
+            dep_min = dep_value
+
+    rho_mean = rho_sum / others.shape[0]
+    euc_mean = euc_sum / others.shape[0]
+    dep_mean = dep_sum / others.shape[0]
+
+    return (rho_mean, euc_mean, dep_mean), (rho_min, euc_min, dep_min)
 
 @njit(fastmath=True)
 def get_single_contig_averages(contig_depth, depths, n_samples, sample_distances):

@@ -193,7 +193,7 @@ class Clusterer(Binner):
         return main_labels
 
     @staticmethod
-    def _validity(labels, distances):
+    def validity(labels, distances):
         """
         Calculates cluster validity using Density Based Cluster Validity from HDBSCAN
 
