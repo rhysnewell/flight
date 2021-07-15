@@ -39,6 +39,8 @@ import seaborn as sns
 import matplotlib
 import umap
 import scipy.stats as sp_stats
+from sklearn.mixture import GaussianMixture
+
 
 # self imports
 import flight.metrics as metrics
@@ -116,7 +118,7 @@ class Embedder(Binner):
 
             logging.info("Running UMAP Filter - %s" % self.rho_reducer)
             self.rho_reducer.n_neighbors = 5
-            self.rho_reducer.disconnection_distance = 0.15
+            self.rho_reducer.disconnection_distance = 0.5
 
             contigs, log_lengths, tnfs = self.extract_contigs(
                 self.large_contigs[~initial_disconnections]['tid']
@@ -142,13 +144,35 @@ class Embedder(Binner):
         self.euc_reducer.set_op_mix_ratio = op_mix_ratio
 
     def check_contigs(self, tids):
-        idx50, n50 = self.nX()
-        # create a skewed normal distribution, where a is the abs diff mean of logs - log scaled n50 value, the loc is
-        # mean of log scaled lengths and scale is the std
-        mean_of_logs = np.log10(self.large_contigs['contigLen']).mean()
-        skew_dist = sp_stats.skewnorm(np.log10(n50) - mean_of_logs,
-                                   loc = mean_of_logs,
-                                   scale = np.log10(self.large_contigs['contigLen']).std() * 2)
+        """
+        The weight length distribution of contigs is not normal, instead it kind of looks like two normal distributions
+        akin to camel with two humps. We can hastily model this by using the n75 of the contig lengths and create a skewed
+        normal distribution.
+
+        Contigs that fall below n75 use the standard normal distribution, contigs that fall above use the skewed distribution
+
+        The pdf value is used as the thresholds for the different metrics for that contig
+        """
+        _, n25 = self.nX(25)
+        _, n75 = self.nX(75)
+        lengths = self.large_contigs[self.large_contigs['tid'].isin(tids)]['contigLen']
+        log_lengths = np.log10(lengths.values)
+
+        # Account for stochasticity by running a few times
+        max_sum = 0
+        min_sum = 0
+        count = 0
+        for i in range(10):
+            gm = GaussianMixture(n_components=2).fit(log_lengths.reshape(-1, 1))
+            max_sum += max(gm.means_)[0]
+            min_sum += min(gm.means_)[0]
+            count += 1
+
+        max_mean = max_sum / count
+        min_mean = min_sum / count
+
+        skew_dist1 = sp_stats.skewnorm(np.log10(n25), min_mean, 1.5)
+        skew_dist2 = sp_stats.skewnorm(np.log10(n75), max_mean, 1.5)
         disconnected_tids = []
         if self.n_samples > 0:
             n_samples = self.n_samples
@@ -157,12 +181,15 @@ class Embedder(Binner):
             n_samples = self.long_samples
             sample_distances = self.long_sample_distance
 
-        for tid in tids:
+        for idx, tid in enumerate(tids):
             current_contigs, current_log_lengths, current_tnfs = \
                 self.extract_contigs([tid])
 
+
             # Use skew dist to get PDF value of current contig
-            prob = min(skew_dist.pdf(np.log10(current_contigs.values[0, 1])), 1)
+            prob1 = min(skew_dist1.pdf(log_lengths[idx]), 1.0)
+            prob2 = min(skew_dist2.pdf(log_lengths[idx]), 1.0)
+            prob = max(prob1, prob2)
 
             other_contigs, other_log_lengths, other_tnfs = \
                 self.extract_contigs(self.large_contigs[self.large_contigs['tid'] != tid]['tid'])
@@ -176,9 +203,9 @@ class Embedder(Binner):
                                      other_tnfs.iloc[:, 2:].values), axis=1)
 
             # Scale the thresholds based on the probability distribution
-            rho_thresh = (prob * (0.25 - 0.05)) + 0.05
-            euc_thresh = (prob * (5 - 1.0)) + 1.0
-            dep_thresh = (prob * (0.25 - 0.05)) + 0.1
+            rho_thresh = min(max(prob / 2, 0.05), 0.5)
+            euc_thresh = min(max(prob * 10, 1.5), 10)
+            dep_thresh = min(max(prob / 2, 0.05), 0.5)
 
 
             connections = metrics.check_connections(
@@ -225,7 +252,7 @@ class Embedder(Binner):
         Filter contigs based on ADP connections
         """
         ## Calculate the UMAP embeddings
-        self.md_reducer.disconnection_distance = 0.25
+        self.md_reducer.disconnection_distance = 0.5
         self.depths = np.nan_to_num(
             np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 3:].drop(['tid'], axis=1),
                             self.log_lengths[~self.disconnected].values[:, None],
@@ -330,7 +357,7 @@ class Embedder(Binner):
         self.depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
         self.depth_reducer.disconnection_distance = 0.99
         self.euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.euc_reducer.disconnection_distance = 100
+        self.euc_reducer.disconnection_distance = 10
 
         # self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
         contigs, log_lengths, tnfs = self.extract_contigs(tids)
@@ -361,7 +388,7 @@ class Embedder(Binner):
         self.tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
         self.tnf_reducer.disconnection_distance = 1
         self.euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.euc_reducer.disconnection_distance = 100
+        self.euc_reducer.disconnection_distance = 10
 
         # self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
         contigs, log_lengths, tnfs = self.extract_contigs(tids)

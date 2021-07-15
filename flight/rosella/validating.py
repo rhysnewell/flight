@@ -770,11 +770,11 @@ class Validator(Clusterer, Embedder):
                     labels_single = self.iterative_clustering(new_embeddings,
                                                               allow_single_cluster=True,
                                                               prediction_data=False,
-                                                              double=False)
+                                                              double=skip_clustering)
                     labels_multi = self.iterative_clustering(new_embeddings,
                                                              allow_single_cluster=False,
                                                              prediction_data=False,
-                                                             double=False)
+                                                             double=skip_clustering)
 
                     validity_single, _ = self.validity(labels_single, new_embeddings)
                     validity_multi, _ = self.validity(labels_multi, new_embeddings)
@@ -836,10 +836,8 @@ class Validator(Clusterer, Embedder):
                                 print('using non re-embedded... %f' % max_validity)
 
                     if debug:
-                        print('Allow single cluster validity: ', max_single)
-                        print('Allow multi cluster validity: ', max_multi)
-                        print('precom cluster validity: ', max_precom)
-
+                        print('Allow single cluster validity: ', validity_single)
+                        print('Allow multi cluster validity: ', validity_multi)
 
 
                 except TypeError:

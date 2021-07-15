@@ -149,8 +149,6 @@ class Binner:
             self.short_sample_distance = utils.sample_distance(self.large_contigs)
             self.long_sample_distance = utils.sample_distance(self.long_depths)
 
-
-
         elif count_path is not None:
             self.coverage_table = pd.read_csv(count_path, sep='\t')
             self.coverage_table['coverageSum'] = (self.coverage_table.iloc[:, 3::2] > 0).any(axis=1)
@@ -456,8 +454,8 @@ class Binner:
     def add_plot(self, plots, unbinned_embeddings, contigs,
                  n = 0, x_min = 20, x_max = 20, y_min = 20, y_max = 20, max_validity = -1, precomputed = False):
 
-        findem = [
-            'contig_731_pilon', 'contig_2371_pilon', 'contig_1088_pilon']
+        findem = ['contig_2054_pilon', 'contig_2059_pilon',
+                  'contig_1352_pilon', 'scaffold_49_pilon']
 
         names = list(contigs['contigName'])
         indices = []
