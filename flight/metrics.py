@@ -64,8 +64,8 @@ class NormalDist:
 def tnf_euclidean(a, b):
 
     # l = length_weighting(a[0], b[0])
-    rp = max(a[0], b[0], 1)
-    # rp = 1
+    # rp = max(a[0], b[0], 1)
+    rp = 1
     result = 0.0
     for i in range(a.shape[0] - 1):
         result += (a[i + 1] - b[i + 1]) ** 2
@@ -564,8 +564,8 @@ def rho(a, b):
     transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
     """
 
-    rp = max(a[0], b[0], 1)
-    # rp = 1
+    # rp = max(a[0], b[0], 1)
+    rp = 1
     # l = 0
     x = a[1:]
     y = b[1:]
@@ -574,6 +574,7 @@ def rho(a, b):
     norm_x = 0.0
     norm_y = 0.0
     dot_product = 0.0
+    total_shared = 0
 
     for i in range(x.shape[0]):
         mu_x += x[i]

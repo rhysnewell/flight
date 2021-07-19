@@ -89,50 +89,25 @@ class Embedder(Binner):
         """
         try:
 
-            # size_thresholds = self.nx_calculations()
-            # We check the euclidean distances of large contigs as well.
-            # disconnections_n90 = self.check_contigs(
-            #     self.large_contigs[self.large_contigs['contigLen'] >=
-            #                        size_thresholds["N90"][1]]['tid'], 0.05, 1.5, 0.05)
-            # disconnections_n75_and_up = self.check_contigs(
-            #     self.large_contigs[(self.large_contigs['contigLen'] >= size_thresholds["N75"][1])
-            #                        & (self.large_contigs['contigLen'] < size_thresholds["N90"][1])]['tid'], 0.05, 1.5, 0.05)
-            # disconnections_n50_to_n75 = self.check_contigs(
-            #     self.large_contigs[(self.large_contigs['contigLen'] >= size_thresholds["N50"][1])
-            #                        & (self.large_contigs['contigLen'] < size_thresholds["N75"][1])]['tid'], 0.1, 3.0, 0.1)
-            # disconnections_n25_to_n50 = self.check_contigs(
-            #     self.large_contigs[(self.large_contigs['contigLen'] >= size_thresholds["N25"][1])
-            #                        & (self.large_contigs['contigLen'] < size_thresholds["N50"][1])]['tid'], 0.15, 5.0, 0.15)
-            # disconnections_n10_to_n25 = self.check_contigs(
-            #     self.large_contigs[(self.large_contigs['contigLen'] >= size_thresholds["N10"][1])
-            #                        & (self.large_contigs['contigLen'] < size_thresholds["N25"][1])]['tid'], 0.15, 5.0, 0.15)
-            # disconnections_n05_to_n10 = self.check_contigs(
-            #     self.large_contigs[(self.large_contigs['contigLen'] >= size_thresholds["N05"][1]) &
-            #                        (self.large_contigs['contigLen'] < size_thresholds["N10"][1])]['tid'], 0.1, 3.0, 0.1)
-            # disconnections_under_n05 = self.check_contigs(
-            #     self.large_contigs[self.large_contigs['contigLen'] <= size_thresholds["N05"][1]]['tid'], 0.05, 1.5, 0.05)
-            
-            # initial_disconnections = disconnections_very_big + disconnections_big + disconnections_medium + \
-            #                          disconnections_decent + disconnections_small + disconnections_very_small
             initial_disconnections = self.check_contigs(self.large_contigs['tid'])
 
-            logging.info("Running UMAP Filter - %s" % self.rho_reducer)
-            self.rho_reducer.n_neighbors = 5
-            self.rho_reducer.disconnection_distance = 0.5
+            # logging.info("Running UMAP Filter - %s" % self.rho_reducer)
+            # self.rho_reducer.n_neighbors = 5
+            # self.rho_reducer.disconnection_distance = 0.5
+            #
+            # contigs, log_lengths, tnfs = self.extract_contigs(
+            #     self.large_contigs[~initial_disconnections]['tid']
+            # )
+            #
+            # filterer_rho = self.rho_reducer.fit(
+            #     np.concatenate((log_lengths.values[:, None],
+            #                     tnfs.iloc[:, 2:]), axis=1))
+            #
+            # disconnected_umap = umap.utils.disconnected_vertices(filterer_rho)
 
-            contigs, log_lengths, tnfs = self.extract_contigs(
-                self.large_contigs[~initial_disconnections]['tid']
-            )
-
-            filterer_rho = self.rho_reducer.fit(
-                np.concatenate((log_lengths.values[:, None],
-                                tnfs.iloc[:, 2:]), axis=1))
-
-            disconnected_umap = umap.utils.disconnected_vertices(filterer_rho)
-
-            disconnected = initial_disconnections + np.array(self.large_contigs['tid'].isin(
-                self.large_contigs[~initial_disconnections][disconnected_umap]['tid']
-            ))
+            disconnected = initial_disconnections #+ np.array(self.large_contigs['tid'].isin(
+                # self.large_contigs[~initial_disconnections][disconnected_umap]['tid']
+            # ))
         except ValueError: # Everything was disconnected
             disconnected = np.array([True for i in range(self.large_contigs.values.shape[0])])
 
@@ -143,7 +118,7 @@ class Embedder(Binner):
         self.tnf_reducer.set_op_mix_ratio = op_mix_ratio
         self.euc_reducer.set_op_mix_ratio = op_mix_ratio
 
-    def check_contigs(self, tids):
+    def check_contigs(self, tids, close_check=None):
         """
         The weight length distribution of contigs is not normal, instead it kind of looks like two normal distributions
         akin to camel with two humps. We can hastily model this by using the n75 of the contig lengths and create a skewed
@@ -161,18 +136,27 @@ class Embedder(Binner):
         # Account for stochasticity by running a few times
         max_sum = 0
         min_sum = 0
+        max_covar = 0
+        min_covar = 0
         count = 0
         for i in range(10):
             gm = GaussianMixture(n_components=2).fit(log_lengths.reshape(-1, 1))
             max_sum += max(gm.means_)[0]
+            max_covar += gm.covariances_[gm.means_.argmax()][0][0]
             min_sum += min(gm.means_)[0]
+            min_covar += gm.covariances_[gm.means_.argmin()][0][0]
+
             count += 1
 
         max_mean = max_sum / count
+        max_covar = max_covar / count
         min_mean = min_sum / count
+        min_covar = min_covar / count
+        logging.info("Filtering Params - Max: %f, %f, %d Min: %f, %f, %d"
+                     % (max_mean, max_covar, n75, max(min_mean, np.log10(5000)), min_covar, n25))
 
-        skew_dist1 = sp_stats.skewnorm(np.log10(n25), min_mean, 1.5)
-        skew_dist2 = sp_stats.skewnorm(np.log10(n75), max_mean, 1.5)
+        skew_dist1 = sp_stats.skewnorm(np.log10(n25), max(min_mean, np.log10(5000)), 1 + min_covar / count)
+        skew_dist2 = sp_stats.skewnorm(np.log10(n75), max_mean, 1 + max_covar / count)
         disconnected_tids = []
         if self.n_samples > 0:
             n_samples = self.n_samples
@@ -204,7 +188,7 @@ class Embedder(Binner):
 
             # Scale the thresholds based on the probability distribution
             rho_thresh = min(max(prob / 2, 0.05), 0.5)
-            euc_thresh = min(max(prob * 10, 1.5), 10)
+            euc_thresh = min(max(prob * 10, 1.0), 10)
             dep_thresh = min(max(prob / 2, 0.05), 0.5)
 
 
@@ -215,6 +199,12 @@ class Embedder(Binner):
 
             if sum(connections) <= 2:
                 disconnected_tids.append(tid)
+
+            if close_check is not None:
+                if close_check == tid:
+                    print(rho_thresh, euc_thresh, dep_thresh)
+                    print(connections)
+
 
 
         disconnections = np.array(self.large_contigs['tid'].isin(disconnected_tids))
