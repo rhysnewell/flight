@@ -141,6 +141,11 @@ class Validator(Clusterer, Embedder):
                             print('before check for distant contigs: ', len(tids))
                             _, _, _, _ = self.bin_stats(bin)
 
+                        md_std = max(per_contig_avg[:, 0].std() * 2, 0.15)
+                        md_agg = max(per_contig_avg[:, 3].std() * 2, 0.15)
+                        md_rho = max(per_contig_avg[:, 1].std() * 2, 0.15)
+                        md_euc = max(per_contig_avg[:, 2].std() * 2, 1.5)
+
                         if mean_md >= 0.15 or mean_agg >= 0.25:
                             # Simply remove
                             for (tid, avgs) in zip(tids, per_contig_avg):

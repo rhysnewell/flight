@@ -235,7 +235,7 @@ class Rosella(Validator):
                             self.labels = self.iterative_clustering(self.embeddings,
                                                                       prediction_data=False,
                                                                       allow_single_cluster=False,
-                                                                      double=True)
+                                                                      double=False)
 
                             ## Plot limits
                             x_min = min(self.embeddings[:, 0]) - 10
