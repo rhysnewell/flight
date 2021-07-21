@@ -155,7 +155,7 @@ class Embedder(Binner):
         logging.info("Filtering Params - Max: %f, %f, %d Min: %f, %f, %d"
                      % (max_mean, max_covar, n75, max(min_mean, np.log10(5000)), min_covar, n25))
 
-        skew_dist1 = sp_stats.skewnorm(np.log10(n25), max(min_mean, np.log10(5000)), 1 + max(min_covar / count, 0.1))
+        skew_dist1 = sp_stats.skewnorm(np.log10(n25), max(min_mean, np.log10(5000)), 1 + max(min_covar / count, 0.01))
         skew_dist2 = sp_stats.skewnorm(np.log10(n75), max_mean, 1 + max(max_covar / count, 0.1))
         disconnected_tids = []
         if self.n_samples > 0:
