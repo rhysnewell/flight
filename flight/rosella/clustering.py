@@ -43,11 +43,13 @@ import hdbscan
 import seaborn as sns
 import matplotlib
 import sklearn.metrics as sk_metrics
+from scipy.spatial.distance import euclidean
 
 # self imports
 import flight.metrics as metrics
 import flight.utils as utils
 from flight.rosella.binning import Binner
+from flight.DBCV import DBCV
 
 # Set plotting style
 sns.set(style='white', context='notebook', rc={'figure.figsize': (14, 10)})
@@ -204,17 +206,22 @@ class Clusterer(Binner):
                 Either a pairwise distance matrix or UMAP embedding values for the provided contig labels
         """
         if len(set(labels)) > 1:
+            # cluster_validity = DBCV(distances, np.array(labels), dist_function=euclidean)
             try:
-                cluster_validity, validity_indices = hdbscan.validity.validity_index(distances.astype(np.float64), np.array(labels), per_cluster_scores=True)
+                cluster_validity = DBCV(distances, np.array(labels), dist_function=euclidean)
+                # cluster_validity = hdbscan.validity.validity_index(distances.astype(np.float64), np.array(labels), per_cluster_scores=False)
             except ValueError:
-                cluster_validity, validity_indices = -1, [-1 for x in set(labels)]
+                # cluster_validity = DBCV(distances, np.array(labels), dist_function=euclidean)
+                # cluster_validity = hdbscan.validity.validity_index(distances.astype(np.float64), np.array(labels), per_cluster_scores=False)
+                cluster_validity = -1
         else:
-            cluster_validity, validity_indices = -1, [-1]
+            return -1
 
         if math.isnan(cluster_validity):
-            cluster_validity = -1
+            # cluster_validity = DBCV(distances, np.array(labels), dist_function=euclidean)
+            return -1
 
-        return cluster_validity, validity_indices
+        return cluster_validity
 
 
     def pairwise_cluster(self, tids, max_bin_id, plots,

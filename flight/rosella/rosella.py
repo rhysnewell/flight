@@ -101,6 +101,24 @@ class Rosella(Validator):
             self.sort_bins()
             n += 1
 
+    def size_filter(
+            self,
+            plots,
+            n=0,
+            n_max=1,
+            x_min=20,
+            x_max=20,
+            y_min=20,
+            y_max=20
+        ):
+        while n <= n_max:
+            plots, n = self.validate_bins(plots, n,
+                                          x_min, x_max,
+                                          y_min, y_max,
+                                          size_filter=True)
+            self.sort_bins()
+            n += 1
+
     def slow_refine(
             self,
             plots,
@@ -248,9 +266,9 @@ class Rosella(Validator):
                                                       y_max, 0))
                             self.bin_contigs(args.assembly, int(args.min_bin_size))
 
+                            self.findem = ['contig_1751_pilon', 'contig_1638_pilon', 'contig_182_pilon']
                             self.plot(
-                                ['contig_2054_pilon', 'contig_2059_pilon',
-                                 'contig_1352_pilon', 'scaffold_49_pilon']
+                                self.findem
                             )
 
                             logging.info("Reclustering individual bins.")
@@ -266,10 +284,11 @@ class Rosella(Validator):
 
                             self.sort_bins()
 
-                            self.validation_settings()
+                            # self.validation_settings(0, self.a, self.b)
                             self.quick_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
                             self.slow_refine(plots, 0, 100, x_min, x_max, y_min, y_max)
-                            self.big_contig_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
+                            # self.big_contig_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
+                            self.size_filter(plots, 0, 0, x_min, x_max, y_min, y_max)
                             # self.force_splitting(plots, 0, 5, x_min, x_max, y_min, y_max)
                             # self.check_if_bins_should_combine(0, 1, 0.01)
 

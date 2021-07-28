@@ -101,7 +101,7 @@ class Binner:
             initialization='spectral',
             random_seed=42069
     ):
-
+        self.findem = []
         self.min_contig_size = min_contig_size
         self.min_bin_size = min_bin_size
         self.threads = threads
@@ -213,7 +213,12 @@ class Binner:
 
         n_components = min(max(self.n_samples, self.long_samples, 2), 5)
 
-
+        if self.use_euclidean:
+            self.a = 1.9
+        else:
+            self.a = 1.5
+        # self.a = a
+        self.b = b
 
         self.rho_reducer = umap.UMAP(
             metric=metrics.rho,
@@ -221,8 +226,8 @@ class Binner:
             n_components=2,
             min_dist=0,
             set_op_mix_ratio=1,
-            a=a,
-            b=b,
+            a=self.a,
+            b=self.b,
             init=initialization,
             random_state=random_seed,
         )
@@ -233,8 +238,8 @@ class Binner:
             n_components=2,
             min_dist=0,
             set_op_mix_ratio=1,
-            a=a,
-            b=b,
+            a=self.a,
+            b=self.b,
             init=initialization,
             random_state=random_seed
         )
@@ -245,8 +250,8 @@ class Binner:
             n_components=2,
             min_dist=0,
             set_op_mix_ratio=1,
-            a=a,
-            b=b,
+            a=self.a,
+            b=self.b,
             init=initialization,
             random_state=random_seed
         )
@@ -259,8 +264,8 @@ class Binner:
             n_components=n_components,
             min_dist=min_dist,
             set_op_mix_ratio=1,
-            a=a,
-            b=b,
+            a=self.a,
+            b=self.b,
             init=initialization,
             random_state=random_seed
         )
@@ -272,8 +277,8 @@ class Binner:
             n_components=n_components,
             min_dist=min_dist,
             set_op_mix_ratio=1,
-            a=a,
-            b=b,
+            a=self.a,
+            b=self.b,
             init=initialization,
             random_state=random_seed
         )
@@ -283,8 +288,7 @@ class Binner:
         self.n_neighbors = n_neighbors
         self.n_components = n_components
         self.min_dist = min_dist
-        self.a = a
-        self.b = b
+
         self.initialization = initialization
         self.random_seed = random_seed
         self.disconnected = None
@@ -454,12 +458,9 @@ class Binner:
     def add_plot(self, plots, unbinned_embeddings, contigs,
                  n = 0, x_min = 20, x_max = 20, y_min = 20, y_max = 20, max_validity = -1, precomputed = False):
 
-        findem = ['contig_2054_pilon', 'contig_2059_pilon',
-                  'contig_1352_pilon', 'scaffold_49_pilon']
-
         names = list(contigs['contigName'])
         indices = []
-        for to_find in findem:
+        for to_find in self.findem:
             try:
                 indices.append(names.index(to_find))
             except ValueError:
@@ -484,7 +485,7 @@ class Binner:
         found = False
         for i, index in enumerate(indices):
             if index != -1:
-                ax.annotate(findem[i], xy=(unbinned_embeddings[index, 0], unbinned_embeddings[index, 1]),
+                ax.annotate(self.findem[i], xy=(unbinned_embeddings[index, 0], unbinned_embeddings[index, 1]),
                             xycoords='data')
                 found = True
 
@@ -493,10 +494,10 @@ class Binner:
         plt.gca().set_aspect('equal', 'datalim')
         plt.title(format('UMAP projection of unbinned contigs - %d: %d clusters %f %d' %
                          (n, total_new_bins, max_validity, precomputed)), fontsize=24)
-        plt.savefig(self.path + '/UMAP_projection_of_unbinned.png')
+        plt.savefig(format('%s/UMAP_projection_of_unbinned.png' % self.path))
 
         if found:
-            plt.savefig(self.path + '/problem_cluster_closeup.png')
+            plt.savefig(format('%s/UMAP_projection_of_problem_cluster_%d.png' % (self.path, n)))
 
         return plots
 

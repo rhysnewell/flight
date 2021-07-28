@@ -113,10 +113,24 @@ class Embedder(Binner):
 
         self.disconnected = disconnected
 
-    def validation_settings(self, op_mix_ratio=1):
+    def validation_settings(self, op_mix_ratio=1, a = 1.5, b = 0.3):
+        self.set_op(op_mix_ratio)
+
+        self.depth_reducer.b = b
+        self.tnf_reducer.b = b
+        self.euc_reducer.b = b
+
+        self.set_a(a)
+
+    def set_op(self, op_mix_ratio = 1):
         self.depth_reducer.set_op_mix_ratio = op_mix_ratio
         self.tnf_reducer.set_op_mix_ratio = op_mix_ratio
         self.euc_reducer.set_op_mix_ratio = op_mix_ratio
+
+    def set_a(self, a = 1.5):
+        self.depth_reducer.a = a
+        self.tnf_reducer.a = a
+        self.euc_reducer.a = a
 
     def check_contigs(self, tids, close_check=None):
         """
@@ -169,12 +183,6 @@ class Embedder(Binner):
             current_contigs, current_log_lengths, current_tnfs = \
                 self.extract_contigs([tid])
 
-
-            # Use skew dist to get PDF value of current contig
-            prob1 = min(skew_dist1.pdf(log_lengths[idx]), 1.0)
-            prob2 = min(skew_dist2.pdf(log_lengths[idx]), 1.0)
-            prob = max(prob1, prob2)
-
             other_contigs, other_log_lengths, other_tnfs = \
                 self.extract_contigs(self.large_contigs[self.large_contigs['tid'] != tid]['tid'])
 
@@ -186,9 +194,14 @@ class Embedder(Binner):
                                      other_log_lengths.values[:, None],
                                      other_tnfs.iloc[:, 2:].values), axis=1)
 
+
             # Scale the thresholds based on the probability distribution
+            # Use skew dist to get PDF value of current contig
+            prob1 = min(skew_dist1.pdf(log_lengths[idx]), 1.0)
+            prob2 = min(skew_dist2.pdf(log_lengths[idx]), 1.0)
+            prob = max(prob1, prob2)
             rho_thresh = min(max(prob / 2, 0.05), 0.5)
-            euc_thresh = min(max(prob * 10, 1.0), 10)
+            euc_thresh = min(max(prob * 10, 1.0), 6)
             dep_thresh = min(max(prob / 2, 0.05), 0.5)
 
 
@@ -208,6 +221,106 @@ class Embedder(Binner):
 
 
         disconnections = np.array(self.large_contigs['tid'].isin(disconnected_tids))
+
+        return disconnections
+
+    def check_contigs_inside_bin(self, tids, close_check=None):
+        """
+        The weight length distribution of contigs is not normal, instead it kind of looks like two normal distributions
+        akin to camel with two humps. We can hastily model this by using the n75 of the contig lengths and create a skewed
+        normal distribution.
+
+        Contigs that fall below n75 use the standard normal distribution, contigs that fall above use the skewed distribution
+
+        The pdf value is used as the thresholds for the different metrics for that contig
+        """
+        _, n25 = self.nX(25)
+        _, n75 = self.nX(75)
+        lengths = self.large_contigs[self.large_contigs['tid'].isin(tids)]['contigLen']
+        log_lengths = np.log10(lengths.values)
+
+        # Account for stochasticity by running a few times
+        max_sum = 0
+        min_sum = 0
+        max_covar = 0
+        min_covar = 0
+        count = 0
+        for i in range(10):
+            gm = GaussianMixture(n_components=2).fit(log_lengths.reshape(-1, 1))
+            max_sum += max(gm.means_)[0]
+            max_covar += gm.covariances_[gm.means_.argmax()][0][0]
+            min_sum += min(gm.means_)[0]
+            min_covar += gm.covariances_[gm.means_.argmin()][0][0]
+
+            count += 1
+
+        max_mean = max_sum / count
+        max_covar = max_covar / count
+        min_mean = min_sum / count
+        min_covar = min_covar / count
+        logging.info("Filtering Params - Max: %f, %f, %d Min: %f, %f, %d"
+                     % (max_mean, max_covar, n75, max(min_mean, np.log10(5000)), min_covar, n25))
+
+        skew_dist1 = sp_stats.skewnorm(np.log10(n25), max(min_mean, np.log10(5000)), 1 + max(min_covar / count, 0.01))
+        skew_dist2 = sp_stats.skewnorm(np.log10(n75), max_mean, 1 + max(max_covar / count, 0.1))
+        disconnected_tids = []
+        if self.n_samples > 0:
+            n_samples = self.n_samples
+            sample_distances = self.short_sample_distance
+        else:
+            n_samples = self.long_samples
+            sample_distances = self.long_sample_distance
+
+        for idx, tid in enumerate(tids):
+            current_contigs, current_log_lengths, current_tnfs = \
+                self.extract_contigs([tid])
+
+
+
+
+
+
+
+            other_contigs, other_log_lengths, other_tnfs = \
+                self.extract_contigs([t for t in tids if t != tid])
+
+            current = np.concatenate((current_contigs.iloc[:, 3:].values,
+                                      current_log_lengths.values[:, None],
+                                      current_tnfs.iloc[:, 2:].values), axis=1)
+
+            others = np.concatenate((other_contigs.iloc[:, 3:].values,
+                                     other_log_lengths.values[:, None],
+                                     other_tnfs.iloc[:, 2:].values), axis=1)
+
+
+            # Scale the thresholds based on the probability distribution
+            # Use skew dist to get PDF value of current contig
+            prob1 = min(skew_dist1.pdf(log_lengths[idx]), 1.0)
+            prob2 = min(skew_dist2.pdf(log_lengths[idx]), 1.0)
+            prob = max(prob1, prob2)
+            rho_thresh = min(max(prob / 2, 0.05), 0.5)
+            euc_thresh = min(max(prob * 10, 1.0), 6)
+            dep_thresh = min(max(prob / 2, 0.05), 0.5)
+
+
+            connections = metrics.check_connections(
+                current, others, n_samples, sample_distances,
+                rho_threshold=rho_thresh, euc_threshold=euc_thresh, dep_threshold=dep_thresh
+            )
+
+            if sum(connections) <= 2:
+                disconnected_tids.append(True)
+            else:
+                disconnected_tids.append(False)
+
+            if close_check is not None:
+                if close_check == tid:
+                    print(rho_thresh, euc_thresh, dep_thresh)
+                    print(connections)
+
+
+
+        disconnections = np.array(disconnected_tids)
 
         return disconnections
 
@@ -279,9 +392,9 @@ class Embedder(Binner):
         """
         # update parameters to artificially high values to avoid disconnected vertices in the final manifold
         self.depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.depth_reducer.disconnection_distance = 0.99
+        self.depth_reducer.disconnection_distance = 2
         self.tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.tnf_reducer.disconnection_distance = 1
+        self.tnf_reducer.disconnection_distance = 2
         self.euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
         self.euc_reducer.disconnection_distance = 100
 
@@ -373,10 +486,17 @@ class Embedder(Binner):
         Main function for performing UMAP embeddings and intersections
         """
         # update parameters to artificially high values to avoid disconnected vertices in the final manifold
+        if switch == 2 and not self.use_euclidean:
+            # self.set_op(0)
+            self.set_a(1.9)
+        elif not self.use_euclidean:
+            # self.set_op(1)
+            self.set_a(self.a)
+
         self.depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.depth_reducer.disconnection_distance = 0.99
+        self.depth_reducer.disconnection_distance = 2
         self.tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.tnf_reducer.disconnection_distance = 1
+        self.tnf_reducer.disconnection_distance = 2
         self.euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
         self.euc_reducer.disconnection_distance = 10
 
