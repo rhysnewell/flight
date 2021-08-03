@@ -142,10 +142,10 @@ class Validator(Clusterer, Embedder):
                             print('before check for distant contigs: ', len(tids))
                             _, _, _, _ = self.bin_stats(bin)
 
-                        md_std = max(per_contig_avg[:, 0].std() * 2, 0.15)
-                        md_agg = max(per_contig_avg[:, 3].std() * 2, 0.15)
-                        md_rho = max(per_contig_avg[:, 1].std() * 2, 0.15)
-                        md_euc = max(per_contig_avg[:, 2].std() * 2, 1.5)
+                        md_median = np.median(per_contig_avg[:, 0])
+                        agg_median = np.median(per_contig_avg[:, 3])
+                        rho_median = np.median(per_contig_avg[:, 1])
+                        euc_median = np.median(per_contig_avg[:, 2])
 
                         if mean_md >= 0.15 or mean_agg >= 0.25:
                             # Simply remove
@@ -161,8 +161,10 @@ class Validator(Clusterer, Embedder):
                                 # disconnected_tids = self.large_contigs[self.check_contigs(tids)]['tid']
                                 # removed += list(disconnected_tids.values)
                                 for (tid, avgs) in zip(tids, per_contig_avg):
-                                    if ((avgs[0] >= mean_md + 0.15 or avgs[3] >= mean_agg + 0.15) and
-                                             (avgs[1] >= mean_tnf + 0.05 or avgs[2] >= mean_euc + 0.5)):
+                                    if ((avgs[0] >= md_median + 0.15
+                                         or avgs[3] >= agg_median + 0.15) and
+                                             (avgs[1] >= rho_median + 0.05
+                                              or avgs[2] >= euc_median + 0.5)):
                                         removed.append(tid)
 
                         remove = False
@@ -182,151 +184,8 @@ class Validator(Clusterer, Embedder):
                         # Only one contig left, break out
                         continue
 
-            elif big_only:
 
-                # filtering = True
-                remove = False  # Whether to completely remove original bin
-                removed_single = []  # Single contig bin
-                removed_together = []
-                contigs, log_lengths, tnfs = self.extract_contigs(tids)
-
-                bin_size = contigs['contigLen'].sum()
-                recluster = False
-
-                if bin_size >= 1e6 and len(tids) == 2:
-                    # while filtering:
-
-                    # Extract current contigs and get statistics
-                    try:
-                        mean_md, \
-                        mean_tnf, \
-                        mean_euc, \
-                        mean_agg, \
-                        per_contig_avg = \
-                            metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                 log_lengths.values[:, None],
-                                                                 tnfs.iloc[:, 2:].values), axis=1),
-                                                 n_samples,
-                                                 sample_distances)
-
-                        per_contig_avg = np.array(per_contig_avg)
-                    except ZeroDivisionError:
-                        # Only one contig left, break out
-                        break
-
-
-                    if len(tids) == 2:
-                        # Lower thresholds for fewer contigs
-                        md_filt = max(0.2, mean_md)
-                        agg_filt = max(0.4, mean_agg)
-                        euc_filt = 2
-                        rho_filt = 0.05
-                        # Two contigs by themselves that are relatively distant. Remove them separately
-                        together = False
-                    else:
-                        md_filt = max(0.35, mean_md)
-                        agg_filt = max(0.45, mean_agg)
-                        euc_filt = 2
-                        rho_filt = 0.05
-                        together = True
-
-                    f_level = 0.3
-                    m_level = 0.2
-
-                    if ((round(mean_md, 2) >= m_level
-                         or round(mean_agg, 2) >= f_level
-                         or round(mean_euc, 2) >= 4
-                         or round(mean_tnf, 2) >= 0.15)
-                        and bin_size > 1e6) or bin_size >= 12e6 \
-                        or (round(per_contig_avg[:, 0].std(), 2) >= 0.1
-                        or round(per_contig_avg[:, 3].std(), 2) >= 0.1
-                        or round(per_contig_avg[:, 1].std(), 2) >= 0.15
-                        or round(per_contig_avg[:, 2].std(), 2) >= 1):
-                        if debug:
-                            print("Checking big contigs for bin: ", bin)
-                        md_std = max(np.std(per_contig_avg[:, 0]), 0.05)
-                        rho_std = max(np.std(per_contig_avg[:, 1]), 0.05)
-                        euc_std = max(np.std(per_contig_avg[:, 2]), 0.5)
-                        agg_std = max(np.std(per_contig_avg[:, 3]), 0.05)
-                        for max_idx in range(per_contig_avg.shape[0]):
-                            max_values = per_contig_avg[max_idx, :]
-                            contig_length = contigs['contigLen'].iloc[max_idx]
-                            if debug:
-                                print("Contig size and tid: ", contig_length, tids[max_idx])
-
-                            if contig_length >= self.min_bin_size:
-                                if debug:
-                                    print("Found large contig: ", max_idx, tids[max_idx])
-                                if (max_values[3] >= agg_filt or max_values[0] >= md_filt
-                                    or max_values[3] >= (mean_agg + agg_std)
-                                    or max_values[0] >= (mean_md + md_std)) and \
-                                        ((max_values[1] >= rho_filt
-                                          or max_values[1] >= (mean_tnf + rho_std))
-                                         or (max_values[2] >= euc_filt
-                                             or max_values[2] >= (mean_euc + euc_std))):
-
-                                    if debug:
-                                        print("Removing contig: ", max_idx, tids[max_idx])
-                                    if together:
-                                        removed_together.append(tids[max_idx])
-                                        recluster = True
-                                        break
-                                    else:
-                                        removed_single.append(tids[max_idx])
-                            elif np.std(per_contig_avg[:, 3]) >= 0.05 \
-                                    or np.std(per_contig_avg[:, 0]) >= 0.05:
-                                # generally unstable cluster
-                                recluster = True
-                                break
-
-                    # logging.debug(filtering, len(removed_single), len(removed_together), bin)
-                    if len(removed_single) > 0:
-                        [(big_tids.append(r), tids.remove(r)) for r in removed_single]
-
-
-                    elif recluster:
-                        # Quick k-means recluster with two centres
-                        distances = metrics.distance_matrix(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                            log_lengths.values[:, None],
-                                                                            tnfs.iloc[:, 2:].values), axis=1),
-                                                                            n_samples,
-                                                                            sample_distances)
-                        kmeans = sk_cluster.KMeans(n_clusters=2, random_state=self.random_seed).fit(distances)
-
-                        score = sk_metrics.silhouette_score(distances, kmeans.labels_)
-
-                        if round(score, 2) >= 0.4:
-                            removed_from_cluster = []
-                            for (idx, label) in enumerate(kmeans.labels_):
-                                if label != -1:
-                                    tid = tids[idx]
-                                    bin_key = new_bin_counter + label.item() + 1
-                                    if isinstance(bin_key, np.int64):
-                                        bin_key = bin_key.item()
-                                    try:
-                                        new_bins[bin_key].append(tid)  # inputs values as tid
-                                    except KeyError:
-                                        new_bins[bin_key] = [tid]
-                                    removed_from_cluster.append(tid)
-
-                            [tids.remove(tid) for tid in removed_from_cluster]
-
-                        current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
-                        if current_contigs['contigLen'].sum() <= self.min_bin_size:
-                            [self.unbinned_tids.append(tid) for tid in tids]
-                            remove = True
-
-                        if bin in self.survived:
-                            self.survived.remove(bin)
-
-                        if len(tids) == 0 or remove:
-                            bins_to_remove.append(bin)
-
-
-            elif not size_only \
-                    and reembed \
-                    and bin != 0 \
-                    and len(tids) > 1:
+            elif reembed:
 
                 contigs, log_lengths, tnfs = self.extract_contigs(tids)
                 bin_size = contigs['contigLen'].sum()
@@ -395,14 +254,28 @@ class Validator(Clusterer, Embedder):
                         #     self.bin_stats(bin)
                         # self.survived.append(bin)
 
-                    if mean_tnf >= shared_level and mean_euc >= 2:
-                        switches.append(0)
-                    elif mean_tnf >= shared_level and mean_euc <= 1.5:
-                        switches.append(1)
-                    elif mean_tnf < 0.1 and mean_euc >= 2:
-                        switches.append(2)
-                    else:
-                        switches.append(0)
+                    local_switches = [] # store which umap projections to use 0 = md, 1 = rho/tnf, 2 = euc
+                    # if mean_md <= 0.25:
+                    local_switches.append(0)
+                    if mean_tnf <= 0.15:
+                        local_switches.append(1)
+                    if mean_euc <= 3.5:
+                        local_switches.append(2)
+
+
+                    if len(local_switches) == 0:
+                        if self.use_euclidean:
+                            local_switches = [0, 1, 2]
+                        else:
+                            local_switches = [0, 1]
+                    #
+                    # if reembed_if_no_cluster[-1]:
+                    #     print("Using this switch [%s] for bin %d with "
+                    #           "{ mean_md %.3f, mean_tnf %.3f, mean_euc %.3f, size %d } " %
+                    #           (",".join(map(str, local_switches)),
+                    #            bin, mean_md, mean_tnf, mean_euc, bin_size))
+
+                    switches.append(local_switches)
                 else:
                     logging.debug(bin, self.survived)
 
@@ -567,7 +440,7 @@ class Validator(Clusterer, Embedder):
                 skip_clustering=False,
                 update_embeddings=False,
                 truth_array=None,
-                switch=0,
+                switch=None,
                 debug=False):
         """
         Recluster -> Re-embedding -> Reclustering on the specified set of contigs
@@ -594,6 +467,8 @@ class Validator(Clusterer, Embedder):
 
         ignore the other shit
         """
+        if switch is None:
+            switch = [0, 1, 2]
         remove = False
         noise = False
         precomputed = False  # Whether the precomputed clustering was the best result

@@ -218,7 +218,9 @@ class Binner:
         else:
             self.a = 1.5
         # self.a = a
-        self.b = b
+        numerator = min(max(np.log10(self.nX(25)), np.log10(30000)), np.log10(100000))
+        # set self.b by scaling the based on the n25 of the sample, between 0.3 and 0.4
+        self.b = 0.1 * ((numerator - np.log10(30000)) / (np.log10(100000) - np.log10(30000))) + 0.3
 
         self.rho_reducer = umap.UMAP(
             metric=metrics.rho,

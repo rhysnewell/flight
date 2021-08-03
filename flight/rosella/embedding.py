@@ -481,15 +481,17 @@ class Embedder(Binner):
         self.intersection_mapper = intersection_mapper
 
 
-    def multi_transform(self, tids, n_neighbors, switch=0):
+    def multi_transform(self, tids, n_neighbors, switch=None):
         """
         Main function for performing UMAP embeddings and intersections
         """
         # update parameters to artificially high values to avoid disconnected vertices in the final manifold
-        if switch == 2 and not self.use_euclidean:
+        if switch is None:
+            switch = [0, 1, 2]
+        if len(switch) == 3:
             # self.set_op(0)
             self.set_a(1.9)
-        elif not self.use_euclidean:
+        else:
             # self.set_op(1)
             self.set_a(self.a)
 
@@ -502,18 +504,19 @@ class Embedder(Binner):
 
         # self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
         contigs, log_lengths, tnfs = self.extract_contigs(tids)
+        if 0 in switch:
+            logging.debug("Running UMAP - %s" % self.depth_reducer)
+            self.depth_mapping = self.depth_reducer.fit(np.concatenate(
+                (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
 
-        logging.debug("Running UMAP - %s" % self.depth_reducer)
-        self.depth_mapping = self.depth_reducer.fit(np.concatenate(
-            (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
-
-        logging.debug("Running UMAP - %s" % self.tnf_reducer)
-        self.tnf_mapping = self.tnf_reducer.fit(
-            np.concatenate(
-                (log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
-                    axis=1))
-        if (switch == 0 and self.use_euclidean) or switch == 2:
+        if 1 in switch:
+            logging.debug("Running UMAP - %s" % self.tnf_reducer)
+            self.tnf_mapping = self.tnf_reducer.fit(
+                np.concatenate(
+                    (log_lengths.values[:, None],
+                     tnfs.iloc[:, 2:]),
+                        axis=1))
+        if 2 in switch:
             logging.debug("Running UMAP - %s" % self.euc_reducer)
             self.euc_mapping = self.euc_reducer.fit(
                 np.concatenate(
@@ -522,14 +525,34 @@ class Embedder(Binner):
                     axis=1))
 
 
-    def switch_intersector(self, switch=0):
-        if switch == 0 and self.use_euclidean:
+    def switch_intersector(self, switch=None):
+        if switch is None:
+            if self.use_euclidean:
+                switch = [0, 1, 2]
+            else:
+                switch = [0, 1]
+        if 0 in switch and 1 in switch and 2 in switch:
             # All
+            # print("All: Switch", switch)
             self.intersection_mapper = self.depth_mapping * self.euc_mapping * self.tnf_mapping
-        elif switch == 1 or (switch==0 and not self.use_euclidean):
+        elif 0 in switch and 1 in switch:
             # Rho and MD
+            # print("MD and TNF: Switch", switch)
             self.intersection_mapper = self.depth_mapping * self.tnf_mapping
-        else:
-            self.intersection_mapper = self.depth_mapping * self.euc_mapping * self.tnf_mapping
+        elif 0 in switch and 2 in switch:
+            # print("MD and EUC: Switch", switch)
+            self.intersection_mapper = self.depth_mapping * self.euc_mapping
+        elif 1 in switch and 2 in switch:
+            # print("EUC and TNF: Switch", switch)
+            self.intersection_mapper = self.euc_mapping * self.tnf_mapping
+        elif 0 in switch:
+            # print("MD: Switch", switch)
+            self.intersection_mapper = self.depth_mapping
+        elif 1 in switch:
+            # print("TNF: Switch", switch)
+            self.intersection_mapper = self.tnf_mapping
+        elif 2 in switch:
+            # print("EUC: Switch", switch)
+            self.intersection_mapper = self.euc_mapping
 
 
