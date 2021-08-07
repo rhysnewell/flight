@@ -355,126 +355,133 @@ class Validator(Clusterer, Embedder):
         for k, v in new_bins.items():
             self.bins[max_bin_id + k] = list(np.sort(np.array(v)))
 
-        # with threadpoolctl.threadpool_limits(limits=self.threads // 2, user_api='blas'):
-        #     with concurrent.futures.ProcessPoolExecutor(max_workers=self.threads) as executor:
-        #         if self.n_samples > 0:
-        #             n_samples = self.n_samples
-        #             sample_distances = self.short_sample_distance
-        #         else:
-        #             n_samples = self.long_samples
-        #             sample_distances = self.long_sample_distance
-        #
-        #         results = [executor.submit(reembed_static,
-        #                                    bin,
-        #                                    self.bins[bin],
-        #                                    self.extract_contigs(self.bins[bin]),
-        #                                    self.embeddings[
-        #                                        self.large_contigs[
-        #                                            ~self.disconnected][
-        #                                            ~self.disconnected_intersected
-        #                                        ]['tid'].isin(self.bins[bin])
-        #                                    ],
-        #                                    n_samples, sample_distances,
-        #                                    self.a, self.b,
-        #                                    50,
-        #                                    min_validity,
-        #                                    reembed_cluster,
-        #                                    force_new,
-        #                                    False,
-        #                                    switch,
-        #                                    False
-        #                                    ) for
-        #                    (bin, force_new, min_validity, reembed_cluster, switch)
-        #                    in zip(
-        #                 reembed_separately,
-        #                 force_new_clustering,
-        #                 lower_thresholds,
-        #                 reembed_if_no_cluster,
-        #                 switches
-        #             )]
-        #
-        #         for f in concurrent.futures.as_completed(results):
-        #             result = f.result()
-        #             print(result)
-        #             plots, remove = self.handle_new_embedding(
-        #                 result[0], result[1], result[2], result[3], result[4],
-        #                 plots, n, x_min, x_max, y_min, y_max, result[5], result[6]
-        #             )
-        #             if debug:
-        #                 print("Problem bin result... removing: ", remove)
-        #
-        #             if remove:
-        #                 if debug:
-        #                     print("Removing bin %d..." % result[0])
-        #                 bins_to_remove.append(result[0])
-        #                 self.overclustered = True
-        #             elif result[5]:
-        #                 logging.debug("Removing bin %d through force..." % result[0])
-        #                 big_tids = big_tids + self.bins[result[0]]
-        #                 bins_to_remove.append(result[0])
-        #             else:
-        #                 if debug:
-        #                     print("Keeping bin %d..." % result[0])
-        #                 self.survived.append(result[0])
 
-        if self.n_samples > 0:
-            n_samples = self.n_samples
-            sample_distances = self.short_sample_distance
+        numpy_thread_limit = max(self.threads // 5, 1)
+        if numpy_thread_limit == 1:
+            worker_limit = self.threads
         else:
-            n_samples = self.long_samples
-            sample_distances = self.long_sample_distance
+            worker_limit = max(self.threads // numpy_thread_limit, 1)
 
-        results = [reembed_static(
-                                   bin,
-                                   self.bins[bin],
-                                   self.extract_contigs(self.bins[bin]),
-                                   self.embeddings[
-                                       self.large_contigs[
-                                           ~self.disconnected][
-                                           ~self.disconnected_intersected
-                                       ]['tid'].isin(self.bins[bin])
-                                   ],
-                                   n_samples, sample_distances,
-                                   self.a, self.b,
-                                   50,
-                                   min_validity,
-                                   reembed_cluster,
-                                   force_new,
-                                   False,
-                                   switch,
-                                   False
-                                   ) for
-                   (bin, force_new, min_validity, reembed_cluster, switch)
-                   in zip(
-                reembed_separately,
-                force_new_clustering,
-                lower_thresholds,
-                reembed_if_no_cluster,
-                switches
-            )]
+        with threadpoolctl.threadpool_limits(limits=numpy_thread_limit, user_api='blas'):
+            with concurrent.futures.ProcessPoolExecutor(max_workers=worker_limit) as executor:
+                if self.n_samples > 0:
+                    n_samples = self.n_samples
+                    sample_distances = self.short_sample_distance
+                else:
+                    n_samples = self.long_samples
+                    sample_distances = self.long_sample_distance
 
-        for result in results:
-            # result = f.result()
-            plots, remove = self.handle_new_embedding(
-                result[0], result[1], result[2], result[3], result[4],
-                plots, n, x_min, x_max, y_min, y_max, result[5], result[6]
-            )
-            if debug:
-                print("Problem bin result... removing: ", remove)
+                results = [executor.submit(reembed_static,
+                                           bin,
+                                           self.bins[bin],
+                                           self.extract_contigs(self.bins[bin]),
+                                           self.embeddings[
+                                               self.large_contigs[
+                                                   ~self.disconnected][
+                                                   ~self.disconnected_intersected
+                                               ]['tid'].isin(self.bins[bin])
+                                           ],
+                                           n_samples, sample_distances,
+                                           self.a, self.b,
+                                           50,
+                                           min_validity,
+                                           reembed_cluster,
+                                           force_new,
+                                           False,
+                                           switch,
+                                           False
+                                           ) for
+                           (bin, force_new, min_validity, reembed_cluster, switch)
+                           in zip(
+                        reembed_separately,
+                        force_new_clustering,
+                        lower_thresholds,
+                        reembed_if_no_cluster,
+                        switches
+                    )]
 
-            if remove:
-                if debug:
-                    print("Removing bin %d..." % result[0])
-                bins_to_remove.append(result[0])
-                self.overclustered = True
-            elif result[5]:
-                logging.debug("Removing bin %d through force..." % result[0])
-                big_tids = big_tids + self.bins[result[0]]
-                bins_to_remove.append(result[0])
-            else:
-                if debug:
-                    print("Keeping bin %d..." % result[0])
-                self.survived.append(result[0])
+                for f in concurrent.futures.as_completed(results):
+                    result = f.result()
+                    print(result)
+                    plots, remove = self.handle_new_embedding(
+                        result[0], result[1], result[2], result[3], result[4],
+                        plots, n, x_min, x_max, y_min, y_max, result[5], result[6]
+                    )
+                    if debug:
+                        print("Problem bin result... removing: ", remove)
+
+                    if remove:
+                        if debug:
+                            print("Removing bin %d..." % result[0])
+                        bins_to_remove.append(result[0])
+                        self.overclustered = True
+                    elif result[5]:
+                        logging.debug("Removing bin %d through force..." % result[0])
+                        big_tids = big_tids + self.bins[result[0]]
+                        bins_to_remove.append(result[0])
+                    else:
+                        if debug:
+                            print("Keeping bin %d..." % result[0])
+                        self.survived.append(result[0])
+        #
+        # if self.n_samples > 0:
+        #     n_samples = self.n_samples
+        #     sample_distances = self.short_sample_distance
+        # else:
+        #     n_samples = self.long_samples
+        #     sample_distances = self.long_sample_distance
+        #
+        # results = [reembed_static(
+        #                            bin,
+        #                            self.bins[bin],
+        #                            self.extract_contigs(self.bins[bin]),
+        #                            self.embeddings[
+        #                                self.large_contigs[
+        #                                    ~self.disconnected][
+        #                                    ~self.disconnected_intersected
+        #                                ]['tid'].isin(self.bins[bin])
+        #                            ],
+        #                            n_samples, sample_distances,
+        #                            self.a, self.b,
+        #                            50,
+        #                            min_validity,
+        #                            reembed_cluster,
+        #                            force_new,
+        #                            False,
+        #                            switch,
+        #                            False
+        #                            ) for
+        #            (bin, force_new, min_validity, reembed_cluster, switch)
+        #            in zip(
+        #         reembed_separately,
+        #         force_new_clustering,
+        #         lower_thresholds,
+        #         reembed_if_no_cluster,
+        #         switches
+        #     )]
+        #
+        # for result in results:
+        #     # result = f.result()
+        #     plots, remove = self.handle_new_embedding(
+        #         result[0], result[1], result[2], result[3], result[4],
+        #         plots, n, x_min, x_max, y_min, y_max, result[5], result[6]
+        #     )
+        #     if debug:
+        #         print("Problem bin result... removing: ", remove)
+        #
+        #     if remove:
+        #         if debug:
+        #             print("Removing bin %d..." % result[0])
+        #         bins_to_remove.append(result[0])
+        #         self.overclustered = True
+        #     elif result[5]:
+        #         logging.debug("Removing bin %d through force..." % result[0])
+        #         big_tids = big_tids + self.bins[result[0]]
+        #         bins_to_remove.append(result[0])
+        #     else:
+        #         if debug:
+        #             print("Keeping bin %d..." % result[0])
+        #         self.survived.append(result[0])
 
         #
         #

@@ -19,8 +19,6 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.        #
 #                                                                             #
 ###############################################################################
-import numba
-numba.config.THREADING_LAYER = 'tbb'
 from Bio import SeqIO
 from flight.__init__ import __version__
 

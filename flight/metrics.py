@@ -30,8 +30,7 @@ __status__ = "Development"
 # System imports
 
 # Function imports
-from numba import njit, float64, config
-config.THREADING_LAYER = 'tbb'
+from numba import njit, float64
 from numba.typed import List
 from numba.experimental import jitclass
 import numpy as np
