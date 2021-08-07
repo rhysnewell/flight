@@ -43,7 +43,8 @@ from numba import njit
 # self imports
 import flight.utils as utils
 from flight.rosella.validating import Validator
-
+import faulthandler
+faulthandler.enable()
 
 # Set plotting style
 sns.set(style='white', context='notebook', rc={'figure.figsize': (14, 10)})
@@ -160,11 +161,11 @@ class Rosella(Validator):
             plots, n = self.validate_bins(plots, n, x_min, x_max, y_min, y_max,
                                           big_only=True)
             self.sort_bins()
-            plots, n = self.validate_bins(plots, n,
-                                          x_min, x_max,
-                                          y_min, y_max,
-                                          reembed=True)
-            self.sort_bins()
+            # plots, n = self.validate_bins(plots, n,
+            #                               x_min, x_max,
+            #                               y_min, y_max,
+            #                               reembed=True)
+            # self.sort_bins()
 
             n += 1
 
@@ -285,10 +286,11 @@ class Rosella(Validator):
                             self.sort_bins()
 
                             # self.validation_settings(0, self.a, self.b)
+                            # self.slow_refine(plots, 0, 0, x_min, x_max, y_min, y_max)
                             self.quick_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
                             self.slow_refine(plots, 0, 100, x_min, x_max, y_min, y_max)
-                            # self.big_contig_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
                             self.size_filter(plots, 0, 0, x_min, x_max, y_min, y_max)
+                            self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
                             # self.force_splitting(plots, 0, 5, x_min, x_max, y_min, y_max)
                             # self.check_if_bins_should_combine(0, 1, 0.01)
 
@@ -307,3 +309,9 @@ class Rosella(Validator):
                 imageio.mimsave(self.path + '/UMAP_projections.gif', plots, fps=1)
             except RuntimeError:  # no plotting has occurred due to no embedding
                 pass
+
+    def do_nothing(self):
+        pass
+
+def do_nothing():
+    pass

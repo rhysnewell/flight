@@ -218,7 +218,7 @@ class Binner:
         else:
             self.a = 1.5
         # self.a = a
-        numerator = min(max(np.log10(self.nX(25)), np.log10(30000)), np.log10(100000))
+        numerator = min(max(np.log10(self.nX(25)[1]), np.log10(30000)), np.log10(100000))
         # set self.b by scaling the based on the n25 of the sample, between 0.3 and 0.4
         self.b = 0.1 * ((numerator - np.log10(30000)) / (np.log10(100000) - np.log10(30000))) + 0.3
 
@@ -457,7 +457,7 @@ class Binner:
                 truth_array = contigs['tid'].isin(tids)
                 self.labels[truth_array] = bin_id
 
-    def add_plot(self, plots, unbinned_embeddings, contigs,
+    def add_plot(self, plots, unbinned_embeddings, contigs, labels,
                  n = 0, x_min = 20, x_max = 20, y_min = 20, y_max = 20, max_validity = -1, precomputed = False):
 
         names = list(contigs['contigName'])
@@ -468,10 +468,11 @@ class Binner:
             except ValueError:
                 indices.append(-1)
 
-        plots.append(utils.plot_for_offset(unbinned_embeddings, self.labels, x_min, x_max, y_min, y_max, n))
-        color_palette = sns.color_palette('husl', max(self.labels) + 1)
+        # print(labels)
+        plots.append(utils.plot_for_offset(unbinned_embeddings, labels, x_min, x_max, y_min, y_max, n))
+        color_palette = sns.color_palette('husl', max(labels) + 1)
         cluster_colors = [
-            color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in self.labels
+            color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in labels
         ]
 
         fig = plt.figure()
@@ -491,7 +492,7 @@ class Binner:
                             xycoords='data')
                 found = True
 
-        total_new_bins = len(set(self.labels))
+        total_new_bins = len(set(labels))
 
         plt.gca().set_aspect('equal', 'datalim')
         plt.title(format('UMAP projection of unbinned contigs - %d: %d clusters %f %d' %

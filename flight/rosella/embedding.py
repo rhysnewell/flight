@@ -318,11 +318,11 @@ class Embedder(Binner):
                     print(rho_thresh, euc_thresh, dep_thresh)
                     print(connections)
 
-
-
+        logging.info("Preemptively filtered %d contigs" % len(disconnected_tids))
         disconnections = np.array(disconnected_tids)
 
         return disconnections
+
 
     def check_contig(self, tid, rho_threshold=0.05, euc_threshold=2.0, dep_threshold=0.05):
         if self.n_samples > 0:
@@ -350,31 +350,31 @@ class Embedder(Binner):
             rho_threshold=rho_threshold, euc_threshold=euc_threshold, dep_threshold=dep_threshold
         )
 
+
     def fit_disconnect(self):
         """
         Filter contigs based on ADP connections
         """
         ## Calculate the UMAP embeddings
-        self.md_reducer.disconnection_distance = 0.5
-        self.depths = np.nan_to_num(
-            np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 3:].drop(['tid'], axis=1),
-                            self.log_lengths[~self.disconnected].values[:, None],
-                            self.tnfs[~self.disconnected].iloc[:, 2:]), axis=1))
-
-        # Get all disconnected points, i.e. contigs that were disconnected in ANY mapping
-        # logging.info("Running UMAP Filter - %s" % self.depth_reducer)
-        depth_mapping = self.md_reducer.fit(self.depths)
-
-        logging.info("Finding disconnections...")
-        disconnected_intersected = umap.utils.disconnected_vertices(depth_mapping)
-
-        # Only disconnect big contigs
-        for i, dis in enumerate(disconnected_intersected):
-            if dis:
-                contig = self.large_contigs[~self.disconnected].iloc[i, :]
-                if contig['contigLen'] < self.min_bin_size:
-                    disconnected_intersected[i] = False
-
+        # logging.info("Finding disconnections...")
+        # self.md_reducer.disconnection_distance = 0.5
+        # self.depths = np.nan_to_num(
+        #     np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 3:].drop(['tid'], axis=1),
+        #                     self.log_lengths[~self.disconnected].values[:, None],
+        #                     self.tnfs[~self.disconnected].iloc[:, 2:]), axis=1))
+        #
+        # # Get all disconnected points, i.e. contigs that were disconnected in ANY mapping
+        # # logging.info("Running UMAP Filter - %s" % self.depth_reducer)
+        # depth_mapping = self.md_reducer.fit(self.depths)
+        # disconnected_intersected = umap.utils.disconnected_vertices(depth_mapping)
+        #
+        # # Only disconnect big contigs
+        # for i, dis in enumerate(disconnected_intersected):
+        #     if dis:
+        #         contig = self.large_contigs[~self.disconnected].iloc[i, :]
+        #         if contig['contigLen'] < self.min_bin_size:
+        #             disconnected_intersected[i] = False
+        disconnected_intersected = np.array([False for i in range(self.large_contigs[~self.disconnected].values.shape[0])])
         logging.info("Found %d disconnected points. %d TNF disconnected and %d ADP disconnected..." %
                      (sum(self.disconnected) + sum(disconnected_intersected), sum(self.disconnected),
                       sum(disconnected_intersected)))
@@ -451,6 +451,7 @@ class Embedder(Binner):
         intersection_mapper = depth_mapping * tnf_mapping
 
         self.intersection_mapper = intersection_mapper
+
 
     def euc_md_transform(self, tids, n_neighbors):
         """
@@ -554,5 +555,85 @@ class Embedder(Binner):
         elif 2 in switch:
             # print("EUC: Switch", switch)
             self.intersection_mapper = self.euc_mapping
+
+
+
+
+def multi_transform_static(
+        contigs, log_lengths, tnfs,
+        depth_reducer, tnf_reducer, euc_reducer,
+        tids, n_neighbors, a=1.9, switch=None):
+    """
+    Main function for performing UMAP embeddings and intersections
+    """
+    # update parameters to artificially high values to avoid disconnected vertices in the final manifold
+    if switch is None:
+        switch = [0, 1, 2]
+    if len(switch) == 3:
+        # self.set_op(0)
+        depth_reducer.a = 1.9
+        tnf_reducer.a = 1.9
+        euc_reducer.a = 1.9
+    else:
+        # self.set_op(1)
+        depth_reducer.a = a
+        tnf_reducer.a = a
+        euc_reducer.a = a
+
+    depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+    depth_reducer.disconnection_distance = 2
+    tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+    tnf_reducer.disconnection_distance = 2
+    euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+    euc_reducer.disconnection_distance = 10
+
+    if 0 in switch:
+        depth_reducer.fit(
+            np.concatenate(
+                (contigs.iloc[:, 3:],
+                 log_lengths.values[:, None],
+                 tnfs.iloc[:, 2:]),
+                axis=1))
+
+    if 1 in switch:
+        tnf_reducer.fit(
+            np.concatenate(
+                (log_lengths.values[:, None],
+                 tnfs.iloc[:, 2:]),
+                    axis=1))
+    if 2 in switch:
+        euc_reducer.fit(
+            np.concatenate(
+                (log_lengths.values[:, None],
+                 tnfs.iloc[:, 2:]),
+                axis=1))
+
+
+def switch_intersector_static(depth_reducer, tnf_reducer, euc_reducer, switch=None):
+    if switch is None:
+        switch = [0, 1, 2]
+    if 0 in switch and 1 in switch and 2 in switch:
+        # All
+        # print("All: Switch", switch)
+        return depth_reducer * tnf_reducer * euc_reducer
+    elif 0 in switch and 1 in switch:
+        # Rho and MD
+        # print("MD and TNF: Switch", switch)
+        return depth_reducer * tnf_reducer
+    elif 0 in switch and 2 in switch:
+        # print("MD and EUC: Switch", switch)
+        return depth_reducer * euc_reducer
+    elif 1 in switch and 2 in switch:
+        # print("EUC and TNF: Switch", switch)
+        return tnf_reducer * euc_reducer
+    elif 0 in switch:
+        # print("MD: Switch", switch)
+        return depth_reducer
+    elif 1 in switch:
+        # print("TNF: Switch", switch)
+        return tnf_reducer
+    elif 2 in switch:
+        # print("EUC: Switch", switch)
+        return euc_reducer
 
 

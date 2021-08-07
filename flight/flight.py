@@ -19,6 +19,8 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.        #
 #                                                                             #
 ###############################################################################
+import numba
+numba.config.THREADING_LAYER = 'tbb'
 from Bio import SeqIO
 from flight.__init__ import __version__
 
@@ -39,8 +41,8 @@ import os
 import datetime
 
 # Function imports
-import warnings
-import imageio
+import random
+import numpy
 
 # Self imports
 
@@ -65,6 +67,8 @@ class BadTreeFileException(Exception):
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
 def main():
+    random.seed(42069)
+    numpy.random.seed(42069)
     ############################ ~ Main Parser ~ ##############################
     main_parser = argparse.ArgumentParser(prog='flight',
                                           formatter_class=CustomHelpFormatter,
