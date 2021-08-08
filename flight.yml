@@ -3,8 +3,9 @@ channels:
   - bioconda
   - defaults
 dependencies:
-  - python>=3.8
-  - joblib==0.17.0
+  - python>=3.9
+  - joblib>=1
+  - tbb
   - hdbscan
   - matplotlib
   - numpy
@@ -16,6 +17,4 @@ dependencies:
   - pynndescent
   - threadpoolctl
   - imageio
-  - pip
-  pip:
-    - umap-learn>=0.5
+  - umap-learn>=0.5

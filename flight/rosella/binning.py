@@ -32,6 +32,7 @@ import logging
 ###############################################################################
 # System imports
 import sys
+import os
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -204,9 +205,13 @@ class Binner:
         if np.median(self.large_contigs['contigLen']) < 10000:
             # Lower median can use euclidean UMAP
             self.use_euclidean = True
+            os.environ["NUMEXPR_MAX_THREADS"] = str(max(self.threads // 3, 1))
+            os.environ["NUMBA_NUM_THREADS"] = str(max(self.threads // 3, 1))
         else:
             # Distribution of contigs tends to be larger, so euclidean distance breaks down
             self.use_euclidean = False
+            os.environ["NUMEXPR_MAX_THREADS"] = str(max(self.threads // 2, 1))
+            os.environ["NUMBA_NUM_THREADS"] = str(max(self.threads // 2, 1))
 
         self.binning_method = 'eom'
         self.min_cluster_size = 2

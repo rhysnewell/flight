@@ -34,19 +34,20 @@ import logging
 
 # Function imports
 import numpy as np
-from numba import njit
+from numba import njit, set_num_threads
 import umap
 import seaborn as sns
 import matplotlib
 import sklearn.metrics as sk_metrics
 import concurrent.futures
 import threadpoolctl
+import random
 
 # self imports
 import flight.metrics as metrics
 import flight.utils as utils
 from flight.rosella.clustering import Clusterer, iterative_clustering_static
-from flight.rosella.embedding import Embedder, multi_transform_static, switch_intersector_static
+from flight.rosella.embedding import Embedder, fit_transform_static, multi_transform_static, switch_intersector_static
 from flight.DBCV import DBCV
 
 # Set plotting style
@@ -362,6 +363,7 @@ class Validator(Clusterer, Embedder):
         else:
             worker_limit = max(self.threads // numpy_thread_limit, 1)
 
+        set_num_threads(numpy_thread_limit)
         with threadpoolctl.threadpool_limits(limits=numpy_thread_limit, user_api='blas'):
             with concurrent.futures.ProcessPoolExecutor(max_workers=worker_limit) as executor:
                 if self.n_samples > 0:
@@ -402,10 +404,9 @@ class Validator(Clusterer, Embedder):
 
                 for f in concurrent.futures.as_completed(results):
                     result = f.result()
-                    print(result)
                     plots, remove = self.handle_new_embedding(
                         result[0], result[1], result[2], result[3], result[4],
-                        plots, n, x_min, x_max, y_min, y_max, result[5], result[6]
+                        plots, n, x_min, x_max, y_min, y_max, result[5], result[6], debug=False
                     )
                     if debug:
                         print("Problem bin result... removing: ", remove)
@@ -823,8 +824,8 @@ class Validator(Clusterer, Embedder):
                 # Generate new emebddings if clustering seems fractured
                 # contigs, log_lengths, tnfs = self.extract_contigs(tids)
                 try:
-                    self.multi_transform(tids, max_n_neighbours, switch=switch)
-                    self.switch_intersector(switch=switch)
+                    self.fit_transform(tids, max_n_neighbours)
+                    # self.switch_intersector(switch=switch)
                     new_embeddings = self.intersection_mapper.embedding_
                     if update_embeddings:
                         self.embeddings = new_embeddings
@@ -1164,7 +1165,7 @@ class Validator(Clusterer, Embedder):
         if debug:
             print("No. of Clusters:", len(set_labels), set_labels)
             print("Max validity: ", max_validity)
-        # print(labels)
+
         contigs, log_lengths, tnfs = self.extract_contigs(self.bins[original_bin_id])
         plots = self.add_plot(plots, unbinned_embeddings, contigs, labels,
                               n, x_min, x_max, y_min, y_max, max_validity, precomputed)
@@ -1340,7 +1341,7 @@ def reembed_static(
 
     original_size = contigs['contigLen'].sum()
     min_validity = default_min_validity
-    labels = np.array([-1 for i in range(unbinned_embeddings.shape[0])])
+    labels = None
     bins = {}
     max_validity = -1
     new_embeddings = None
@@ -1450,116 +1451,129 @@ def reembed_static(
                 # lower binning quality and see if reembedding can do better
                 max_validity = min_validity
 
-        if max_validity < 0.95 and reembed and len(tids) >= 3:
+        if max_validity < 0.95 and reembed and len(tids) >= 5:
             # Generate new emebddings if clustering seems fractured
             # contigs, log_lengths, tnfs = self.extract_contigs(tids)
+            # try:
+            tnf_reducer = umap.UMAP(
+                metric=metrics.rho,
+                n_neighbors=max_n_neighbours,
+                n_components=2,
+                min_dist=0,
+                set_op_mix_ratio=1,
+                a=a,
+                b=b,
+                init='spectral',
+                random_state=42069
+            )
+
+            euc_reducer = umap.UMAP(
+                metric=metrics.tnf_euclidean,
+                n_neighbors=max_n_neighbours,
+                n_components=2,
+                min_dist=0,
+                set_op_mix_ratio=1,
+                a=a,
+                b=b,
+                init='spectral',
+                random_state=42069
+            )
+
+            depth_reducer = umap.UMAP(
+                metric=metrics.aggregate_tnf,
+                metric_kwds={"n_samples": n_samples,
+                             "sample_distances": sample_distances},
+                n_neighbors=max_n_neighbours,
+                n_components=2,
+                min_dist=0,
+                set_op_mix_ratio=1,
+                a=a,
+                b=b,
+                init='spectral',
+                random_state=42069
+            )
+
+            multi_transform_static(
+                contigs, log_lengths, tnfs,
+                depth_reducer, tnf_reducer, euc_reducer,
+                tids, max_n_neighbours, a=a, switch=switch
+            )
+            intersection_mapper = switch_intersector_static(
+                depth_reducer,
+                tnf_reducer,
+                euc_reducer,
+                switch=switch
+            )
+            new_embeddings = intersection_mapper.embedding_
+
+            labels_single = iterative_clustering_static(new_embeddings,
+                                                      allow_single_cluster=True,
+                                                      double=skip_clustering)
+            labels_multi = iterative_clustering_static(new_embeddings,
+                                                     allow_single_cluster=False,
+                                                     double=skip_clustering)
+
+            validity_single = Clusterer.validity(labels_single, new_embeddings)
+            validity_multi = Clusterer.validity(labels_multi, new_embeddings)
+
+            # Calculate silhouette scores, will fail if only one label
+            # Silhouette scores don't work too well with HDBSCAN though since it
+            # usually requires pretty uniform clusters to generate a value of use
             try:
-                tnf_reducer = umap.UMAP(
-                    metric=metrics.rho,
-                    n_neighbors=max_n_neighbours,
-                    n_components=2,
-                    set_op_mix_ratio=1,
-                    a=a,
-                    b=b,
-                    random_state=42069
-                )
+                silho_single = sk_metrics.silhouette_score(unbinned_embeddings, labels_single)
+            except ValueError:
+                silho_single = -1
 
-                euc_reducer = umap.UMAP(
-                    metric=metrics.tnf_euclidean,
-                    n_neighbors=max_n_neighbours,
-                    n_components=2,
-                    set_op_mix_ratio=1,
-                    a=a,
-                    b=b,
-                    random_state=42069
-                )
+            try:
+                silho_multi = sk_metrics.silhouette_score(unbinned_embeddings, labels_multi)
+            except ValueError:
+                silho_multi = -1
 
-                depth_reducer = umap.UMAP(
-                    metric=metrics.aggregate_tnf,
-                    metric_kwds={"n_samples": n_samples,
-                                 "sample_distances": sample_distances},
-                    n_neighbors=max_n_neighbours,
-                    n_components=2,
-                    set_op_mix_ratio=1,
-                    a=a,
-                    b=b,
-                    random_state=42069
-                )
+            if debug:
+                print('Allow single cluster validity: ', validity_single)
+                print('Allow multi cluster validity: ', validity_multi)
+                print('Allow single cluster silho: ', silho_single)
+                print('Allow multi cluster silho: ', silho_multi)
 
-                multi_transform_static(
-                    contigs, log_lengths, tnfs,
-                    depth_reducer, tnf_reducer, euc_reducer,
-                    tids, max_n_neighbours, a=a, switch=switch)
-                intersection_mapper = switch_intersector_static(switch=switch)
-                new_embeddings = intersection_mapper.embedding_
+            max_single = max(validity_single, silho_single)
+            max_multi = max(validity_multi, silho_multi)
 
-                labels_single = iterative_clustering_static(new_embeddings,
-                                                          allow_single_cluster=True,
-                                                          double=skip_clustering)
-                labels_multi = iterative_clustering_static(new_embeddings,
-                                                         allow_single_cluster=False,
-                                                         double=skip_clustering)
-
-                validity_single = Clusterer.validity(labels_single, new_embeddings)
-                validity_multi = Clusterer.validity(labels_multi, new_embeddings)
-
-                # Calculate silhouette scores, will fail if only one label
-                # Silhouette scores don't work too well with HDBSCAN though since it
-                # usually requires pretty uniform clusters to generate a value of use
-                try:
-                    silho_single = sk_metrics.silhouette_score(unbinned_embeddings, labels_single)
-                except ValueError:
-                    silho_single = -1
-
-                try:
-                    silho_multi = sk_metrics.silhouette_score(unbinned_embeddings, labels_multi)
-                except ValueError:
-                    silho_multi = -1
-
-                if debug:
-                    print('Allow single cluster validity: ', validity_single)
-                    print('Allow multi cluster validity: ', validity_multi)
-                    print('Allow single cluster silho: ', silho_single)
-                    print('Allow multi cluster silho: ', silho_multi)
-
-                max_single = max(validity_single, silho_single)
-                max_multi = max(validity_multi, silho_multi)
-
-                if max_single >= max_multi:
-                    if max_validity <= max_single:
-                        if all(label == -1 for label in labels_single):
-                            if debug:
-                                print('using non re-embedded...')
-                        else:
-                            unbinned_embeddings = new_embeddings
-                            labels = labels_single
-                            max_validity = max_single
-                            if precomputed:
-                                precomputed = False  # No longer the best results
-
-
-                    else:
+            if max_single >= max_multi:
+                if max_validity <= max_single:
+                    if all(label == -1 for label in labels_single):
                         if debug:
-                            print('using non re-embedded... %f' % max_validity)
+                            print('using non re-embedded...')
+                    else:
+                        unbinned_embeddings = new_embeddings
+                        labels = labels_single
+                        max_validity = max_single
+                        if precomputed:
+                            precomputed = False  # No longer the best results
+
+
                 else:
-                    if max_validity <= max_multi:
-                        if all(label == -1 for label in labels_multi):
-                            logging.debug('using non re-embedded...')
-                        else:
-                            unbinned_embeddings = new_embeddings
-                            labels = labels_multi
-                            max_validity = max_multi
-                            if precomputed:
-                                precomputed = False  # No longer the best results
-
-
+                    if debug:
+                        print('using non re-embedded... %f' % max_validity)
+            else:
+                if max_validity <= max_multi:
+                    if all(label == -1 for label in labels_multi):
+                        logging.debug('using non re-embedded...')
                     else:
-                        if debug:
-                            print('using non re-embedded... %f' % max_validity)
+                        unbinned_embeddings = new_embeddings
+                        labels = labels_multi
+                        max_validity = max_multi
+                        if precomputed:
+                            precomputed = False  # No longer the best results
 
 
-            except TypeError:
-                labels = np.array([-1 for i in range(unbinned_embeddings.shape[0])])
+                else:
+                    if debug:
+                        print('using non re-embedded... %f' % max_validity)
+
+
+            # except TypeError:
+            #     # labels = np.array([-1 for i in range(unbinned_embeddings.shape[0])])
+            #     pass
 
 
         min_validity = min(min_validity, default_min_validity)

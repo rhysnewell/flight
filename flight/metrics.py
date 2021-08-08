@@ -390,6 +390,7 @@ def metabat_distance(a, b, n_samples, sample_distances):
         d = 0
 
         if a_mean > 1e-6 and b_mean > 1e-6:
+            # both_present[i] = True
             both_present.append(i)
 
         # if a_var >= 50 * a_mean and a_mean >= 10: # scale down extreme variances
@@ -417,23 +418,30 @@ def metabat_distance(a, b, n_samples, sample_distances):
                 k2 = tmp
 
             if a_var > b_var:
-                p1 = NormalDist(b_mean, np.sqrt(b_var))
-                p2 = NormalDist(a_mean, np.sqrt(a_var))
+                # p1 = NormalDist(b_mean, np.sqrt(b_var))
+                p1 = (b_mean, np.sqrt(b_var))
+                # p2 = NormalDist(a_mean, np.sqrt(a_var))
+                p2 = (a_mean, np.sqrt(a_var))
             else:
-                p1 = NormalDist(a_mean, np.sqrt(a_var))
-                p2 = NormalDist(b_mean, np.sqrt(b_var))
+                # p1 = NormalDist(a_mean, np.sqrt(a_var))
+                p1 = (a_mean, np.sqrt(a_var))
+                # p2 = NormalDist(b_mean, np.sqrt(b_var))
+                p2 = (b_mean, np.sqrt(b_var))
 
             if k1 == k2:
-                d = abs(p1.cdf(k1) - p2.cdf(k1))
+                d = abs(cdf(p1, k1) - cdf(p2, k1))
+                # mb_vec[i] = min(max(d, 1e-6), 1 - 1e-6)
                 mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
                 # mb_vec.append(d)
             else:
-                d = abs(p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2))
+                d = abs(cdf(p1, k2) - cdf(p1, k1) + cdf(p2, k1) - cdf(p2, k2))
+                # mb_vec[i] = min(max(d, 1e-6), 1 - 1e-6)
                 mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
                 # mb_vec.append(d)
         else:
-            # mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
-            pass
+            # mb_vec[i] = min(max(d, 1e-6), 1 - 1e-6)
+            mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
+            # pass
 
     if len(mb_vec) >= 1:
         # convert to log space to avoid overflow errors
@@ -449,6 +457,19 @@ def metabat_distance(a, b, n_samples, sample_distances):
         d = 1
 
     return d
+
+#function only method for getting CDF of normal distribution
+# since jitclass objects aren't pickleable
+@njit(fastmath=True)
+def cdf(dist, x):
+    """
+    @ param: dist is a tuple object of (f64, f64). The left index represents the loc (mean) and the right
+             index represents the scale (standard deviation)
+    @ param: x is the value being sampled from the distribution
+
+    @ return: cdf value f64
+    """
+    return (math.erfc(-(x - dist[0]) / (dist[1] * np.sqrt(2.0)))) / 2.0
 
 @njit(fastmath=True)
 def geom_sim_calc(both_present, sample_distances):
@@ -681,8 +702,8 @@ def check_connections(current, others, n_samples, sample_distances, rho_threshol
             if dep_value <= dep_threshold:
                 dep_connected = True
 
-        if euc_connected and rho_connected and dep_connected:
-            break
+        # if euc_connected and rho_connected and dep_connected:
+        #     break
 
     return rho_connected, euc_connected, dep_connected
 

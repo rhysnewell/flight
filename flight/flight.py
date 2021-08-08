@@ -408,8 +408,8 @@ def fit(args):
 
 def bin(args):
     prefix = args.output
-    os.environ["NUMEXPR_MAX_THREADS"] = args.threads
-    os.environ["NUMBA_NUM_THREADS"] = args.threads
+    # os.environ["NUMEXPR_MAX_THREADS"] = args.threads
+    # os.environ["NUMBA_NUM_THREADS"] = args.threads
     os.environ["MKL_NUM_THREADS"] = args.threads
     os.environ["OPENBLAS_NUM_THREADS"] = args.threads
     from flight.rosella.rosella import Rosella
