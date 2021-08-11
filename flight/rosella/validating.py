@@ -154,7 +154,7 @@ class Validator(Clusterer, Embedder):
                             # Simply remove
                             if quick_filter:
                                 for (tid, avgs) in zip(tids, per_contig_avg):
-                                    if ((avgs[0] >= 0.7 or avgs[3] >= 0.5) and
+                                    if ((avgs[0] >= 0.65 or avgs[3] >= 0.5) and
                                         (avgs[1] > 0.15 or avgs[2] >= 3)) or \
                                             ((avgs[0] >= 0.5 or avgs[3] >= 0.5) and
                                              (avgs[1] >= 0.5 or avgs[2] >= 6)):
@@ -166,8 +166,12 @@ class Validator(Clusterer, Embedder):
                                 for (tid, avgs) in zip(tids, per_contig_avg):
                                     if ((avgs[0] >= md_median + 0.15
                                          or avgs[3] >= agg_median + 0.15) and
-                                             (avgs[1] >= rho_median + 0.05
-                                              or avgs[2] >= euc_median + 0.5)):
+                                            ((avgs[1] >= rho_median + 0.05
+                                              or avgs[2] >= euc_median + 0.5)
+                                             or (avgs[1] > 0.1 or avgs[2] >= 3.5)
+                                            or (avgs[0] >= md_median + 0.3
+                                         or avgs[3] >= agg_median + 0.3)
+                                            )):
                                         removed.append(tid)
 
                         remove = False
@@ -292,7 +296,7 @@ class Validator(Clusterer, Embedder):
 
                     # Always check bins with bad bin stats or if they are large, just for sanity check
                     if bin_size >= 8e6 or len(tids) >= 250 or \
-                            (((mean_agg >= f_level or mean_md >= m_level) and (mean_tnf >= 0.1 or mean_euc >= 2.5))
+                            (((mean_agg >= f_level or mean_md >= m_level) and (mean_tnf >= 0.1 or round(mean_euc, 2) >= 2.5))
                         and bin_size > 1e6) \
                         or (round(per_contig_avg[:, 0].std(), 2) >= 0.1
                             or round(per_contig_avg[:, 3].std(), 2) >= 0.1
@@ -305,12 +309,12 @@ class Validator(Clusterer, Embedder):
                         # if (mean_md >= m_level
                         #     or mean_agg >= f_level) and (mean_tnf >= 0.1 or mean_euc >= 3):
                         #     lower_thresholds.append(0.85)
-                        if (mean_md >= 0.3 or mean_agg >= 0.4) and (mean_tnf >= 0.1 or mean_euc >= 3.0):
-                            lower_thresholds.append(0.25)
+                        if mean_tnf >= 0.15 or mean_euc >= 4.5:
+                            lower_thresholds.append(0.5)
                         elif (mean_md >= 0.25 or mean_agg >= 0.35) and (mean_tnf >= 0.1 or mean_euc >= 3.0):
                             lower_thresholds.append(0.5)
                         elif (mean_md >= 0.2 or mean_agg >= 0.3) and (mean_tnf >= 0.1 or mean_euc >= 3.0):
-                            lower_thresholds.append(0.75)
+                            lower_thresholds.append(0.85)
                         else:
                             lower_thresholds.append(0.85)
                         force_new_clustering.append(False)  # send it to regular hell
@@ -385,7 +389,7 @@ class Validator(Clusterer, Embedder):
                                            ],
                                            n_samples, sample_distances,
                                            self.a, self.b,
-                                           50,
+                                           self.n_neighbors,
                                            min_validity,
                                            reembed_cluster,
                                            force_new,
@@ -1299,13 +1303,15 @@ def reembed_static(
             unbinned_embeddings,
             n_samples, sample_distances,
             a, b,
-            max_n_neighbours=50,
+            max_n_neighbours=200,
             default_min_validity=0.85,
             reembed=False,
             force=False,
             skip_clustering=False,
             switch=None,
-            debug=False):
+            debug=False,
+            random_seed=42069
+):
     """
     Recluster -> Re-embedding -> Reclustering on the specified set of contigs
     Any clusters that look better than current cluster are kept and old cluster is thrown out
@@ -1331,6 +1337,8 @@ def reembed_static(
 
     ignore the other shit
     """
+    np.random.seed(random_seed)
+    random.seed(random_seed)
     if switch is None:
         switch = [0, 1, 2]
     remove = False
@@ -1459,6 +1467,7 @@ def reembed_static(
                 metric=metrics.rho,
                 n_neighbors=max_n_neighbours,
                 n_components=2,
+                disconnection_distance=2,
                 min_dist=0,
                 set_op_mix_ratio=1,
                 a=a,
@@ -1471,6 +1480,7 @@ def reembed_static(
                 metric=metrics.tnf_euclidean,
                 n_neighbors=max_n_neighbours,
                 n_components=2,
+                disconnection_distance=10,
                 min_dist=0,
                 set_op_mix_ratio=1,
                 a=a,
@@ -1484,6 +1494,7 @@ def reembed_static(
                 metric_kwds={"n_samples": n_samples,
                              "sample_distances": sample_distances},
                 n_neighbors=max_n_neighbours,
+                disconnection_distance=2,
                 n_components=2,
                 min_dist=0,
                 set_op_mix_ratio=1,
@@ -1492,83 +1503,83 @@ def reembed_static(
                 init='spectral',
                 random_state=42069
             )
+            for a in [1.5, 1.9]:
+                multi_transform_static(
+                    contigs, log_lengths, tnfs,
+                    depth_reducer, tnf_reducer, euc_reducer,
+                    tids, max_n_neighbours, a=a, switch=switch
+                )
+                intersection_mapper = switch_intersector_static(
+                    depth_reducer,
+                    tnf_reducer,
+                    euc_reducer,
+                    switch=switch
+                )
+                new_embeddings = intersection_mapper.embedding_
 
-            multi_transform_static(
-                contigs, log_lengths, tnfs,
-                depth_reducer, tnf_reducer, euc_reducer,
-                tids, max_n_neighbours, a=a, switch=switch
-            )
-            intersection_mapper = switch_intersector_static(
-                depth_reducer,
-                tnf_reducer,
-                euc_reducer,
-                switch=switch
-            )
-            new_embeddings = intersection_mapper.embedding_
+                labels_single = iterative_clustering_static(new_embeddings,
+                                                          allow_single_cluster=True,
+                                                          double=skip_clustering)
+                labels_multi = iterative_clustering_static(new_embeddings,
+                                                         allow_single_cluster=False,
+                                                         double=skip_clustering)
 
-            labels_single = iterative_clustering_static(new_embeddings,
-                                                      allow_single_cluster=True,
-                                                      double=skip_clustering)
-            labels_multi = iterative_clustering_static(new_embeddings,
-                                                     allow_single_cluster=False,
-                                                     double=skip_clustering)
+                validity_single = Clusterer.validity(labels_single, new_embeddings)
+                validity_multi = Clusterer.validity(labels_multi, new_embeddings)
 
-            validity_single = Clusterer.validity(labels_single, new_embeddings)
-            validity_multi = Clusterer.validity(labels_multi, new_embeddings)
+                # Calculate silhouette scores, will fail if only one label
+                # Silhouette scores don't work too well with HDBSCAN though since it
+                # usually requires pretty uniform clusters to generate a value of use
+                try:
+                    silho_single = sk_metrics.silhouette_score(unbinned_embeddings, labels_single)
+                except ValueError:
+                    silho_single = -1
 
-            # Calculate silhouette scores, will fail if only one label
-            # Silhouette scores don't work too well with HDBSCAN though since it
-            # usually requires pretty uniform clusters to generate a value of use
-            try:
-                silho_single = sk_metrics.silhouette_score(unbinned_embeddings, labels_single)
-            except ValueError:
-                silho_single = -1
+                try:
+                    silho_multi = sk_metrics.silhouette_score(unbinned_embeddings, labels_multi)
+                except ValueError:
+                    silho_multi = -1
 
-            try:
-                silho_multi = sk_metrics.silhouette_score(unbinned_embeddings, labels_multi)
-            except ValueError:
-                silho_multi = -1
+                if debug:
+                    print('Allow single cluster validity: ', validity_single)
+                    print('Allow multi cluster validity: ', validity_multi)
+                    print('Allow single cluster silho: ', silho_single)
+                    print('Allow multi cluster silho: ', silho_multi)
 
-            if debug:
-                print('Allow single cluster validity: ', validity_single)
-                print('Allow multi cluster validity: ', validity_multi)
-                print('Allow single cluster silho: ', silho_single)
-                print('Allow multi cluster silho: ', silho_multi)
+                max_single = max(validity_single, silho_single)
+                max_multi = max(validity_multi, silho_multi)
 
-            max_single = max(validity_single, silho_single)
-            max_multi = max(validity_multi, silho_multi)
+                if max_single >= max_multi:
+                    if max_validity <= max_single:
+                        if all(label == -1 for label in labels_single):
+                            if debug:
+                                print('using non re-embedded...')
+                        else:
+                            unbinned_embeddings = new_embeddings
+                            labels = labels_single
+                            max_validity = max_single
+                            if precomputed:
+                                precomputed = False  # No longer the best results
 
-            if max_single >= max_multi:
-                if max_validity <= max_single:
-                    if all(label == -1 for label in labels_single):
+
+                    else:
                         if debug:
-                            print('using non re-embedded...')
-                    else:
-                        unbinned_embeddings = new_embeddings
-                        labels = labels_single
-                        max_validity = max_single
-                        if precomputed:
-                            precomputed = False  # No longer the best results
-
-
+                            print('using non re-embedded... %f' % max_validity)
                 else:
-                    if debug:
-                        print('using non re-embedded... %f' % max_validity)
-            else:
-                if max_validity <= max_multi:
-                    if all(label == -1 for label in labels_multi):
-                        logging.debug('using non re-embedded...')
+                    if max_validity <= max_multi:
+                        if all(label == -1 for label in labels_multi):
+                            logging.debug('using non re-embedded...')
+                        else:
+                            unbinned_embeddings = new_embeddings
+                            labels = labels_multi
+                            max_validity = max_multi
+                            if precomputed:
+                                precomputed = False  # No longer the best results
+
+
                     else:
-                        unbinned_embeddings = new_embeddings
-                        labels = labels_multi
-                        max_validity = max_multi
-                        if precomputed:
-                            precomputed = False  # No longer the best results
-
-
-                else:
-                    if debug:
-                        print('using non re-embedded... %f' % max_validity)
+                        if debug:
+                            print('using non re-embedded... %f' % max_validity)
 
 
             # except TypeError:

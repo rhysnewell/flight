@@ -205,13 +205,13 @@ class Binner:
         if np.median(self.large_contigs['contigLen']) < 10000:
             # Lower median can use euclidean UMAP
             self.use_euclidean = True
-            os.environ["NUMEXPR_MAX_THREADS"] = str(max(self.threads // 3, 1))
-            os.environ["NUMBA_NUM_THREADS"] = str(max(self.threads // 3, 1))
+            # os.environ["NUMEXPR_MAX_THREADS"] = str(max(self.threads // 3, 1))
+            # os.environ["NUMBA_NUM_THREADS"] = str(max(self.threads // 3, 1))
         else:
             # Distribution of contigs tends to be larger, so euclidean distance breaks down
             self.use_euclidean = False
-            os.environ["NUMEXPR_MAX_THREADS"] = str(max(self.threads // 2, 1))
-            os.environ["NUMBA_NUM_THREADS"] = str(max(self.threads // 2, 1))
+            # os.environ["NUMEXPR_MAX_THREADS"] = str(max(self.threads // 2, 1))
+            # os.environ["NUMBA_NUM_THREADS"] = str(max(self.threads // 2, 1))
 
         self.binning_method = 'eom'
         self.min_cluster_size = 2
@@ -226,7 +226,7 @@ class Binner:
         numerator = min(max(np.log10(self.nX(25)[1]), np.log10(30000)), np.log10(100000))
         # set self.b by scaling the based on the n25 of the sample, between 0.3 and 0.4
         self.b = 0.1 * ((numerator - np.log10(30000)) / (np.log10(100000) - np.log10(30000))) + 0.3
-
+        # self.b = 0.3
         self.rho_reducer = umap.UMAP(
             metric=metrics.rho,
             n_neighbors=int(n_neighbors),

@@ -609,7 +609,7 @@ class Embedder(Binner):
 def multi_transform_static(
         contigs, log_lengths, tnfs,
         depth_reducer, tnf_reducer, euc_reducer,
-        tids, n_neighbors, a=1.9, switch=None, random_seed=42069):
+        tids, n_neighbors, a=1.5, switch=None, random_seed=42069):
     """
     Main function for performing UMAP embeddings and intersections
     """
@@ -618,16 +618,16 @@ def multi_transform_static(
     # update parameters to artificially high values to avoid disconnected vertices in the final manifold
     if switch is None:
         switch = [0, 1, 2]
-    if len(switch) == 3:
-        # self.set_op(0)
-        depth_reducer.a = 1.9
-        tnf_reducer.a = 1.9
-        euc_reducer.a = 1.9
-    else:
-        # self.set_op(1)
-        depth_reducer.a = a
-        tnf_reducer.a = a
-        euc_reducer.a = a
+    # if len(switch) == 3:
+    #     # self.set_op(0)
+    #     depth_reducer.a = 1.9
+    #     tnf_reducer.a = 1.9
+    #     euc_reducer.a = 1.9
+    # else:
+    # self.set_op(1)
+    depth_reducer.a = a
+    tnf_reducer.a = a
+    euc_reducer.a = a
 
     depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
     depth_reducer.disconnection_distance = 2
@@ -635,6 +635,10 @@ def multi_transform_static(
     tnf_reducer.disconnection_distance = 2
     euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
     euc_reducer.disconnection_distance = 10
+
+    # depth_reducer.n_neighbors = len(tids) - 1
+    # tnf_reducer.n_neighbors = len(tids) - 1
+    # euc_reducer.n_neighbors = len(tids) - 1
 
     if 0 in switch:
         depth_reducer.fit(
@@ -734,7 +738,7 @@ def fit_transform_static(
     elif switch == 2:
         euc_reducer = umap.UMAP(
             metric=metrics.tnf_euclidean,
-            disconnection_distance=100,
+            disconnection_distance=10,
             n_neighbors=n_neighbours,
             n_components=2,
             min_dist=0,
