@@ -43,6 +43,7 @@ from sklearn.mixture import GaussianMixture
 import threadpoolctl
 import concurrent.futures
 import random
+from pynndescent import NNDescent
 
 
 # self imports
@@ -157,7 +158,10 @@ class Embedder(Binner):
         min_covar = 0
         count = 0
         for i in range(10):
-            gm = GaussianMixture(n_components=2).fit(log_lengths.reshape(-1, 1))
+            gm = GaussianMixture(
+                n_components=2,
+                covariance_type='full'
+            ).fit(log_lengths.reshape(-1, 1))
             max_sum += max(gm.means_)[0]
             max_covar += gm.covariances_[gm.means_.argmax()][0][0]
             min_sum += min(gm.means_)[0]
@@ -172,8 +176,8 @@ class Embedder(Binner):
         logging.info("Filtering Params - Max: %f, %f, %d Min: %f, %f, %d"
                      % (max_mean, max_covar, n75, max(min_mean, np.log10(5000)), min_covar, n25))
 
-        skew_dist1 = sp_stats.skewnorm(np.log10(n25), max(min_mean, np.log10(5000)), 1 + max(min_covar / count, 0.01))
-        skew_dist2 = sp_stats.skewnorm(np.log10(n75), max_mean, 1 + max(max_covar / count, 0.1))
+        skew_dist1 = sp_stats.skewnorm(np.log10(n25), max(min_mean, np.log10(5000)), 1 + max(min_covar, 0.01))
+        skew_dist2 = sp_stats.skewnorm(np.log10(n75), max_mean, 1 + max(max_covar, 0.1))
         disconnected_tids = []
         if self.n_samples > 0:
             n_samples = self.n_samples
@@ -182,20 +186,21 @@ class Embedder(Binner):
             n_samples = self.long_samples
             sample_distances = self.long_sample_distance
 
+        contigs, ll, tnfs = \
+            self.extract_contigs(self.large_contigs['tid'])
+        current_tnfs = np.concatenate((ll.values[:, None],
+                                     tnfs.iloc[:, 2:].values), axis=1)
+
+        index_rho = NNDescent(current_tnfs, metric=metrics.rho, n_neighbors=30)
+        index_euc = NNDescent(current_tnfs, metric=metrics.tnf_euclidean, n_neighbors=30)
+        index_dep = NNDescent(
+            contigs.values[:, 3:],
+            metric=metrics.metabat_distance,
+            metric_kwds={"n_samples": n_samples,
+                         "sample_distances": sample_distances},
+            n_neighbors=10)
+
         for idx, tid in enumerate(tids):
-            current_contigs, current_log_lengths, current_tnfs = \
-                self.extract_contigs([tid])
-
-            other_contigs, other_log_lengths, other_tnfs = \
-                self.extract_contigs(self.large_contigs[self.large_contigs['tid'] != tid]['tid'])
-
-            current = np.concatenate((current_contigs.iloc[:, 3:].values,
-                                      current_log_lengths.values[:, None],
-                                      current_tnfs.iloc[:, 2:].values), axis=1)
-
-            others = np.concatenate((other_contigs.iloc[:, 3:].values,
-                                     other_log_lengths.values[:, None],
-                                     other_tnfs.iloc[:, 2:].values), axis=1)
 
 
             # Scale the thresholds based on the probability distribution
@@ -207,19 +212,21 @@ class Embedder(Binner):
             euc_thresh = min(max(prob * 10, 1.0), 6)
             dep_thresh = min(max(prob / 2, 0.05), 0.5)
 
+            dep_connected = any(x <= dep_thresh
+                                for x in index_dep.neighbor_graph[1][idx, 1:6]) # first index is not itself in this case
+            rho_connected = any(x <= rho_thresh
+                                for x in index_rho.neighbor_graph[1][idx, 1:6]) # exclude first index since it is to itself
+            euc_connected = any(x <= euc_thresh
+                                for x in index_euc.neighbor_graph[1][idx, 1:6]) # exclude first index since it is to itself
 
-            connections = metrics.check_connections(
-                current, others, n_samples, sample_distances,
-                rho_threshold=rho_thresh, euc_threshold=euc_thresh, dep_threshold=dep_thresh
-            )
 
-            if sum(connections) <= 2:
+            if sum([dep_connected, rho_connected, euc_connected]) <= 2:
                 disconnected_tids.append(tid)
 
             if close_check is not None:
                 if close_check == tid:
-                    print(rho_thresh, euc_thresh, dep_thresh)
-                    print(connections)
+                    print(dep_thresh, rho_thresh, euc_thresh)
+                    print(dep_connected, rho_connected, euc_connected)
 
 
 
@@ -336,7 +343,7 @@ class Embedder(Binner):
 
         current = np.concatenate((current_contigs.iloc[:, 3:].values,
                                   current_log_lengths.values[:, None],
-                                  current_tnfs.iloc[:, 2:].values), axis=1)
+                                  current_tnfs.iloc[:, 2:].values), axis=1)[0]
 
         others = np.concatenate((other_contigs.iloc[:, 3:].values,
                                  other_log_lengths.values[:, None],
@@ -754,3 +761,42 @@ def fit_transform_static(
                  tnfs.iloc[:, 2:]),
                 axis=1)
         )
+
+
+def check_contigs_static(
+        current,
+        others,
+        skew_dist1,
+        skew_dist2,
+        log_length,
+        n_samples,
+        sample_distances,
+        tid
+):
+    current_contigs, current_log_lengths, current_tnfs = \
+        current
+    other_contigs, other_log_lengths, other_tnfs = \
+        others
+    current = np.concatenate((current_contigs.iloc[:, 3:].values,
+                              current_log_lengths.values[:, None],
+                              current_tnfs.iloc[:, 2:].values), axis=1)[0]
+
+    others = np.concatenate((other_contigs.iloc[:, 3:].values,
+                             other_log_lengths.values[:, None],
+                             other_tnfs.iloc[:, 2:].values), axis=1)
+
+    # Scale the thresholds based on the probability distribution
+    # Use skew dist to get PDF value of current contig
+    prob1 = min(skew_dist1.pdf(log_length), 1.0)
+    prob2 = min(skew_dist2.pdf(log_length), 1.0)
+    prob = max(prob1, prob2)
+    rho_thresh = min(max(prob / 2, 0.05), 0.5)
+    euc_thresh = min(max(prob * 10, 1.0), 6)
+    dep_thresh = min(max(prob / 2, 0.05), 0.5)
+
+    connections = metrics.check_connections(
+        current, others, n_samples, sample_distances,
+        rho_threshold=rho_thresh, euc_threshold=euc_thresh, dep_threshold=dep_thresh
+    )
+
+    return connections, tid, rho_thresh, euc_thresh, dep_thresh

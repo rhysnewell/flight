@@ -157,7 +157,10 @@ class Validator(Clusterer, Embedder):
                                     if ((avgs[0] >= 0.65 or avgs[3] >= 0.5) and
                                         (avgs[1] > 0.15 or avgs[2] >= 3)) or \
                                             ((avgs[0] >= 0.5 or avgs[3] >= 0.5) and
-                                             (avgs[1] >= 0.5 or avgs[2] >= 6)):
+                                             (avgs[1] >= 0.5 or avgs[2] >= 6)) or \
+                                            ((avgs[0] > mean_md and avgs[1] > mean_tnf
+                                            and avgs[2] > mean_euc and avgs[3] > mean_agg)
+                                            and (avgs[0] > 0.35 or avgs[3] > 0.4)):
                                         removed.append(tid)
                             elif size_filter:
                                 # check internal connections within this bin
@@ -171,7 +174,7 @@ class Validator(Clusterer, Embedder):
                                              or (avgs[1] > 0.1 or avgs[2] >= 3.5)
                                             or (avgs[0] >= md_median + 0.3
                                          or avgs[3] >= agg_median + 0.3)
-                                            )):
+                                            )) or avgs[0] >= 0.5:
                                         removed.append(tid)
 
                         remove = False
@@ -296,12 +299,14 @@ class Validator(Clusterer, Embedder):
 
                     # Always check bins with bad bin stats or if they are large, just for sanity check
                     if bin_size >= 8e6 or len(tids) >= 250 or \
-                            (((mean_agg >= f_level or mean_md >= m_level) and (mean_tnf >= 0.1 or round(mean_euc, 2) >= 2.5))
+                            (((mean_agg >= f_level or mean_md >= m_level) and (mean_tnf >= 0.1 or round(mean_euc, 1) >= 2.5))
                         and bin_size > 1e6) \
                         or (round(per_contig_avg[:, 0].std(), 2) >= 0.1
                             or round(per_contig_avg[:, 3].std(), 2) >= 0.1
                             or round(per_contig_avg[:, 1].std(), 2) >= 0.1
-                            or round(per_contig_avg[:, 2].std(), 2) >= 1):
+                            or round(per_contig_avg[:, 2].std(), 1) >= 1
+                            or mean_md >= 0.4 or mean_agg >= 0.4
+                    ):
                         logging.debug(bin, mean_md, mean_tnf, mean_agg, len(tids))
                         reembed_separately.append(bin)
                         if debug:
@@ -337,7 +342,7 @@ class Validator(Clusterer, Embedder):
                     if (mean_euc <= 3 and not self.use_euclidean) or (mean_euc <= 4 and self.use_euclidean):
                         local_switches.append(2)
 
-                    if len(local_switches) == 0:
+                    if len(local_switches) == 1:
                         if self.use_euclidean:
                             local_switches = [0, 1, 2]
                         else:
@@ -1364,10 +1369,10 @@ def reembed_static(
                 # + 1 because we don't want unlabelled
                 labels_single = iterative_clustering_static(unbinned_embeddings,
                                                           allow_single_cluster=True,
-                                                          double=False)
+                                                          double=False, use_multi_processing=False)
                 labels_multi = iterative_clustering_static(unbinned_embeddings,
                                                          allow_single_cluster=False,
-                                                         double=False)
+                                                         double=False, use_multi_processing=False)
 
 
                 # Try out precomputed method, validity metric does not work here
@@ -1382,7 +1387,7 @@ def reembed_static(
 
                 distances = np.nan_to_num(distances)
 
-                labels_precomputed = iterative_clustering_static(distances, metric="precomputed")
+                labels_precomputed = iterative_clustering_static(distances, metric="precomputed", use_multi_processing=False)
 
                 validity_single = Clusterer.validity(labels_single, unbinned_embeddings)
                 validity_multi = Clusterer.validity(labels_multi, unbinned_embeddings)
@@ -1519,10 +1524,10 @@ def reembed_static(
 
                 labels_single = iterative_clustering_static(new_embeddings,
                                                           allow_single_cluster=True,
-                                                          double=skip_clustering)
+                                                          double=skip_clustering, use_multi_processing=False)
                 labels_multi = iterative_clustering_static(new_embeddings,
                                                          allow_single_cluster=False,
-                                                         double=skip_clustering)
+                                                         double=skip_clustering, use_multi_processing=False)
 
                 validity_single = Clusterer.validity(labels_single, new_embeddings)
                 validity_multi = Clusterer.validity(labels_multi, new_embeddings)

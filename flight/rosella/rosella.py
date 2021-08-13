@@ -267,7 +267,7 @@ class Rosella(Validator):
                                                       y_max, 0))
                             self.bin_contigs(args.assembly, int(args.min_bin_size))
 
-                            self.findem = ['contig_1088_pilon', 'contig_2371_pilon', 'contig_731_pilon']
+                            self.findem = ['contig_591_pilon', 'contig_941_pilon']
                             self.plot(
                                 self.findem
                             )
@@ -287,10 +287,10 @@ class Rosella(Validator):
 
                             # self.validation_settings(0, self.a, self.b)
                             # self.slow_refine(plots, 0, 0, x_min, x_max, y_min, y_max)
-                            self.quick_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
+                            self.quick_filter(plots, 0, 5, x_min, x_max, y_min, y_max)
                             self.slow_refine(plots, 0, 100, x_min, x_max, y_min, y_max)
-                            # self.quick_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
-                            self.size_filter(plots, 0, 0, x_min, x_max, y_min, y_max)
+                            # # self.quick_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
+                            self.size_filter(plots, 0, 5, x_min, x_max, y_min, y_max)
                             self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
                             # self.force_splitting(plots, 0, 5, x_min, x_max, y_min, y_max)
                             # self.check_if_bins_should_combine(0, 1, 0.01)

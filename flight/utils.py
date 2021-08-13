@@ -39,6 +39,8 @@ import multiprocessing as mp
 import hdbscan
 import itertools
 import threadpoolctl
+import concurrent.futures
+from numba import set_num_threads
 import imageio
 import seaborn as sns
 import matplotlib
@@ -156,7 +158,8 @@ def precomputed_cluster(df, n, gamma, ms, allow_single_cluster=False, threads=1)
 
 def hyperparameter_selection(df, cores=10,
                              method='eom', metric='euclidean',
-                             allow_single_cluster=False, starting_size = 2):
+                             allow_single_cluster=False,
+                             starting_size = 2, use_multi_processing=True):
     """
     Input:
     df - embeddings from UMAP
@@ -174,20 +177,62 @@ def hyperparameter_selection(df, cores=10,
         end_size = starting_size + 10
     else:
         end_size = min(max(np.log2(n), min(10, (n - 1) // 2)), 10)
-    
-    for gamma in range(starting_size, int(end_size)):
-        # mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
-        #               range(starting_size, int(end_size))]
-        # for result in mp_results:
-        #     result = result.get()
-        #     results.append(result)
-        for ms in range(starting_size, int(end_size)):
-            if metric == 'precomputed':
-                mp_results = precomputed_cluster(df, n, gamma, ms, allow_single_cluster, cores)
-            else:
-                mp_results = mp_cluster(df, n, gamma, ms, method,
-                                        metric, allow_single_cluster, cores)
-            results.append(mp_results)
+
+    if use_multi_processing:
+        numpy_thread_limit = max(cores // 5, 1)
+        if numpy_thread_limit == 1:
+            worker_limit = cores
+        else:
+            worker_limit = max(cores // numpy_thread_limit, 1)
+
+        set_num_threads(numpy_thread_limit)
+        with threadpoolctl.threadpool_limits(limits=numpy_thread_limit, user_api='blas'):
+            with concurrent.futures.ProcessPoolExecutor(max_workers=worker_limit) as executor:
+
+                for gamma in range(starting_size, int(end_size)):
+                    # mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
+                    #               range(starting_size, int(end_size))]
+                    # for result in mp_results:
+                    #     result = result.get()
+                    #     results.append(result)
+                    if metric == 'precomputed':
+                        inner_results = [
+                            executor.submit(
+                                precomputed_cluster,
+                                df,
+                                n,
+                                gamma,
+                                ms,
+                                allow_single_cluster,
+                                numpy_thread_limit
+                            ) for ms in range(starting_size, int(end_size))
+                        ]
+                    else:
+                        inner_results = [
+                            executor.submit(
+                                mp_cluster,
+                                df,
+                                n,
+                                gamma,
+                                ms,
+                                method,
+                                metric,
+                                allow_single_cluster,
+                                numpy_thread_limit,
+                            ) for ms in range(starting_size, int(end_size))
+                        ]
+
+                    for f in concurrent.futures.as_completed(inner_results):
+                        results.append(f.result())
+    else:
+        for gamma in range(starting_size, int(end_size)):
+            for ms in range(starting_size, int(end_size)):
+                if metric == 'precomputed':
+                    mp_results = precomputed_cluster(df, n, gamma, ms, allow_single_cluster, cores)
+                else:
+                    mp_results = mp_cluster(df, n, gamma, ms, method,
+                                            metric, allow_single_cluster, cores)
+                results.append(mp_results)
 
     # pool.close()
     # pool.join()

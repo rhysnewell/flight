@@ -225,7 +225,8 @@ class Clusterer(Binner):
 
 def cluster_static(
         distances, metric='euclidean', binning_method='eom',
-        allow_single_cluster=False, threads=1, min_cluster_size=2
+        allow_single_cluster=False, threads=1, min_cluster_size=2,
+        use_multi_processing=True,
 ):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -234,7 +235,8 @@ def cluster_static(
                                                    metric=metric,
                                                    method=binning_method,
                                                    allow_single_cluster=allow_single_cluster,
-                                                   starting_size = min_cluster_size)
+                                                   starting_size = min_cluster_size,
+                                                   use_multi_processing = use_multi_processing)
             best = utils.best_validity(tuned)
 
             if metric == 'precomputed':
@@ -272,12 +274,16 @@ def iterative_clustering_static(
          metric='euclidean',
          allow_single_cluster=False,
          double=True,
-         threads=1
+         threads=1,
+         use_multi_processing=True,
 ):
     if metric != "precomputed":
         try:
-            first_labels = cluster_static(distances, metric=metric,
-                                        allow_single_cluster=allow_single_cluster, threads=threads)
+            first_labels = cluster_static(
+                distances, metric=metric,
+                allow_single_cluster=allow_single_cluster,
+                threads=threads, use_multi_processing=use_multi_processing
+            )
         except TypeError:
             first_labels = np.array([-1 for i in range(distances.shape[0])])
         # if prediction_data is False:
@@ -286,8 +292,11 @@ def iterative_clustering_static(
             try:
                 # Try to get unbinned super small clusters if they weren't binned
                 second_labels = cluster_static(distances[bool_arr],
-                                             metric=metric,
-                                             allow_single_cluster=False, threads=threads)
+                                               metric=metric,
+                                               allow_single_cluster=False,
+                                               threads=threads,
+                                               use_multi_processing=use_multi_processing
+                                               )
 
             except TypeError:
                 bool_arr = np.array([False for _ in first_labels])
@@ -296,7 +305,7 @@ def iterative_clustering_static(
     else:
         try:
             first_labels = cluster_static(distances, metric=metric,
-                                        allow_single_cluster=allow_single_cluster)
+                                        allow_single_cluster=allow_single_cluster, use_multi_processing=use_multi_processing)
         except TypeError:
             first_labels = np.array([-1 for i in range(distances.shape[0])])
             # first_labels = np.array([-1 for i in range(distances.shape[0])])
