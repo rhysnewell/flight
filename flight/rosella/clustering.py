@@ -88,7 +88,7 @@ class Clusterer(Binner):
         super().__init__(**kwargs)
 
     def cluster(self, distances, metric='euclidean', binning_method='eom',
-                allow_single_cluster=False, prediction_data=False):
+                allow_single_cluster=False, prediction_data=False, min_cluster_size=2):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             ## Cluster on the UMAP embeddings and return soft clusters
@@ -96,7 +96,7 @@ class Clusterer(Binner):
                                                    metric=metric,
                                                    method=binning_method,
                                                    allow_single_cluster=allow_single_cluster,
-                                                   starting_size = self.min_cluster_size)
+                                                   starting_size = min_cluster_size)
             best = utils.best_validity(tuned)
 
             if metric == 'precomputed':
@@ -145,7 +145,8 @@ class Clusterer(Binner):
             try:
                 first_labels = self.cluster(distances, metric=metric,
                                             allow_single_cluster=allow_single_cluster,
-                                            prediction_data=prediction_data)
+                                            prediction_data=prediction_data,
+                                            min_cluster_size=min_cluster_size)
             except TypeError:
                 first_labels = np.array([-1 for i in range(distances.shape[0])])
             # if prediction_data is False:
@@ -156,7 +157,8 @@ class Clusterer(Binner):
                     second_labels = self.cluster(distances[bool_arr],
                                                  metric=metric,
                                                  allow_single_cluster=False,
-                                                prediction_data=prediction_data)
+                                                prediction_data=prediction_data,
+                                            min_cluster_size=min_cluster_size)
 
                 except TypeError:
                     bool_arr = np.array([False for _ in first_labels])
@@ -166,7 +168,8 @@ class Clusterer(Binner):
             try:
                 first_labels = self.cluster(distances, metric=metric,
                                             allow_single_cluster=allow_single_cluster,
-                                            prediction_data=prediction_data)
+                                            prediction_data=prediction_data,
+                                            min_cluster_size=min_cluster_size)
             except TypeError:
                 first_labels = np.array([-1 for i in range(distances.shape[0])])
                 # first_labels = np.array([-1 for i in range(distances.shape[0])])

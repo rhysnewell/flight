@@ -839,71 +839,72 @@ class Validator(Clusterer, Embedder):
                     if update_embeddings:
                         self.embeddings = new_embeddings
 
-                    labels_single = self.iterative_clustering(new_embeddings,
-                                                              allow_single_cluster=True,
-                                                              prediction_data=False,
-                                                              double=skip_clustering)
+                    # labels_single = self.iterative_clustering(new_embeddings,
+                    #                                           allow_single_cluster=True,
+                    #                                           prediction_data=False,
+                    #                                           double=skip_clustering)
                     labels_multi = self.iterative_clustering(new_embeddings,
                                                              allow_single_cluster=False,
                                                              prediction_data=False,
-                                                             double=skip_clustering)
+                                                             double=skip_clustering,
+                                                             min_cluster_size=2)
 
-                    validity_single = self.validity(labels_single, new_embeddings)
+                    # validity_single = self.validity(labels_single, new_embeddings)
                     validity_multi = self.validity(labels_multi, new_embeddings)
 
                     # Calculate silhouette scores, will fail if only one label
                     # Silhouette scores don't work too well with HDBSCAN though since it
                     # usually requires pretty uniform clusters to generate a value of use
-                    try:
-                        silho_single = sk_metrics.silhouette_score(unbinned_embeddings, labels_single)
-                    except ValueError:
-                        silho_single = -1
-
-                    try:
-                        silho_multi = sk_metrics.silhouette_score(unbinned_embeddings, labels_multi)
-                    except ValueError:
-                        silho_multi = -1
+                    # try:
+                    #     silho_single = sk_metrics.silhouette_score(unbinned_embeddings, labels_single)
+                    # except ValueError:
+                    #     silho_single = -1
+                    #
+                    # try:
+                    #     silho_multi = sk_metrics.silhouette_score(unbinned_embeddings, labels_multi)
+                    # except ValueError:
+                    #     silho_multi = -1
 
                     if debug:
-                        print('Allow single cluster validity: ', validity_single)
+                        # print('Allow single cluster validity: ', validity_single)
                         print('Allow multi cluster validity: ', validity_multi)
-                        print('Allow single cluster silho: ', silho_single)
-                        print('Allow multi cluster silho: ', silho_multi)
+                        # print('Allow single cluster silho: ', silho_single)
+                        # print('Allow multi cluster silho: ', silho_multi)
 
-                    max_single = max(validity_single, silho_single)
-                    max_multi = max(validity_multi, silho_multi)
-
-                    if max_single >= max_multi:
-                        if max_validity <= max_single:
-                            if all(label == -1 for label in labels_single):
-                                if debug:
-                                    print('using non re-embedded...')
-                            else:
-                                unbinned_embeddings = new_embeddings
-                                self.labels = labels_single
-                                max_validity = max_single
-                                if precomputed:
-                                    precomputed = False  # No longer the best results
-
-
+                    # max_single = max(validity_single, silho_single)
+                    # max_multi = max(validity_multi, silho_multi)
+                    max_multi = validity_multi
+                    # if max_single >= max_multi:
+                    #     if max_validity <= max_single:
+                    #         if all(label == -1 for label in labels_single):
+                    #             if debug:
+                    #                 print('using non re-embedded...')
+                    #         else:
+                    #             unbinned_embeddings = new_embeddings
+                    #             self.labels = labels_single
+                    #             max_validity = max_single
+                    #             if precomputed:
+                    #                 precomputed = False  # No longer the best results
+                    #
+                    #
+                    #     else:
+                    #         if debug:
+                    #             print('using non re-embedded... %f' % max_validity)
+                    # else:
+                    if max_validity <= max_multi:
+                        if all(label == -1 for label in labels_multi):
+                            logging.debug('using non re-embedded...')
                         else:
-                            if debug:
-                                print('using non re-embedded... %f' % max_validity)
+                            unbinned_embeddings = new_embeddings
+                            self.labels = labels_multi
+                            max_validity = max_multi
+                            if precomputed:
+                                precomputed = False  # No longer the best results
+
+
                     else:
-                        if max_validity <= max_multi:
-                            if all(label == -1 for label in labels_multi):
-                                logging.debug('using non re-embedded...')
-                            else:
-                                unbinned_embeddings = new_embeddings
-                                self.labels = labels_multi
-                                max_validity = max_multi
-                                if precomputed:
-                                    precomputed = False  # No longer the best results
-
-
-                        else:
-                            if debug:
-                                print('using non re-embedded... %f' % max_validity)
+                        if debug:
+                            print('using non re-embedded... %f' % max_validity)
 
 
                 except TypeError:

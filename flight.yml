@@ -12,7 +12,7 @@ dependencies:
   - seaborn
   - scikit-learn
   - scikit-bio
-  - numba
+  - numba=0.53.0
   - biopython
   - pynndescent
   - threadpoolctl

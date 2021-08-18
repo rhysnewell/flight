@@ -112,12 +112,12 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
     # Calculate silhouette scores, will fail if only one label
     # Silhouette scores don't work too well with HDBSCAN though since it
     # usually requires pretty uniform clusters to generate a value of use
-    try:
-        silho_score = sk_metrics.silhouette_score(df, clust_alg.labels_)
-    except ValueError:
-        silho_score = -1
+    # try:
+    #     silho_score = sk_metrics.silhouette_score(df, clust_alg.labels_)
+    # except ValueError:
+    #     silho_score = -1
     
-    validity_score = max(clust_alg.relative_validity_, silho_score, cluster_validity)
+    validity_score = max(clust_alg.relative_validity_, cluster_validity)
     n_clusters = np.max(clust_alg.labels_)
 
     return (min_cluster_size, min_samples, validity_score, n_clusters)
@@ -142,13 +142,13 @@ def precomputed_cluster(df, n, gamma, ms, allow_single_cluster=False, threads=1)
         # Calculate silhouette scores, will fail if only one label
         # Silhouette scores don't work too well with HDBSCAN though since it
         # usually requires pretty uniform clusters to generate a value of use
-        try:
-            silho_precom = sk_metrics.silhouette_score(df, clust_alg.labels_)
-        except ValueError:
-            silho_precom = -1
+        # try:
+        #     silho_precom = sk_metrics.silhouette_score(df, clust_alg.labels_)
+        # except ValueError:
+        #     silho_precom = -1
 
 
-        validity_score = max(cluster_validity, silho_precom)
+        validity_score = max(cluster_validity, 0)
         n_clusters = np.max(clust_alg.labels_)
 
         return (min_cluster_size, min_samples, validity_score, n_clusters)

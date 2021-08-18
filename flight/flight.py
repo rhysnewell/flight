@@ -41,6 +41,8 @@ import datetime
 # Function imports
 import random
 import numpy
+import faulthandler
+faulthandler.enable()
 
 # Self imports
 
