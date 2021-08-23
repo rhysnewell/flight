@@ -154,27 +154,18 @@ class Validator(Clusterer, Embedder):
                             # Simply remove
                             if quick_filter:
                                 for (tid, avgs) in zip(tids, per_contig_avg):
-                                    if ((avgs[0] >= 0.65 or avgs[3] >= 0.5) and
-                                        (avgs[1] > 0.15 or avgs[2] >= 3)) or \
-                                            ((avgs[0] >= 0.5 or avgs[3] >= 0.5) and
-                                             (avgs[1] >= 0.5 or avgs[2] >= 6)) or \
+                                    if ((avgs[0] >= 0.5 or avgs[3] >= 0.6) and
+                                        (avgs[1] > 0.15 or avgs[2] >= 3.5)) or \
                                             ((avgs[0] > mean_md and avgs[1] > mean_tnf
                                             and avgs[2] > mean_euc and avgs[3] > mean_agg)
-                                            and (avgs[0] > 0.35 or avgs[3] > 0.4)):
+                                            and (avgs[0] > 0.5 or avgs[3] > 0.6)):
                                         removed.append(tid)
                             elif size_filter:
-                                # check internal connections within this bin
-                                # disconnected_tids = self.large_contigs[self.check_contigs(tids)]['tid']
-                                # removed += list(disconnected_tids.values)
+
                                 for (tid, avgs) in zip(tids, per_contig_avg):
-                                    if ((avgs[0] >= md_median + 0.15
-                                         or avgs[3] >= agg_median + 0.15) and
-                                            ((avgs[1] >= rho_median + 0.05
-                                              or avgs[2] >= euc_median + 0.5)
-                                             or (avgs[1] > 0.1 or avgs[2] >= 3.5)
-                                            or (avgs[0] >= md_median + 0.3
-                                         or avgs[3] >= agg_median + 0.3)
-                                            )) or avgs[0] >= 0.5:
+                                    if ((avgs[0] > mean_md and avgs[1] > mean_tnf
+                                            and avgs[2] > mean_euc and avgs[3] > mean_agg)
+                                            and (avgs[0] > 0.35 or avgs[3] > 0.4)):
                                         removed.append(tid)
 
                         remove = False
@@ -314,12 +305,12 @@ class Validator(Clusterer, Embedder):
                         # if (mean_md >= m_level
                         #     or mean_agg >= f_level) and (mean_tnf >= 0.1 or mean_euc >= 3):
                         #     lower_thresholds.append(0.85)
-                        if mean_tnf >= 0.15 or mean_euc >= 4.5:
-                            lower_thresholds.append(0.5)
-                        elif (mean_md >= 0.25 or mean_agg >= 0.35) and (mean_tnf >= 0.1 or mean_euc >= 3.0):
+                        # if mean_tnf >= 0.15 or mean_euc >= 4.5:
+                        #     lower_thresholds.append(0.5)
+                        if (mean_md >= 0.25 or mean_agg >= 0.35) and (mean_tnf >= 0.1 or mean_euc >= 3.0):
                             lower_thresholds.append(0.5)
                         elif (mean_md >= 0.2 or mean_agg >= 0.3) and (mean_tnf >= 0.1 or mean_euc >= 3.0):
-                            lower_thresholds.append(0.85)
+                            lower_thresholds.append(0.75)
                         else:
                             lower_thresholds.append(0.85)
                         force_new_clustering.append(False)  # send it to regular hell
@@ -740,32 +731,32 @@ class Validator(Clusterer, Embedder):
 
                     labels_precomputed = self.iterative_clustering(distances, metric="precomputed")
 
-                    validity_single = self.validity(labels_single, unbinned_embeddings)
-                    validity_multi = self.validity(labels_multi, unbinned_embeddings)
-                    validity_precom = self.validity(labels_precomputed, unbinned_embeddings)
+                    validity_single = self.validity(labels_single, unbinned_embeddings, quick=force)
+                    validity_multi = self.validity(labels_multi, unbinned_embeddings, quick=force)
+                    validity_precom = self.validity(labels_precomputed, unbinned_embeddings, quick=force)
 
 
                     # Calculate silhouette scores, will fail if only one label
                     # Silhouette scores don't work too well with HDBSCAN though since it
                     # usually requires pretty uniform clusters to generate a value of use
-                    try:
-                        silho_single = sk_metrics.silhouette_score(unbinned_embeddings, labels_single)
-                    except ValueError:
-                        silho_single = -1
+                    # try:
+                    #     silho_single = sk_metrics.silhouette_score(unbinned_embeddings, labels_single)
+                    # except ValueError:
+                    #     silho_single = -1
+                    #
+                    # try:
+                    #     silho_multi = sk_metrics.silhouette_score(unbinned_embeddings, labels_multi)
+                    # except ValueError:
+                    #     silho_multi = -1
+                    #
+                    # try:
+                    #     silho_precom = sk_metrics.silhouette_score(distances, labels_precomputed)
+                    # except ValueError:
+                    #     silho_precom = -1
 
-                    try:
-                        silho_multi = sk_metrics.silhouette_score(unbinned_embeddings, labels_multi)
-                    except ValueError:
-                        silho_multi = -1
-
-                    try:
-                        silho_precom = sk_metrics.silhouette_score(distances, labels_precomputed)
-                    except ValueError:
-                        silho_precom = -1
-
-                    max_single = max(validity_single, silho_single)
-                    max_multi = max(validity_multi, silho_multi)
-                    max_precom = max(validity_precom, silho_precom)
+                    max_single = validity_single
+                    max_multi = validity_multi
+                    max_precom = validity_precom
 
                     if debug:
                         print('Allow single cluster validity: ', max_single)
@@ -850,7 +841,7 @@ class Validator(Clusterer, Embedder):
                                                              min_cluster_size=2)
 
                     # validity_single = self.validity(labels_single, new_embeddings)
-                    validity_multi = self.validity(labels_multi, new_embeddings)
+                    validity_multi = self.validity(labels_multi, new_embeddings, quick=force)
 
                     # Calculate silhouette scores, will fail if only one label
                     # Silhouette scores don't work too well with HDBSCAN though since it
@@ -1473,7 +1464,7 @@ def reembed_static(
                 metric=metrics.rho,
                 n_neighbors=max_n_neighbours,
                 n_components=2,
-                disconnection_distance=2,
+                # disconnection_distance=2,
                 min_dist=0,
                 set_op_mix_ratio=1,
                 a=a,
@@ -1486,7 +1477,7 @@ def reembed_static(
                 metric=metrics.tnf_euclidean,
                 n_neighbors=max_n_neighbours,
                 n_components=2,
-                disconnection_distance=10,
+                # disconnection_distance=100,
                 min_dist=0,
                 set_op_mix_ratio=1,
                 a=a,
@@ -1500,7 +1491,7 @@ def reembed_static(
                 metric_kwds={"n_samples": n_samples,
                              "sample_distances": sample_distances},
                 n_neighbors=max_n_neighbours,
-                disconnection_distance=2,
+                # disconnection_distance=2,
                 n_components=2,
                 min_dist=0,
                 set_op_mix_ratio=1,

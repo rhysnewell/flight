@@ -197,7 +197,7 @@ class Clusterer(Binner):
         return main_labels
 
     @staticmethod
-    def validity(labels, distances):
+    def validity(labels, distances, quick=False):
         """
         Calculates cluster validity using Density Based Cluster Validity from HDBSCAN
 
@@ -210,8 +210,10 @@ class Clusterer(Binner):
         if len(set(labels)) > 1:
             # cluster_validity = DBCV(distances, np.array(labels), dist_function=euclidean)
             try:
-                cluster_validity = DBCV(distances, np.array(labels), dist_function=euclidean)
-                # cluster_validity = hdbscan.validity.validity_index(distances.astype(np.float64), np.array(labels), per_cluster_scores=False)
+                if not quick:
+                    cluster_validity = DBCV(distances, np.array(labels), dist_function=euclidean)
+                else:
+                    cluster_validity = hdbscan.validity.validity_index(distances.astype(np.float64), np.array(labels), per_cluster_scores=False)
             except ValueError:
                 # cluster_validity = DBCV(distances, np.array(labels), dist_function=euclidean)
                 # cluster_validity = hdbscan.validity.validity_index(distances.astype(np.float64), np.array(labels), per_cluster_scores=False)

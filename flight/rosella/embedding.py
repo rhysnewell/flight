@@ -395,89 +395,89 @@ class Embedder(Binner):
         Main function for performing UMAP embeddings and intersections
         """
         # update parameters to artificially high values to avoid disconnected vertices in the final manifold
-        # self.depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        # self.depth_reducer.disconnection_distance = 2
-        # self.tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        # self.tnf_reducer.disconnection_distance = 2
-        # self.euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        # self.euc_reducer.disconnection_distance = 100
+        self.depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+        self.depth_reducer.disconnection_distance = 2
+        self.tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+        self.tnf_reducer.disconnection_distance = 2
+        self.euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+        self.euc_reducer.disconnection_distance = 100
         n_neighbours = min(n_neighbors, len(tids) - 1)
         # self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
         contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
-        # logging.debug("Running UMAP - %s" % self.tnf_reducer)
-        # tnf_mapping = self.tnf_reducer.fit(
-        #     np.concatenate(
-        #         (log_lengths.values[:, None],
-        #          tnfs.iloc[:, 2:]),
-        #         axis=1))
-        #
-        # logging.debug("Running UMAP - %s" % self.depth_reducer)
-        # depth_mapping = self.depth_reducer.fit(np.concatenate(
-        #     (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
+        logging.debug("Running UMAP - %s" % self.tnf_reducer)
+        tnf_mapping = self.tnf_reducer.fit(
+            np.concatenate(
+                (log_lengths.values[:, None],
+                 tnfs.iloc[:, 2:]),
+                axis=1))
 
-        # if self.use_euclidean:
-        #     logging.debug("Running UMAP - %s" % self.euc_reducer)
-        #     euc_mapping = self.euc_reducer.fit(
-        #         np.concatenate(
-        #             (log_lengths.values[:, None],
-        #              tnfs.iloc[:, 2:]),
-        #             axis=1))
-        #     ## Intersect all of the embeddings
-        #     intersection_mapper = depth_mapping * euc_mapping * tnf_mapping
-        # else:
-        #     intersection_mapper = depth_mapping * tnf_mapping
+        logging.debug("Running UMAP - %s" % self.depth_reducer)
+        depth_mapping = self.depth_reducer.fit(np.concatenate(
+            (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
 
         if self.use_euclidean:
-            numpy_thread_limit = max(self.threads // 3, 1)
-            max_workers = 3
+            logging.debug("Running UMAP - %s" % self.euc_reducer)
+            euc_mapping = self.euc_reducer.fit(
+                np.concatenate(
+                    (log_lengths.values[:, None],
+                     tnfs.iloc[:, 2:]),
+                    axis=1))
+            ## Intersect all of the embeddings
+            intersection_mapper = depth_mapping * euc_mapping * tnf_mapping
         else:
-            numpy_thread_limit = max(self.threads // 2, 1)
-            max_workers = 2
+            intersection_mapper = depth_mapping * tnf_mapping
 
-        set_num_threads(numpy_thread_limit)
-        with threadpoolctl.threadpool_limits(numpy_thread_limit, user_api='blas'):
-            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-                if self.use_euclidean:
-                    results = [executor.submit(
-                        fit_transform_static,
-                        contigs,
-                        log_lengths,
-                        tnfs,
-                        n_neighbours,
-                        self.n_samples,
-                        self.short_sample_distance,
-                        self.a,
-                        self.b,
-                        self.random_seed,
-                        switch
-                        ) for switch in range(3)
-                    ]
-                else:
-                    results = [executor.submit(
-                        fit_transform_static,
-                        contigs,
-                        log_lengths,
-                        tnfs,
-                        n_neighbours,
-                        self.n_samples,
-                        self.short_sample_distance,
-                        self.a,
-                        self.b,
-                        self.random_seed,
-                        switch
-                    ) for switch in range(2)
-                    ]
-
-                reducers = []
-                for f in concurrent.futures.as_completed(results):
-                    result = f.result()
-                    reducers.append(result)
-
-                if len(reducers) == 3:
-                    intersection_mapper = reducers[0] * reducers[1] * reducers[2]
-                else:
-                    intersection_mapper = reducers[0] * reducers[1]
+        # if self.use_euclidean:
+        #     numpy_thread_limit = max(self.threads // 3, 1)
+        #     max_workers = 3
+        # else:
+        #     numpy_thread_limit = max(self.threads // 2, 1)
+        #     max_workers = 2
+        #
+        # set_num_threads(numpy_thread_limit)
+        # with threadpoolctl.threadpool_limits(numpy_thread_limit, user_api='blas'):
+        #     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        #         if self.use_euclidean:
+        #             results = [executor.submit(
+        #                 fit_transform_static,
+        #                 contigs,
+        #                 log_lengths,
+        #                 tnfs,
+        #                 n_neighbours,
+        #                 self.n_samples,
+        #                 self.short_sample_distance,
+        #                 self.a,
+        #                 self.b,
+        #                 self.random_seed,
+        #                 switch
+        #                 ) for switch in range(3)
+        #             ]
+        #         else:
+        #             results = [executor.submit(
+        #                 fit_transform_static,
+        #                 contigs,
+        #                 log_lengths,
+        #                 tnfs,
+        #                 n_neighbours,
+        #                 self.n_samples,
+        #                 self.short_sample_distance,
+        #                 self.a,
+        #                 self.b,
+        #                 self.random_seed,
+        #                 switch
+        #             ) for switch in range(2)
+        #             ]
+        #
+        #         reducers = []
+        #         for f in concurrent.futures.as_completed(results):
+        #             result = f.result()
+        #             reducers.append(result)
+        #
+        #         if len(reducers) == 3:
+        #             intersection_mapper = reducers[0] * reducers[1] * reducers[2]
+        #         else:
+        #             intersection_mapper = reducers[0] * reducers[1]
 
         self.intersection_mapper = intersection_mapper
 
@@ -707,7 +707,7 @@ def fit_transform_static(
     if switch == 0:
         depth_reducer = umap.UMAP(
             metric=metrics.aggregate_tnf,
-            disconnection_distance=2,
+            # disconnection_distance=2,
             metric_kwds={"n_samples": n_samples,
                          "sample_distances": sample_distances},
             n_neighbors=n_neighbours,
@@ -726,7 +726,7 @@ def fit_transform_static(
     elif switch == 1:
         tnf_reducer = umap.UMAP(
             metric=metrics.rho,
-            disconnection_distance=2,
+            # disconnection_distance=2,
             n_neighbors=n_neighbours,
             n_components=2,
             min_dist=0,
@@ -745,7 +745,7 @@ def fit_transform_static(
     elif switch == 2:
         euc_reducer = umap.UMAP(
             metric=metrics.tnf_euclidean,
-            disconnection_distance=10,
+            # disconnection_distance=10,
             n_neighbors=n_neighbours,
             n_components=2,
             min_dist=0,
