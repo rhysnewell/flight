@@ -185,7 +185,8 @@ def hyperparameter_selection(df, cores=10,
         else:
             worker_limit = max(cores // numpy_thread_limit, 1)
 
-        set_num_threads(numpy_thread_limit)
+        # set_num_threads(min(1, numpy_thread_limit))
+
         with threadpoolctl.threadpool_limits(limits=numpy_thread_limit, user_api='blas'):
             with concurrent.futures.ProcessPoolExecutor(max_workers=worker_limit) as executor:
 

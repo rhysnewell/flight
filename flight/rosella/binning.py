@@ -223,9 +223,9 @@ class Binner:
         else:
             self.a = 1.5
         # self.a = a
-        numerator = min(max(np.log10(self.nX(25)[1]), np.log10(30000)), np.log10(100000))
+        numerator = min(max(np.log10(self.nX(25)[1]), np.log10(50000)), np.log10(100000))
         # set self.b by scaling the based on the n25 of the sample, between 0.3 and 0.4
-        self.b = 0.1 * ((numerator - np.log10(30000)) / (np.log10(100000) - np.log10(30000))) + 0.3
+        self.b = 0.1 * ((numerator - np.log10(50000)) / (np.log10(100000) - np.log10(50000))) + 0.3
         # self.b = 0.3
         self.rho_reducer = umap.UMAP(
             metric=metrics.rho,
@@ -463,7 +463,7 @@ class Binner:
                 self.labels[truth_array] = bin_id
 
     def add_plot(self, plots, unbinned_embeddings, contigs, labels,
-                 n = 0, x_min = 20, x_max = 20, y_min = 20, y_max = 20, max_validity = -1, precomputed = False):
+                 n = 0, x_min = 20, x_max = 20, y_min = 20, y_max = 20, max_validity = -1, precomputed = False, min_validity=-1):
 
         names = list(contigs['contigName'])
         indices = []
@@ -500,8 +500,8 @@ class Binner:
         total_new_bins = len(set(labels))
 
         plt.gca().set_aspect('equal', 'datalim')
-        plt.title(format('UMAP projection of unbinned contigs - %d: %d clusters %f %d' %
-                         (n, total_new_bins, max_validity, precomputed)), fontsize=24)
+        plt.title(format('UMAP projection of unbinned contigs - %d: %d clusters  validity: %f precom: %d thresh: %f' %
+                         (n, total_new_bins, max_validity, precomputed, min_validity)), fontsize=16)
         plt.savefig(format('%s/UMAP_projection_of_unbinned.png' % self.path))
 
         if found:
