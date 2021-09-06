@@ -1277,8 +1277,12 @@ def reembed_static(
 
                 distances = np.nan_to_num(distances)
 
-                labels_precomputed = iterative_clustering_static(distances, metric="precomputed", use_multi_processing=False)
-                labels_kmeans, kmeans_score = get_best_kmeans_result(distances, 5, random_seed)
+                labels_precomputed = iterative_clustering_static(
+                    distances, metric="precomputed", use_multi_processing=False
+                )
+
+                labels_kmeans_embeddings, kmeans_score_embeddings = get_best_kmeans_result(unbinned_embeddings, 5, random_seed)
+                labels_kmeans_precom, kmeans_score_precom = get_best_kmeans_result(distances, 5, random_seed)
                 validity_single = Clusterer.validity(labels_single, unbinned_embeddings)
                 validity_multi = Clusterer.validity(labels_multi, unbinned_embeddings)
                 validity_precom = Clusterer.validity(labels_precomputed, unbinned_embeddings)
@@ -1311,13 +1315,16 @@ def reembed_static(
                     print('Allow multi cluster validity: ', max_multi)
                     print('precom cluster validity: ', max_precom)
 
-                if max_single == -1 and max_multi == -1 and max_precom == -1 and kmeans_score == -1:
+                if max_single == -1 and max_multi == -1 and max_precom == -1 and kmeans_score_precom == -1 and kmeans_score_embeddings == -1:
                     labels = labels_single
                     max_validity = -1
                     min_validity = 1
-                elif max(max_single, max_multi, max_precom, kmeans_score) == kmeans_score:
-                    labels = labels_kmeans
-                    max_validity = kmeans_score
+                elif max(max_single, max_multi, max_precom, kmeans_score_precom, kmeans_score_embeddings) == kmeans_score_embeddings:
+                    labels = labels_kmeans_embeddings
+                    max_validity = kmeans_score_embeddings
+                elif max(max_single, max_multi, max_precom, kmeans_score_precom) == kmeans_score_precom:
+                    labels = labels_kmeans_precom
+                    max_validity = kmeans_score_precom
                     precomputed = True
                 elif max(max_single, max_multi, max_precom) == max_precom:
                     labels = labels_precomputed
@@ -1485,7 +1492,7 @@ def reembed_static(
                     break
 
 
-            if unbinned_embeddings.all() == 0 or (max_validity < 0 and max_validity != -1):
+            if unbinned_embeddings.all() == 0 or (max_validity < 0 and max_validity != -1) or (-1 in labels and len(set(labels)) == 2):
                 # embedding failed, which only happens for smaller bins
                 # check to see if kmeans clustering splits bins sensibly
                 try:
@@ -1503,14 +1510,15 @@ def reembed_static(
                 max_validity = score
                 min_validity = 0.5
                 precomputed = True
+                noise = True
 
             # except TypeError:
             #     # labels = np.array([-1 for i in range(unbinned_embeddings.shape[0])])
             #     pass
 
 
-        # if precomputed:
-        #     min_validity = 0.5
+        if noise:
+            min_validity = 0.5
 
         min_validity = min(min_validity, default_min_validity)
         max_validity = round(max_validity, 2)

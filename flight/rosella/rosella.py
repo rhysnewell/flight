@@ -267,7 +267,7 @@ class Rosella(Validator):
                                                       y_max, 0))
                             self.bin_contigs(args.assembly, int(args.min_bin_size))
 
-                            self.findem = ['contig_1687_pilon', 'contig_1719_pilon', 'scaffold_1715_pilon']
+                            self.findem = ['contig_591_pilon', 'contig_941_pilon']
                             self.plot(
                                 self.findem
                             )
