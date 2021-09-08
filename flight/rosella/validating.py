@@ -155,7 +155,7 @@ class Validator(Clusterer, Embedder):
                             if quick_filter:
                                 for (tid, avgs) in zip(tids, per_contig_avg):
                                     if ((avgs[0] >= 0.65) and
-                                        (avgs[1] > 0.15 or avgs[2] >= 3.5)): #or \
+                                        (avgs[1] > 0.15 or avgs[2] >= 3)): #or \
                                             # ((avgs[0] > mean_md and avgs[1] > mean_tnf
                                             # and avgs[2] > mean_euc and avgs[3] > mean_agg)
                                             # and (avgs[0] > 0.6 or avgs[3] > 0.6)):
@@ -228,9 +228,12 @@ class Validator(Clusterer, Embedder):
 
                     f_level = 0.4
                     m_level = 0.35
+                    r_level = 0.15
+                    e_level = 4
 
                     if ((round(mean_md, 2) >= md_filt
-                         or round(mean_agg, 2) >= agg_filt)
+                         or round(mean_agg, 2) >= agg_filt
+                         or round(mean_tnf, 2) >= r_level)
                         and bin_size > 1e6) or bin_size >= 15e6:
                         if debug:
                             print("Checking big contigs for bin: ", bin)
@@ -245,7 +248,11 @@ class Validator(Clusterer, Embedder):
                                     print("Found large contig: ", max_idx, tids[max_idx])
                                 if (max_values[3] >= agg_filt or max_values[0] >= md_filt) and \
                                         (max_values[1] >= rho_filt
-                                         or max_values[2] >= euc_filt) or bin_size >= 15e6:
+                                         or max_values[2] >= euc_filt) or \
+                                        (max_values[3] >= 0.1 or max_values[0] >= 0.1) and \
+                                        (max_values[1] >= 0.2
+                                         or max_values[2] >= e_level) \
+                                        or bin_size >= 15e6:
                                     if debug:
                                         print("Removing contig: ", max_idx, tids[max_idx])
                                     removed_single.append(tids[max_idx])
@@ -290,7 +297,7 @@ class Validator(Clusterer, Embedder):
                     # Always check bins with bad bin stats or if they are large, just for sanity check
                     #if bin_size >= 8e6 or \
                     if (((mean_agg >= f_level or mean_md >= m_level) and (mean_tnf >= 0.1 or round(mean_euc, 1) >= 3))
-                        and bin_size > 1e6): # \
+                        and bin_size > 1e6) or bin_size >= 13e6: # \
                         # or (round(per_contig_avg[:, 3].std(), 2) >= 0.15): # \
                             # or per_contig_avg[per_contig_avg[:, 0] > 0.7].shape[0] >= 5:
                         #     or round(per_contig_avg[:, 3].std(), 2) >= 0.15
@@ -313,14 +320,19 @@ class Validator(Clusterer, Embedder):
                         #     lower_thresholds.append(0.6)
                         # else:
                         #     lower_thresholds.append(0.7)
-                        lower_thresholds.append(1 - mean_agg)
+                        if bin_size >= 13e6:
+                            factor = min(mean_agg * 3, 0.9)
+                        else:
+                            factor = mean_agg
+
+                        lower_thresholds.append(1 - factor)
                         force_new_clustering.append(False)  # send it to regular hell
                         reembed_if_no_cluster.append(True)
                     else:
                         reembed_separately.append(bin)
                         force_new_clustering.append(False)  # send it to regular hell
                         reembed_if_no_cluster.append(True)  # take it easy, okay?
-                        lower_thresholds.append(1 - (mean_md + mean_tnf) / 2)
+                        lower_thresholds.append(1 - max((mean_md + mean_tnf) / 2, 0.05))
                         # if debug:
                         #     print("bin survived %d" % bin)
                         #     self.bin_stats(bin)

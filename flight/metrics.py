@@ -342,13 +342,13 @@ def aggregate_md(a, b, n_samples, sample_distances):
 
     returns - an aggregate distance metric between MetaBAT ADP divergence and TNF
     """
-    # w = (n_samples) / (n_samples + 1)  # weighting by number of samples same as in metabat2
+    w = (n_samples) / (n_samples + 1)  # weighting by number of samples same as in metabat2
 
     md = metabat_distance(a[0:n_samples * 2], b[0:n_samples * 2], n_samples, sample_distances)
-    # tnf_dist = rho(a[n_samples * 2:], b[n_samples * 2:])
-    # agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
+    tnf_dist = rho(a[n_samples * 2:], b[n_samples * 2:])
+    agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
 
-    return md
+    return agg
 
 @njit(fastmath=True, parallel=False)
 def check_connections(current, others, n_samples, sample_distances, rho_threshold=0.05, euc_threshold=3, dep_threshold=0.05):

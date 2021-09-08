@@ -136,7 +136,7 @@ class Embedder(Binner):
         self.tnf_reducer.a = a
         self.euc_reducer.a = a
 
-    def check_contigs(self, tids, close_check=None):
+    def check_contigs(self, tids, minimum_connections=1, close_check=None):
         """
         The weight length distribution of contigs is not normal, instead it kind of looks like two normal distributions
         akin to camel with two humps. We can hastily model this by using the n75 of the contig lengths and create a skewed
@@ -198,7 +198,7 @@ class Embedder(Binner):
             metric=metrics.metabat_distance,
             metric_kwds={"n_samples": n_samples,
                          "sample_distances": sample_distances},
-            n_neighbors=10)
+            n_neighbors=30)
 
         for idx, tid in enumerate(tids):
 
@@ -208,31 +208,61 @@ class Embedder(Binner):
             prob1 = min(skew_dist1.pdf(log_lengths[idx]), 1.0)
             prob2 = min(skew_dist2.pdf(log_lengths[idx]), 1.0)
             prob = max(prob1, prob2)
-            rho_thresh = min(max(prob / 2, 0.05), 0.5)
-            euc_thresh = min(max(prob * 10, 1.0), 6)
-            dep_thresh = min(max(prob / 2, 0.05), 0.5)
+            rho_thresh = min(max(prob / 2, 0.05), 1.0)
+            euc_thresh = min(max(prob * 10, 1.0), 10)
+            dep_thresh = min(max(prob / 2, 0.05), 1.0)
 
-            dep_connected = any(x <= dep_thresh
-                                for x in index_dep.neighbor_graph[1][idx, 1:6]) # first index is not itself in this case
-            rho_connected = any(x <= rho_thresh
-                                for x in index_rho.neighbor_graph[1][idx, 1:6]) # exclude first index since it is to itself
-            euc_connected = any(x <= euc_thresh
-                                for x in index_euc.neighbor_graph[1][idx, 1:6]) # exclude first index since it is to itself
+            dep_connected = sum(x <= dep_thresh
+                                for x in index_dep.neighbor_graph[1][idx, 0:(minimum_connections)])
+            rho_connected = sum(x <= rho_thresh
+                                for x in index_rho.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
+            euc_connected = sum(x <= euc_thresh
+                                for x in index_euc.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
 
 
-            if sum([dep_connected, rho_connected, euc_connected]) <= 2:
+            if sum(x < minimum_connections for x in [dep_connected, rho_connected, euc_connected]) >= 1:
                 disconnected_tids.append(tid)
 
             if close_check is not None:
-                if close_check == tid:
+                if close_check == tid or tid in close_check:
+                    print("tid: ", tid)
                     print(dep_thresh, rho_thresh, euc_thresh)
                     print(dep_connected, rho_connected, euc_connected)
-
+                    print(index_dep.neighbor_graph[1][idx, 0:minimum_connections])
+                    print(index_rho.neighbor_graph[1][idx, 1:(minimum_connections + 1)])
+                    print(index_euc.neighbor_graph[1][idx, 1:(minimum_connections + 1)])
 
 
         disconnections = np.array(self.large_contigs['tid'].isin(disconnected_tids))
 
         return disconnections
+
+
+    def disconnect_contig(
+            self,
+            idx, tid,
+            index_dep, index_rho, index_euc,
+            dep_thresh, rho_thresh, euc_thresh,
+            mean_connections, minimum_connections
+    ):
+        """
+        If a contig is decided to be disconnected, we have to check to see if its neighbours
+        (up to mean_connections, inclusive) are also disconnected. If they are, then this is likely a bin with only a few
+        members. If so, put them together and move on. If not, place the contig into the disconnected pile and handle it
+        later on
+        Params:
+            idx                                - index of the tid,
+            tid                                - contig id current being checked,
+            index_dep                          - pynndescent result for metabat distance metric
+            index_rho                          - pynndescent for rho
+            index_euc                          - pynndescent for euc
+            dep_thresh, rho_thresh, euc_thresh - thresholds for current contig
+
+        Returns: Bool deciding whether or not contig is to be added to disconnected pile
+        """
+        pass
+
+
 
     def check_contigs_inside_bin(self, tids, close_check=None):
         """

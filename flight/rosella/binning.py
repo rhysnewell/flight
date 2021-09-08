@@ -801,23 +801,21 @@ class Binner:
 
     def bin_contigs(self, assembly_file, min_bin_size=200000):
         logging.info("Binning contigs...")
-        self.bins = {}
+        try:
+            max_bin_label = max(self.bins.keys())
+        except ValueError:
+            max_bin_label = 0
 
         self.unbinned_tids = []
-        # self.unbinned_embeddings = []
-
-        set_labels = set(self.labels)
-        max_bin_id = max(set_labels)
 
         for (idx, label) in enumerate(self.labels):
             if label != -1:
-
                 try:
-                    self.bins[label.item() + 1].append(
+                    self.bins[max_bin_label + label.item() + 1].append(
                         self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]]) # inputs values as tid
                 except KeyError:
                     # self.bin_validity[label.item() + 1] = self.validity_indices[label]
-                    self.bins[label.item() + 1] = [self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]]]
+                    self.bins[max_bin_label + label.item() + 1] = [self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]]]
             else:
                 self.unbinned_tids.append(self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]])
                 # self.unbinned_embeddings.append(self.embeddings[idx, :])
