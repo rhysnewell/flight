@@ -87,13 +87,13 @@ class Embedder(Binner):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def filter(self):
+    def filter(self, minimum_connections=1, close_check=None):
         """
         Performs quick UMAP embeddings with stringent disconnection distances
         """
         try:
 
-            initial_disconnections = self.check_contigs(self.large_contigs['tid'])
+            initial_disconnections = self.check_contigs(self.large_contigs['tid'], minimum_connections, close_check)
 
             # logging.info("Running UMAP Filter - %s" % self.rho_reducer)
             # self.rho_reducer.n_neighbors = 5
@@ -147,7 +147,9 @@ class Embedder(Binner):
         The pdf value is used as the thresholds for the different metrics for that contig
         """
         _, n25 = self.nX(25)
+        # n25 = min(n25, 150000) # we want to limit these values as some assemblies may be ungodly large which causes this method to breakdown
         _, n75 = self.nX(75)
+        # n75 = min(n75, 1000000)
         lengths = self.large_contigs[self.large_contigs['tid'].isin(tids)]['contigLen']
         log_lengths = np.log10(lengths.values)
 
@@ -176,8 +178,8 @@ class Embedder(Binner):
         logging.info("Filtering Params - Max: %f, %f, %d Min: %f, %f, %d"
                      % (max_mean, max_covar, n75, max(min_mean, np.log10(5000)), min_covar, n25))
 
-        skew_dist1 = sp_stats.skewnorm(np.log10(n25), max(min_mean, np.log10(5000)), 1 + max(min_covar, 0.01))
-        skew_dist2 = sp_stats.skewnorm(np.log10(n75), max_mean, 1 + max(max_covar, 0.1))
+        skew_dist1 = sp_stats.skewnorm(np.log10(n25), max(min_mean, np.log10(5000)), 1 + min(max(min_covar, 0.01), 0.2))
+        skew_dist2 = sp_stats.skewnorm(np.log10(n75), min(max_mean, 4.5), 1 + min(max(max_covar, 0.1), 0.2))
         disconnected_tids = []
         if self.n_samples > 0:
             n_samples = self.n_samples
@@ -202,7 +204,7 @@ class Embedder(Binner):
 
         for idx, tid in enumerate(tids):
 
-
+            disconnected = False
             # Scale the thresholds based on the probability distribution
             # Use skew dist to get PDF value of current contig
             prob1 = min(skew_dist1.pdf(log_lengths[idx]), 1.0)
@@ -213,7 +215,7 @@ class Embedder(Binner):
             dep_thresh = min(max(prob / 2, 0.05), 1.0)
 
             dep_connected = sum(x <= dep_thresh
-                                for x in index_dep.neighbor_graph[1][idx, 0:(minimum_connections)])
+                                for x in index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
             rho_connected = sum(x <= rho_thresh
                                 for x in index_rho.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
             euc_connected = sum(x <= euc_thresh
@@ -222,15 +224,16 @@ class Embedder(Binner):
 
             if sum(x < minimum_connections for x in [dep_connected, rho_connected, euc_connected]) >= 1:
                 disconnected_tids.append(tid)
+                disconnected = True
 
             if close_check is not None:
                 if close_check == tid or tid in close_check:
-                    print("tid: ", tid)
+                    print("tid: ", tid, disconnected)
                     print(dep_thresh, rho_thresh, euc_thresh)
                     print(dep_connected, rho_connected, euc_connected)
-                    print(index_dep.neighbor_graph[1][idx, 0:minimum_connections])
-                    print(index_rho.neighbor_graph[1][idx, 1:(minimum_connections + 1)])
-                    print(index_euc.neighbor_graph[1][idx, 1:(minimum_connections + 1)])
+                    print(index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)], index_dep.neighbor_graph[0][idx, 1:(minimum_connections + 1)])
+                    print(index_rho.neighbor_graph[1][idx, 1:(minimum_connections + 1)], index_rho.neighbor_graph[0][idx, 1:(minimum_connections + 1)])
+                    print(index_euc.neighbor_graph[1][idx, 1:(minimum_connections + 1)], index_euc.neighbor_graph[0][idx, 1:(minimum_connections + 1)])
 
 
         disconnections = np.array(self.large_contigs['tid'].isin(disconnected_tids))
