@@ -108,6 +108,11 @@ class Validator(Clusterer, Embedder):
         lower_thresholds = []
         reembed_if_no_cluster = []
         switches = []
+        big_reembed_separately = []  # container for bin ids that look like chimeras
+        big_force_new_clustering = []
+        big_lower_thresholds = []
+        big_reembed_if_no_cluster = []
+        big_switches = []
         bins = self.bins.keys()
         for bin in bins:
             logging.debug("Beginning check on bin: ", bin)
@@ -295,70 +300,42 @@ class Validator(Clusterer, Embedder):
                     shared_level = 0.1
 
                     # Always check bins with bad bin stats or if they are large, just for sanity check
-                    #if bin_size >= 8e6 or \
                     if (((mean_agg >= f_level or mean_md >= m_level) and (mean_tnf >= 0.1 or round(mean_euc, 1) >= 3))
-                        and bin_size > 1e6) or bin_size >= 13e6: # \
-                        # or (round(per_contig_avg[:, 3].std(), 2) >= 0.15): # \
-                            # or per_contig_avg[per_contig_avg[:, 0] > 0.7].shape[0] >= 5:
-                        #     or round(per_contig_avg[:, 3].std(), 2) >= 0.15
-                        #     or round(per_contig_avg[:, 1].std(), 2) >= 0.15
-                        #     or round(per_contig_avg[:, 2].std(), 1) >= 1
-                            # or mean_md >= 0.4 or mean_agg >= 0.4
-                    # ):
+                        and bin_size > 1e6) or bin_size >= 13e6:
                         logging.debug(bin, mean_md, mean_tnf, mean_agg, len(tids))
-                        reembed_separately.append(bin)
+
                         if debug:
                             print("Reclustering bin %d" % bin)
-                        # if (mean_md >= m_level
-                        #     or mean_agg >= f_level) and (mean_tnf >= 0.1 or mean_euc >= 3):
-                        #     lower_thresholds.append(0.85)
-                        # if mean_tnf >= 0.15 or mean_euc >= 4.5:
-                        #     lower_thresholds.append(0.5)
-                        # if (mean_md >= 0.25 or mean_agg >= 0.35) and (mean_tnf >= 0.1 or mean_euc >= 3.0):
-                        #     lower_thresholds.append(1 - mean_agg)
-                        # elif (mean_md >= 0.2 or mean_agg >= 0.3) and (mean_tnf >= 0.1 or mean_euc >= 3.0):
-                        #     lower_thresholds.append(0.6)
-                        # else:
-                        #     lower_thresholds.append(0.7)
                         if bin_size >= 13e6:
                             factor = min(mean_agg * 3, 0.9)
                         else:
                             factor = mean_agg
-
-                        lower_thresholds.append(1 - factor)
-                        force_new_clustering.append(False)  # send it to regular hell
-                        reembed_if_no_cluster.append(True)
+                        if len(tids) <= 1000:
+                            reembed_separately.append(bin)
+                            lower_thresholds.append(1 - factor)
+                            force_new_clustering.append(False)  # send it to regular hell
+                            reembed_if_no_cluster.append(True)
+                            switches.append([0, 1, 2])
+                        else: # Large number of contigs need to be sent through faster algo
+                            big_reembed_separately.append(bin)
+                            big_lower_thresholds.append(1 - factor)
+                            big_force_new_clustering.append(False)  # send it to regular hell
+                            big_reembed_if_no_cluster.append(True)
+                            big_switches.append([0, 1, 2])
                     else:
-                        reembed_separately.append(bin)
-                        force_new_clustering.append(False)  # send it to regular hell
-                        reembed_if_no_cluster.append(True)  # take it easy, okay?
-                        lower_thresholds.append(1 - max((mean_md + mean_tnf) / 2, 0.05))
-                        # if debug:
-                        #     print("bin survived %d" % bin)
-                        #     self.bin_stats(bin)
-                        # self.survived.append(bin)
+                        if len(tids) <= 1000:
+                            reembed_separately.append(bin)
+                            force_new_clustering.append(False)  # send it to regular hell
+                            reembed_if_no_cluster.append(True)  # take it easy, okay?
+                            lower_thresholds.append(1 - max((mean_md + mean_tnf) / 2, 0.05))
+                            switches.append([0, 1, 2])
+                        else: # larger bins need more resources i.e. threads
+                            reembed_separately.append(bin)
+                            force_new_clustering.append(False)  # send it to regular hell
+                            reembed_if_no_cluster.append(True)  # take it easy, okay?
+                            lower_thresholds.append(1 - max((mean_md + mean_tnf) / 2, 0.05))
+                            big_switches.append([0, 1, 2])
 
-                    local_switches = [] # store which umap projections to use 0 = md, 1 = rho/tnf, 2 = euc
-                    # if mean_md <= 0.25:
-                    local_switches.append(0)
-                    # if mean_tnf <= 0.1:
-                    local_switches.append(1)
-                    # if (mean_euc <= 3) or (mean_euc <= 4 and self.use_euclidean):
-                    local_switches.append(2)
-
-                    if len(local_switches) == 1:
-                        if self.use_euclidean:
-                            local_switches = [0, 1, 2]
-                        else:
-                            local_switches = [0, 1]
-                    #
-                    # if reembed_if_no_cluster[-1]:
-                    #     print("Using this switch [%s] for bin %d with "
-                    #           "{ mean_md %.3f, mean_tnf %.3f, mean_euc %.3f, size %d } " %
-                    #           (",".join(map(str, local_switches)),
-                    #            bin, mean_md, mean_tnf, mean_euc, bin_size))
-
-                    switches.append(local_switches)
                 else:
                     logging.debug(bin, self.survived)
 
@@ -370,7 +347,14 @@ class Validator(Clusterer, Embedder):
             self.bins[max_bin_id + k] = list(np.sort(np.array(v)))
 
         if reembed:
-            numpy_thread_limit = max(self.threads // max(sum(reembed_separately), 1), 1)
+            if self.n_samples > 0:
+                n_samples = self.n_samples
+                sample_distances = self.short_sample_distance
+            else:
+                n_samples = self.long_samples
+                sample_distances = self.long_sample_distance
+
+            numpy_thread_limit = max(self.threads // max(sum(reembed_separately), 1), 10)
             if numpy_thread_limit == 1:
                 worker_limit = self.threads
             else:
@@ -379,12 +363,6 @@ class Validator(Clusterer, Embedder):
             # set_num_threads(min(10, numpy_thread_limit))
             with threadpoolctl.threadpool_limits(limits=numpy_thread_limit, user_api='blas'):
                 with concurrent.futures.ProcessPoolExecutor(max_workers=self.threads) as executor:
-                    if self.n_samples > 0:
-                        n_samples = self.n_samples
-                        sample_distances = self.short_sample_distance
-                    else:
-                        n_samples = self.long_samples
-                        sample_distances = self.long_sample_distance
 
                     results = [executor.submit(reembed_static,
                                                bin,
@@ -416,27 +394,91 @@ class Validator(Clusterer, Embedder):
                         )]
 
                     for f in concurrent.futures.as_completed(results):
-                        result = f.result()
-                        plots, remove = self.handle_new_embedding(
-                            result[0], result[1], result[2], result[3], result[4],
-                            plots, n, x_min, x_max, y_min, y_max, result[5], result[6], debug=False
-                        )
-                        if debug:
-                            print("Problem bin result... removing: ", remove)
+                        result = f.result(timeout=self.max_time_to_recluster_bin)
+                        try:
+                            plots, remove = self.handle_new_embedding(
+                                result[0], result[1], result[2], result[3], result[4],
+                                plots, n, x_min, x_max, y_min, y_max, result[5], result[6], debug=False
+                            )
+                            if debug:
+                                print("Problem bin result... removing: ", remove)
 
-                        if remove:
+                            if remove:
+                                if debug:
+                                    print("Removing bin %d..." % result[0])
+                                bins_to_remove.append(result[0])
+                                self.overclustered = True
+                            elif result[5]:
+                                logging.debug("Removing bin %d through force..." % result[0])
+                                big_tids = big_tids + self.bins[result[0]]
+                                bins_to_remove.append(result[0])
+                            else:
+                                if debug:
+                                    print("Keeping bin %d..." % result[0])
+                                # self.survived.append(result[0])
+                        except concurrent.futures.TimeoutError:
+                            continue
+
+            if len(big_reembed_separately) > 0:
+                with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+
+                    results = [executor.submit(reembed_static,
+                                               bin,
+                                               self.bins[bin],
+                                               self.extract_contigs(self.bins[bin]),
+                                               self.embeddings[
+                                                   self.large_contigs[
+                                                       ~self.disconnected][
+                                                       ~self.disconnected_intersected
+                                                   ]['tid'].isin(self.bins[bin])
+                                               ],
+                                               n_samples, sample_distances,
+                                               self.a, self.b,
+                                               self.n_neighbors,
+                                               min_validity,
+                                               reembed_cluster,
+                                               force_new,
+                                               False,
+                                               switch,
+                                               False
+                                               ) for
+                               (bin, force_new, min_validity, reembed_cluster, switch)
+                               in zip(
+                            big_reembed_separately,
+                            big_force_new_clustering,
+                            big_lower_thresholds,
+                            big_reembed_if_no_cluster,
+                            big_switches
+                        )]
+
+                    for f in concurrent.futures.as_completed(results):
+                        try:
+                            result = f.result(timeout=self.max_time_to_recluster_bin)
+                            plots, remove = self.handle_new_embedding(
+                                result[0], result[1], result[2], result[3], result[4],
+                                plots, n, x_min, x_max, y_min, y_max, result[5], result[6], debug=False
+                            )
                             if debug:
-                                print("Removing bin %d..." % result[0])
-                            bins_to_remove.append(result[0])
-                            self.overclustered = True
-                        elif result[5]:
-                            logging.debug("Removing bin %d through force..." % result[0])
-                            big_tids = big_tids + self.bins[result[0]]
-                            bins_to_remove.append(result[0])
-                        else:
-                            if debug:
-                                print("Keeping bin %d..." % result[0])
-                            self.survived.append(result[0])
+                                print("Problem bin result... removing: ", remove)
+
+                            if remove:
+                                if debug:
+                                    print("Removing bin %d..." % result[0])
+                                bins_to_remove.append(result[0])
+                                self.overclustered = True
+                            elif result[5]:
+                                logging.debug("Removing bin %d through force..." % result[0])
+                                big_tids = big_tids + self.bins[result[0]]
+                                bins_to_remove.append(result[0])
+                            else:
+                                if debug:
+                                    print("Keeping bin %d..." % result[0])
+                                # self.survived.append(result[0])
+                        except concurrent.futures.TimeoutError:
+                            continue
+        
+        # find any bins that potentially timedout
+        [self.survived.append(bin) for bin in big_reembed_separately + reembed_separately if bin not in bins_to_remove]
 
         for k in bins_to_remove:
             try:
@@ -1123,7 +1165,7 @@ class Validator(Clusterer, Embedder):
                 contigs, _, _ = self.extract_contigs(unbinned)
                 not_recovered += contigs['contigLen'].sum()
 
-                if not_recovered > original_size // 2 and not force:
+                if not_recovered > (original_size * 0.6) and not force:
                     logging.debug("Didn't recover enough: %d of %d, %.3f percent" %
                                   (not_recovered, original_size, not_recovered / original_size))
                     split = False
@@ -1272,9 +1314,12 @@ def reembed_static(
                 labels_single = iterative_clustering_static(unbinned_embeddings,
                                                           allow_single_cluster=True,
                                                           double=False, use_multi_processing=False)
+                # labels_single_no_unbinned = list(np.array(labels_single) + 1) # Sometimes obvious clusters are missed, check their validity
                 labels_multi = iterative_clustering_static(unbinned_embeddings,
                                                          allow_single_cluster=False,
                                                          double=False, use_multi_processing=False)
+                # labels_multi_no_unbinned = list(np.array(
+                #     labels_multi) + 1)  # Sometimes obvious clusters are missed, check their validity
 
 
                 # Try out precomputed method, validity metric does not work here
@@ -1292,35 +1337,45 @@ def reembed_static(
                 labels_precomputed = iterative_clustering_static(
                     distances, metric="precomputed", use_multi_processing=False
                 )
+                # labels_precomputed_no_unbinned = list(
+                #     np.array(
+                #         labels_precomputed) + 1
+                # )# Sometimes obvious clusters are missed, check their validity
 
                 labels_kmeans_embeddings, kmeans_score_embeddings = get_best_kmeans_result(unbinned_embeddings, 5, random_seed)
                 labels_kmeans_precom, kmeans_score_precom = get_best_kmeans_result(distances, 5, random_seed)
                 validity_single = Clusterer.validity(labels_single, unbinned_embeddings)
                 validity_multi = Clusterer.validity(labels_multi, unbinned_embeddings)
                 validity_precom = Clusterer.validity(labels_precomputed, unbinned_embeddings)
-
-
-                # Calculate silhouette scores, will fail if only one label
-                # Silhouette scores don't work too well with HDBSCAN though since it
-                # usually requires pretty uniform clusters to generate a value of use
-                try:
-                    silho_single = sk_metrics.silhouette_score(unbinned_embeddings, labels_single)
-                except ValueError:
-                    silho_single = -1
-
-                try:
-                    silho_multi = sk_metrics.silhouette_score(unbinned_embeddings, labels_multi)
-                except ValueError:
-                    silho_multi = -1
-
-                try:
-                    silho_precom = sk_metrics.silhouette_score(distances, labels_precomputed)
-                except ValueError:
-                    silho_precom = -1
-
-                max_single = max(validity_single, silho_single)
-                max_multi = max(validity_multi, silho_multi)
-                max_precom = max(validity_precom, silho_precom)
+                #
+                # validity_single_no_unbinned = Clusterer.validity(labels_single_no_unbinned, unbinned_embeddings)
+                # validity_multi_no_unbinned = Clusterer.validity(labels_multi_no_unbinned, unbinned_embeddings)
+                # validity_precom_no_unbinned = Clusterer.validity(labels_precomputed_no_unbinned, unbinned_embeddings)
+                #
+                #
+                # if validity_single_no_unbinned > validity_single:
+                #     max_single = validity_single_no_unbinned
+                #     labels_single = labels_single_no_unbinned
+                # else:
+                #     max_single = validity_single
+                #
+                # if validity_multi_no_unbinned > validity_multi:
+                #     max_multi = validity_multi_no_unbinned
+                #     labels_multi = labels_multi_no_unbinned
+                # else:
+                #     max_multi = validity_multi
+                #
+                # if validity_precom_no_unbinned > validity_precom:
+                #     max_precom = validity_precom_no_unbinned
+                #     labels_precom = labels_precomputed_no_unbinned
+                # else:
+                #     max_precom = validity_multi
+                # max_single = max(validity_single, silho_single)
+                # max_multi = max(validity_multi, silho_multi)
+                # max_precom = max(validity_precom, silho_precom)
+                max_single = validity_single
+                max_multi = validity_multi
+                max_precom = validity_precom
 
                 if debug:
                     print('Allow single cluster validity: ', max_single)
@@ -1441,30 +1496,30 @@ def reembed_static(
                                                              allow_single_cluster=False,
                                                              double=skip_clustering, use_multi_processing=False)
 
+                    # labels_single_no_unbinned = list(
+                    #     np.array(labels_single) + 1)  # Sometimes obvious clusters are missed, check their validity
+                    # labels_multi_no_unbinned = list(np.array(
+                    #     labels_multi) + 1)  # Sometimes obvious clusters are missed, check their validity
+
                     validity_single = Clusterer.validity(labels_single, new_embeddings)
                     validity_multi = Clusterer.validity(labels_multi, new_embeddings)
+                    # validity_single_no_unbinned = Clusterer.validity(labels_single_no_unbinned, unbinned_embeddings)
+                    # validity_multi_no_unbinned = Clusterer.validity(labels_multi_no_unbinned, unbinned_embeddings)
 
-                    # Calculate silhouette scores, will fail if only one label
-                    # Silhouette scores don't work too well with HDBSCAN though since it
-                    # usually requires pretty uniform clusters to generate a value of use
-                    try:
-                        silho_single = sk_metrics.silhouette_score(unbinned_embeddings, labels_single)
-                    except ValueError:
-                        silho_single = -1
+                    # if validity_single_no_unbinned > validity_single:
+                    #     max_single = validity_single_no_unbinned
+                    #     labels_single = labels_single_no_unbinned
+                    # else:
+                    #     max_single = validity_single
+                    #
+                    # if validity_multi_no_unbinned > validity_multi:
+                    #     max_multi = validity_multi_no_unbinned
+                    #     labels_multi = labels_multi_no_unbinned
+                    # else:
+                    #     max_multi = validity_multi
 
-                    try:
-                        silho_multi = sk_metrics.silhouette_score(unbinned_embeddings, labels_multi)
-                    except ValueError:
-                        silho_multi = -1
-
-                    if debug:
-                        print('Allow single cluster validity: ', validity_single)
-                        print('Allow multi cluster validity: ', validity_multi)
-                        print('Allow single cluster silho: ', silho_single)
-                        print('Allow multi cluster silho: ', silho_multi)
-
-                    max_single = max(validity_single, silho_single)
-                    max_multi = max(validity_multi, silho_multi)
+                    max_single = validity_single
+                    max_multi = validity_multi
 
                     if max_single >= max_multi:
                         if max_validity <= max_single:

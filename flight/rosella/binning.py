@@ -102,6 +102,7 @@ class Binner:
             initialization='spectral',
             random_seed=42069
     ):
+        self.max_time_to_recluster_bin = 7200 # two hours
         self.findem = []
         self.min_contig_size = min_contig_size
         self.min_bin_size = min_bin_size
