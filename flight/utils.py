@@ -29,8 +29,8 @@ __status__ = "Development"
 ###############################################################################
 # System imports
 import warnings
-import logging
 import re
+import sys
 
 # Function imports
 import numpy as np
@@ -39,10 +39,13 @@ import multiprocessing as mp
 import hdbscan
 import itertools
 import threadpoolctl
+import concurrent.futures
+from numba import set_num_threads
 import imageio
 import seaborn as sns
 import matplotlib
 import matplotlib.pyplot as plt
+import sklearn.metrics as sk_metrics
 from sklearn.metrics.pairwise import pairwise_distances
 
 ###############################################################################                                                                                                                      [44/1010]
@@ -105,16 +108,58 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
         cluster_validity = hdbscan.validity.validity_index(df.astype(np.float64), clust_alg.labels_)
     except ValueError:
         cluster_validity = -1
+
+    # Calculate silhouette scores, will fail if only one label
+    # Silhouette scores don't work too well with HDBSCAN though since it
+    # usually requires pretty uniform clusters to generate a value of use
+    # try:
+    #     silho_score = sk_metrics.silhouette_score(df, clust_alg.labels_)
+    # except ValueError:
+    #     silho_score = -1
     
-    validity_score = clust_alg.relative_validity_
+    validity_score = max(clust_alg.relative_validity_, cluster_validity)
     n_clusters = np.max(clust_alg.labels_)
 
     return (min_cluster_size, min_samples, validity_score, n_clusters)
 
+def precomputed_cluster(df, n, gamma, ms, allow_single_cluster=False, threads=1):
+    try:
+        clust_alg = hdbscan.HDBSCAN(algorithm='best',
+                                    metric='precomputed',
+                                    min_cluster_size=int(gamma),
+                                    min_samples=ms,
+                                    allow_single_cluster=allow_single_cluster,
+                                    core_dist_n_jobs=threads).fit(df)
+
+        min_cluster_size = clust_alg.min_cluster_size
+        min_samples = clust_alg.min_samples
+
+        try:
+            cluster_validity = hdbscan.validity.validity_index(df.astype(np.float64), clust_alg.labels_)
+        except ValueError:
+            cluster_validity = -1
+
+        # Calculate silhouette scores, will fail if only one label
+        # Silhouette scores don't work too well with HDBSCAN though since it
+        # usually requires pretty uniform clusters to generate a value of use
+        # try:
+        #     silho_precom = sk_metrics.silhouette_score(df, clust_alg.labels_)
+        # except ValueError:
+        #     silho_precom = -1
+
+
+        validity_score = max(cluster_validity, 0)
+        n_clusters = np.max(clust_alg.labels_)
+
+        return (min_cluster_size, min_samples, validity_score, n_clusters)
+    except ValueError:
+        print(df)
+        sys.exit(1)
 
 def hyperparameter_selection(df, cores=10,
                              method='eom', metric='euclidean',
-                             allow_single_cluster=False, starting_size = 2):
+                             allow_single_cluster=False,
+                             starting_size = 2, use_multi_processing=True):
     """
     Input:
     df - embeddings from UMAP
@@ -132,17 +177,63 @@ def hyperparameter_selection(df, cores=10,
         end_size = starting_size + 10
     else:
         end_size = min(max(np.log2(n), min(10, (n - 1) // 2)), 10)
-    
-    for gamma in range(starting_size, int(end_size)):
-        # mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
-        #               range(starting_size, int(end_size))]
-        # for result in mp_results:
-        #     result = result.get()
-        #     results.append(result)
-        for ms in range(starting_size, int(end_size)):
-            mp_results = mp_cluster(df, n, gamma, ms, method,
-                                    metric, allow_single_cluster, cores)
-            results.append(mp_results)
+
+    if use_multi_processing:
+        numpy_thread_limit = max(cores // 5, 1)
+        if numpy_thread_limit == 1:
+            worker_limit = cores
+        else:
+            worker_limit = max(cores // numpy_thread_limit, 1)
+
+        # set_num_threads(min(1, numpy_thread_limit))
+
+        with threadpoolctl.threadpool_limits(limits=numpy_thread_limit, user_api='blas'):
+            with concurrent.futures.ProcessPoolExecutor(max_workers=worker_limit) as executor:
+
+                for gamma in range(starting_size, int(end_size)):
+                    # mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
+                    #               range(starting_size, int(end_size))]
+                    # for result in mp_results:
+                    #     result = result.get()
+                    #     results.append(result)
+                    if metric == 'precomputed':
+                        inner_results = [
+                            executor.submit(
+                                precomputed_cluster,
+                                df,
+                                n,
+                                gamma,
+                                ms,
+                                allow_single_cluster,
+                                numpy_thread_limit
+                            ) for ms in range(starting_size, int(end_size))
+                        ]
+                    else:
+                        inner_results = [
+                            executor.submit(
+                                mp_cluster,
+                                df,
+                                n,
+                                gamma,
+                                ms,
+                                method,
+                                metric,
+                                allow_single_cluster,
+                                numpy_thread_limit,
+                            ) for ms in range(starting_size, int(end_size))
+                        ]
+
+                    for f in concurrent.futures.as_completed(inner_results):
+                        results.append(f.result())
+    else:
+        for gamma in range(starting_size, int(end_size)):
+            for ms in range(starting_size, int(end_size)):
+                if metric == 'precomputed':
+                    mp_results = precomputed_cluster(df, n, gamma, ms, allow_single_cluster, cores)
+                else:
+                    mp_results = mp_cluster(df, n, gamma, ms, method,
+                                            metric, allow_single_cluster, cores)
+                results.append(mp_results)
 
     # pool.close()
     # pool.join()
@@ -166,49 +257,55 @@ def best_validity(source):
 
 
 # Calculates distances between clusters using minimum spanning trees
-def cluster_distances(embeddings, cluster_result, threads):
-    with threadpoolctl.threadpool_limits(limits=threads, user_api='blas'):
-        pool = mp.Pool(max(int(threads / 5), 1))
-        labels = set(cluster_result.labels_)
-        try:
-            labels.remove(-1)
-        except KeyError:
-            None
+def cluster_distances(embeddings, labels, threads):
 
-        dist_mat = np.zeros((len(labels), len(labels)))
+    set_labels = list(np.sort(np.array(list(set(labels)))))
+    try:
+        set_labels.remove(-1)
+    except KeyError:
+        None
 
-        dist_results = [pool.apply_async(get_dist, args=(first, second, embeddings, cluster_result)) for (first, second) in
-                        itertools.combinations(labels, 2)]
+    dist_mat = np.zeros((len(set_labels), len(set_labels)))
 
-        for result in dist_results:
-            result = result.get()
-            dist_mat[result[0], result[1]] = result[2]
-            dist_mat[result[1], result[0]] = result[2]
-
-        pool.close()
-        pool.join()
-
-        return dist_mat
+    set_labels = np.array(set_labels)
+    for (first, second) in itertools.combinations(set_labels, 2):
+        result = get_dist(first, second, embeddings, labels)
+        idx_1 = np.argwhere(set_labels == result[0])[0][0]
+        idx_2 = np.argwhere(set_labels == result[1])[0][0]
+        dist_mat[idx_1, idx_2] = result[2]
+        dist_mat[idx_2, idx_1] = result[2]
 
 
-def get_dist(first, second, embeddings, cluster_result):
+    return dist_mat
+
+
+def get_dist(first, second, embeddings, labels):
     try:
         # Calculate within core mutual reachability and all core distance
-        (first_mr, first_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, cluster_result.labels_, first)
+        (first_mr, first_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, labels, first)
         # Calcualtes the internal minimum spanning tree for a cluster
         (first_nodes, first_edges) = hdbscan.validity.internal_minimum_spanning_tree(first_mr.astype(np.float64))
 
-        (second_mr, second_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, cluster_result.labels_,
+        (second_mr, second_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, labels,
                                                                                    second)
         (second_nodes, second_edges) = hdbscan.validity.internal_minimum_spanning_tree(second_mr.astype(np.float64))
 
         # Calculates the density separation between two clusters using the above results
-        sep = hdbscan.validity.density_separation(embeddings, cluster_result.labels_, first, second, first_nodes,
+        sep = hdbscan.validity.density_separation(embeddings, labels, first, second, first_nodes,
                                                   second_nodes, first_core, second_core)
     except ValueError:
         sep = 1.0
 
     return first, second, sep
+
+
+def combine_bins(embeddings, labels, max_bin_id, new_bins, min_distance=0.5):
+    """
+    Function to prevent bins from splitting when they are not separated significantly in embedding space
+    """
+    ## Get cluster distances.
+    cluster_separation = cluster_distances(embeddings, labels)
+
 
 
 def break_overclustered(embeddings, threads):

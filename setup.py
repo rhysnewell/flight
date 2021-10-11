@@ -1,6 +1,7 @@
 import io
 from os.path import dirname, join
 from setuptools import setup
+import setuptools
 
 
 # read the contents of your README file
@@ -30,7 +31,7 @@ setup(
     description='flight - metagenomic binner and variant clusterer.',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    packages=['flight'],
+    packages=setuptools.find_packages(),
     package_data={'': [
             "flight/*",
                        ]},
