@@ -160,15 +160,25 @@ class Cluster():
         self.path = output_prefix
         self.depths = np.load(count_path)
 
+        if self.depths.shape[1] == 1:
+            self.single_sample = True
+        else:
+            self.single_sample = False
         ## Scale the data
-        self.sample_distance = utils.sample_distance(self.depths)
+        # self.sample_distance = utils.sample_distance(self.depths)
 
         self.clr_depths = skbio.stats.composition.clr((self.depths + 1).T).T
+        if self.single_sample:
+            # Have to reshape after clr transformation
+            self.clr_depths = self.clr_depths.reshape((-1, 1))
 
         self.n_samples = self.depths.shape[1]
 
         if n_components > self.depths.shape[1]:
             n_components = min(max(self.depths.shape[1], 2), 5)
+
+        if n_neighbors > self.depths.shape[0]:
+            n_neighbors = self.depths.shape[0] - 1
 
         self.rho_reducer = umap.UMAP(
             n_neighbors=n_neighbors,
@@ -187,8 +197,8 @@ class Cluster():
             n_components=n_components,
             # random_state=random_state,
             spread=1,
-            metric=metrics.hellinger_distance_poisson_variants,
-            metric_kwds={'n_samples': self.n_samples, 'sample_distances': self.sample_distance},
+            # metric="euclidean",
+            # metric_kwds={'n_samples': self.n_samples, 'sample_distances': self.sample_distance},
             a=a,
             b=b,
         )
@@ -198,7 +208,7 @@ class Cluster():
         else:
             self.metric = "euclidean"
 
-        self.update_umap_params(self.depths.shape[0])
+        # self.update_umap_params(self.depths.shape[0])
 
     def update_umap_params(self, nrows):
         if nrows <= 10000: # high gear
@@ -232,10 +242,10 @@ class Cluster():
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
-        dist_embeddings = self.distance_reducer.fit_transform(self.depths)
-        rho_embeddings = self.rho_reducer.fit_transform(self.clr_depths)
+        dist_embeddings = self.distance_reducer.fit(self.clr_depths)
+        rho_embeddings = self.rho_reducer.fit(self.clr_depths)
         intersect = dist_embeddings * rho_embeddings
-        self.embeddings = intersect.embeddings_
+        self.embeddings = intersect.embedding_
 
     def cluster(self):
         ## Cluster on the UMAP embeddings and return soft clusters
@@ -302,6 +312,7 @@ class Cluster():
         # cluster_member_colors = [
             # sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
         # ]
+        cluster_means = self.get_cluster_means()
         fig = plt.figure()
         ax = fig.add_subplot(111)
         ax.scatter(self.embeddings[:, 0],
@@ -310,10 +321,40 @@ class Cluster():
                    linewidth=0,
                    c=cluster_colors,
                    alpha=0.7)
+
+        for label, coords in cluster_means.items():
+            plt.annotate(
+                label,
+                coords,
+                size = 14,
+                weight = 'bold',
+                color = color_palette[label - 1]
+            )
+
         # ax.add_artist(legend)
         plt.gca().set_aspect('equal', 'datalim')
         plt.title('UMAP projection of variants', fontsize=24)
         plt.savefig(self.path + '_UMAP_projection_with_clusters.png')
+
+    def get_cluster_means(self):
+        result = {}
+        cluster_size = {}
+        for (i, label) in enumerate(self.clusterer.labels_ + 1):
+            try:
+                label_val = result[label]
+                label_val[0] += self.embeddings[i, 0]
+                label_val[1] += self.embeddings[i, 1]
+                cluster_size[label] += 1
+            except KeyError:
+                result[label] = list(self.embeddings[i, :])
+                cluster_size[label] = 1
+
+        new_result = {}
+        for (key, value) in result.items():
+            new_values = [val / cluster_size[key] for val in value]
+            new_result[key] = new_values
+
+        return new_result
 
     def plot_distances(self):
         self.clusterer.condensed_tree_.plot(
@@ -324,7 +365,7 @@ class Cluster():
 
     def labels(self):
         try:
-            return self.soft_clusters_capped.astype('int32')
+            return self.clusterer.labels_.astype('int32') + 1
         except AttributeError:
             return self.clusterer.labels_.astype('int32')
 

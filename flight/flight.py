@@ -372,7 +372,7 @@ def main():
 
 def fit(args):
     prefix = args.input.replace(".npy", "")
-    os.environ["NUMEXPR_MAX_THREADS"] = "1"
+    os.environ["NUMEXPR_MAX_THREADS"] = args.threads
     set_num_threads(int(args.threads))
 
     with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):

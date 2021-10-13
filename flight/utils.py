@@ -82,7 +82,8 @@ def plot_for_offset(embeddings, labels, x_min, x_max, y_min, y_max, n):
 
     return image
 
-def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_cluster=False):
+
+def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_cluster=False, threads=1):
     """
     Asynchronous parallel function for use with hyperparameter_selection function
     """
@@ -95,11 +96,25 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
                                 min_cluster_size=int(gamma),
                                 min_samples=ms,
                                 allow_single_cluster=allow_single_cluster,
-                                core_dist_n_jobs=20).fit(df)
+                                core_dist_n_jobs=threads).fit(df)
 
     min_cluster_size = clust_alg.min_cluster_size
     min_samples = clust_alg.min_samples
-    validity_score = clust_alg.relative_validity_
+
+    try:
+        cluster_validity = hdbscan.validity.validity_index(df.astype(np.float64), clust_alg.labels_)
+    except ValueError:
+        cluster_validity = -1
+
+    # Calculate silhouette scores, will fail if only one label
+    # Silhouette scores don't work too well with HDBSCAN though since it
+    # usually requires pretty uniform clusters to generate a value of use
+    # try:
+    #     silho_score = sk_metrics.silhouette_score(df, clust_alg.labels_)
+    # except ValueError:
+    #     silho_score = -1
+
+    validity_score = max(clust_alg.relative_validity_, cluster_validity)
     n_clusters = np.max(clust_alg.labels_)
 
     return (min_cluster_size, min_samples, validity_score, n_clusters)
@@ -115,19 +130,19 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
     Output:
     Quality metrics for multiple HDBSCAN clusterings
     """
-    pool = mp.Pool(cores)
     warnings.filterwarnings('ignore')
     results = []
     n = df.shape[0]
-    for gamma in range(starting_size, int(np.log(max(n, 3)))):
-        mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
-                      range(1, int(2 * np.log(n)))]
-        for result in mp_results:
-            result = result.get()
-            results.append(result)
+    if starting_size >= np.log2(n):
+        end_size = starting_size + 10
+    else:
+        end_size = min(max(np.log2(n), min(10, (n - 1) // 2)), 10)
 
-    pool.close()
-    pool.join()
+    for gamma in range(starting_size, int(end_size)):
+        for ms in range(starting_size, int(end_size)):
+            mp_results = mp_cluster(df, n, gamma, ms, method,
+                                    metric, allow_single_cluster, cores)
+            results.append(mp_results)
 
     return results
 
