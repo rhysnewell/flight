@@ -249,7 +249,7 @@ class Cluster():
 
     def cluster(self):
         ## Cluster on the UMAP embeddings and return soft clusters
-        tuned = utils.hyperparameter_selection(self.embeddings, self.threads, metric=self.metric)
+        tuned = utils.hyperparameter_selection(self.embeddings, self.threads, metric=self.metric, starting_size=5)
         best = utils.best_validity(tuned)
         self.clusterer = hdbscan.HDBSCAN(
             algorithm='best',
