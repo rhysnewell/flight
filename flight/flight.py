@@ -40,14 +40,12 @@ import datetime
 # Function imports
 import numpy as np
 import pandas as pd
-from numba import config, set_num_threads
 import threadpoolctl
 import warnings
 import imageio
+import random
 
 # Self imports
-from .binning import Binner
-from .cluster import Cluster
 import flight.utils as utils
 
 # Debug
@@ -70,6 +68,8 @@ class BadTreeFileException(Exception):
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
 def main():
+    random.seed(42069)
+    np.random.seed(42069)
     ############################ ~ Main Parser ~ ##############################
     main_parser = argparse.ArgumentParser(prog='flight',
                                           formatter_class=CustomHelpFormatter,
@@ -373,8 +373,11 @@ def main():
 def fit(args):
     prefix = args.input.replace(".npy", "")
     os.environ["NUMEXPR_MAX_THREADS"] = args.threads
-    set_num_threads(int(args.threads))
 
+    from .cluster import Cluster
+    from numba import config, set_num_threads
+
+    set_num_threads(int(args.threads))
     with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -389,11 +392,15 @@ def fit(args):
                                    threads=int(args.threads),
                                    )
                 clusterer.fit_transform()
-                clusterer.cluster()
-                # clusterer.break_clusters()
+                clusterer.labels = clusterer.cluster(clusterer.embeddings)
+                clusterer.recover_unbinned()
+                clusterer.recluster()
+                clusterer.cluster_means = clusterer.get_cluster_means()
                 clusterer.plot()
 
-                np.save(prefix + '_labels.npy', clusterer.labels())
+                logging.info("Writing variant labels...")
+                np.save(prefix + '_labels.npy', clusterer.labels_for_printing())
+                logging.info("Calculating cluster separation values...")
                 np.save(prefix + '_separation.npy', clusterer.cluster_separation())
             else:
                 clusterer = Cluster(args.input,
@@ -413,6 +420,10 @@ def fit(args):
 def bin(args):
     prefix = args.output
     os.environ["NUMEXPR_MAX_THREADS"] = "1"
+
+    from .binning import Binner
+    from numba import config, set_num_threads
+
     set_num_threads(int(args.threads))
     if args.long_input is None and args.input is None:
         logging.warning("bin requires either short or longread coverage values.")

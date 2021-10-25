@@ -43,6 +43,7 @@ import imageio
 import seaborn as sns
 import matplotlib
 import matplotlib.pyplot as plt
+import concurrent
 from sklearn.metrics.pairwise import pairwise_distances
 
 ###############################################################################                                                                                                                      [44/1010]
@@ -120,7 +121,10 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
     return (min_cluster_size, min_samples, validity_score, n_clusters)
 
 
-def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', allow_single_cluster=False, starting_size = 2):
+def hyperparameter_selection(df, cores=10,
+                             method='eom', metric='euclidean',
+                             allow_single_cluster=False,
+                             starting_size = 2, use_multi_processing=True):
     """
     Input:
     df - embeddings from UMAP
@@ -130,6 +134,7 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
     Output:
     Quality metrics for multiple HDBSCAN clusterings
     """
+    # pool = mp.Pool(cores)
     warnings.filterwarnings('ignore')
     results = []
     n = df.shape[0]
@@ -138,11 +143,65 @@ def hyperparameter_selection(df, cores=10, method='eom', metric='euclidean', all
     else:
         end_size = min(max(np.log2(n), min(10, (n - 1) // 2)), 10)
 
-    for gamma in range(starting_size, int(end_size)):
-        for ms in range(starting_size, int(end_size)):
-            mp_results = mp_cluster(df, n, gamma, ms, method,
-                                    metric, allow_single_cluster, cores)
-            results.append(mp_results)
+    if use_multi_processing:
+        numpy_thread_limit = max(cores // 5, 1)
+        if numpy_thread_limit == 1:
+            worker_limit = cores
+        else:
+            worker_limit = max(cores // numpy_thread_limit, 1)
+
+        # set_num_threads(min(1, numpy_thread_limit))
+
+        with threadpoolctl.threadpool_limits(limits=numpy_thread_limit, user_api='blas'):
+            with concurrent.futures.ProcessPoolExecutor(max_workers=worker_limit) as executor:
+
+                for gamma in range(starting_size, int(end_size)):
+                    # mp_results = [pool.apply_async(mp_cluster, args=(df, n, gamma, ms, method, metric, allow_single_cluster)) for ms in
+                    #               range(starting_size, int(end_size))]
+                    # for result in mp_results:
+                    #     result = result.get()
+                    #     results.append(result)
+                    if metric == 'precomputed':
+                        inner_results = [
+                            executor.submit(
+                                precomputed_cluster,
+                                df,
+                                n,
+                                gamma,
+                                ms,
+                                allow_single_cluster,
+                                numpy_thread_limit
+                            ) for ms in range(starting_size, int(end_size))
+                        ]
+                    else:
+                        inner_results = [
+                            executor.submit(
+                                mp_cluster,
+                                df,
+                                n,
+                                gamma,
+                                ms,
+                                method,
+                                metric,
+                                allow_single_cluster,
+                                numpy_thread_limit,
+                            ) for ms in range(starting_size, int(end_size))
+                        ]
+
+                    for f in concurrent.futures.as_completed(inner_results):
+                        results.append(f.result())
+    else:
+        for gamma in range(starting_size, int(end_size)):
+            for ms in range(starting_size, int(end_size)):
+                if metric == 'precomputed':
+                    mp_results = precomputed_cluster(df, n, gamma, ms, allow_single_cluster, cores)
+                else:
+                    mp_results = mp_cluster(df, n, gamma, ms, method,
+                                            metric, allow_single_cluster, cores)
+                results.append(mp_results)
+
+    # pool.close()
+    # pool.join()
 
     return results
 
@@ -163,44 +222,83 @@ def best_validity(source):
 
 
 # Calculates distances between clusters using minimum spanning trees
-def cluster_distances(embeddings, cluster_result, threads):
-    with threadpoolctl.threadpool_limits(limits=threads, user_api='blas'):
-        pool = mp.Pool(max(int(threads / 5), 1))
-        labels = set(cluster_result.labels_)
-        try:
-            labels.remove(-1)
-        except KeyError:
-            None
+def cluster_distances(embeddings, labels, threads=1):
+    # with threadpoolctl.threadpool_limits(limits=threads, user_api='blas'):
+    #     pool = mp.Pool(max(int(threads / 5), 1))
 
-        dist_mat = np.zeros((len(labels), len(labels)))
+    labels_no_unlabelled = set(labels[labels != -1])
+    dist_mat = np.zeros((len(labels_no_unlabelled), len(labels_no_unlabelled)))
 
-        dist_results = [pool.apply_async(get_dist, args=(first, second, embeddings, cluster_result)) for (first, second) in
-                        itertools.combinations(labels, 2)]
+    # dist_results = [pool.apply_async(get_dist, args=(first, second, embeddings, cluster_result)) for (first, second) in
+    #                 itertools.combinations(labels, 2)]
 
-        for result in dist_results:
-            result = result.get()
-            dist_mat[result[0], result[1]] = result[2]
-            dist_mat[result[1], result[0]] = result[2]
+    cluster_metrics = {}
+    # numpy_thread_limit = max(threads // min(len(set(labels)), 10), 2)
+    # worker_limit = max(threads // numpy_thread_limit, 1)
+    # with threadpoolctl.threadpool_limits(limits=threads, user_api='blas'):
+    #     with concurrent.futures.ProcessPoolExecutor(max_workers=worker_limit) as executor:
+    #         futures = [executor.submit(
+    #             calculate_cluster_metrics,
+    #             label,
+    #             labels,
+    #             embeddings,
+    #         ) for label in labels]
+    #
+    #         for future in concurrent.futures.as_completed(futures):
+    #             result = future.result()
+    #             cluster_metrics[result[0]] = result[1:]
 
-        pool.close()
-        pool.join()
-
-        return dist_mat
+    for label in labels_no_unlabelled:
+        cluster_metrics[label] = calculate_cluster_metrics(label, labels, embeddings)
 
 
-def get_dist(first, second, embeddings, cluster_result):
+    # with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as executor:
+    #     futures = [executor.submit(
+    #         get_dist,
+    #         first,
+    #         second,
+    #         embeddings,
+    #         labels,
+    #         cluster_metrics
+    #     ) for (first, second) in itertools.combinations(labels_no_unlabelled, 2)]
+    #
+    #     for future in concurrent.futures.as_completed(futures):
+    #         result = future.result()
+    #         dist_mat[result[0], result[1]] = result[2]
+    #         dist_mat[result[1], result[0]] = result[2]
+    for (first, second) in itertools.combinations(labels_no_unlabelled, 2):
+        result = get_dist(first, second, embeddings, labels, cluster_metrics)
+        dist_mat[result[0], result[1]] = result[2]
+        dist_mat[result[1], result[0]] = result[2]
+
+
+    return dist_mat
+
+def calculate_cluster_metrics(label, labels, embeddings):
+    # Calculate within core mutual reachability and all core distance
+    (label_mr, label_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, labels, label)
+    # Calcualtes the internal minimum spanning tree for a cluster
+    (label_nodes, label_edges) = hdbscan.validity.internal_minimum_spanning_tree(label_mr.astype(np.float64))
+
+    return label_nodes, label_core
+
+
+def get_dist(first, second, embeddings, labels, cluster_metrics):
     try:
-        # Calculate within core mutual reachability and all core distance
-        (first_mr, first_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, cluster_result.labels_, first)
-        # Calcualtes the internal minimum spanning tree for a cluster
-        (first_nodes, first_edges) = hdbscan.validity.internal_minimum_spanning_tree(first_mr.astype(np.float64))
+        # # Calculate within core mutual reachability and all core distance
+        # (first_mr, first_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, labels, first)
+        # # Calcualtes the internal minimum spanning tree for a cluster
+        # (first_nodes, first_edges) = hdbscan.validity.internal_minimum_spanning_tree(first_mr.astype(np.float64))
+        #
+        # (second_mr, second_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, labels,
+        #                                                                            second)
+        # (second_nodes, second_edges) = hdbscan.validity.internal_minimum_spanning_tree(second_mr.astype(np.float64))
 
-        (second_mr, second_core) = hdbscan.validity.all_points_mutual_reachability(embeddings, cluster_result.labels_,
-                                                                                   second)
-        (second_nodes, second_edges) = hdbscan.validity.internal_minimum_spanning_tree(second_mr.astype(np.float64))
+        first_nodes, first_core = cluster_metrics[first]
+        second_nodes, second_core = cluster_metrics[second]
 
         # Calculates the density separation between two clusters using the above results
-        sep = hdbscan.validity.density_separation(embeddings, cluster_result.labels_, first, second, first_nodes,
+        sep = hdbscan.validity.density_separation(embeddings, labels, first, second, first_nodes,
                                                   second_nodes, first_core, second_core)
     except ValueError:
         sep = 1.0

@@ -45,9 +45,11 @@ import matplotlib
 matplotlib.use('pdf')
 import matplotlib.pyplot as plt
 import skbio.stats.composition
+from sklearn.metrics import pairwise_distances
 import umap
 from numba import set_num_threads
 import pynndescent
+import itertools
 
 # self imports
 import flight.utils as utils
@@ -132,7 +134,7 @@ class CustomHelpFormatter(argparse.HelpFormatter):
         return ''.join([indent + line for line in text.splitlines(True)])
 
 
-class Cluster():
+class Cluster:
     def __init__(
         self,
         count_path,
@@ -155,6 +157,8 @@ class Cluster():
     ):
         set_num_threads(threads)
         self.embeddings = []
+        self.labels = None
+        self.cluster_means = None
         self.threads = threads
         ## Set up clusterer and UMAP
         self.path = output_prefix
@@ -172,10 +176,10 @@ class Cluster():
             # Have to reshape after clr transformation
             self.clr_depths = self.clr_depths.reshape((-1, 1))
 
-        self.n_samples = self.depths.shape[1]
+        self.n_samples = self.depths.shape[1] // 2
 
-        if n_components > self.depths.shape[1]:
-            n_components = min(max(self.depths.shape[1], 2), 5)
+        # if n_components > self.depths.shape[1]:
+        n_components = min(self.n_samples, 10)
 
         if n_neighbors > self.depths.shape[0]:
             n_neighbors = self.depths.shape[0] - 1
@@ -208,33 +212,6 @@ class Cluster():
         else:
             self.metric = "euclidean"
 
-        # self.update_umap_params(self.depths.shape[0])
-
-    def update_umap_params(self, nrows):
-        if nrows <= 10000: # high gear
-            # Small datasets can have larger n_neighbors without being prohibitively slow
-            if nrows <= 1000: # wheels fell off
-                self.rho_reducer.n_neighbors = nrows // 10
-                self.distance_reducer.n_neighbors = nrows // 10
-            else:
-                self.rho_reducer.n_neighbors = 100
-                self.distance_reducer.n_neighbors = 100
-            self.rho_reducer.n_epochs = 500
-            self.distance_reducer.n_epochs = 500
-        elif nrows <= 50000: # mid gear
-            # Things start to get too slow around here, so scale back params
-            self.rho_reducer.n_neighbors = 50
-            self.rho_reducer.n_epochs = 400
-            self.distance_reducer.n_neighbors = 50
-            self.distance_reducer.n_epochs = 400
-        else: # low gear
-            # This is the super slow zone, but don't want to dip values below this
-            # Hopefully pick out easy bins, then scale data down with each iterations
-            # Allowing the params to bump up into other gears
-            self.rho_reducer.n_neighbors = 30
-            self.rho_reducer.n_epochs = 300
-            self.distance_reducer.n_neighbors = 30
-            self.distance_reducer.n_epochs = 300
 
     def filter(self):
         # Not sure to include this
@@ -247,39 +224,102 @@ class Cluster():
         intersect = dist_embeddings * rho_embeddings
         self.embeddings = intersect.embedding_
 
-    def cluster(self):
-        ## Cluster on the UMAP embeddings and return soft clusters
-        tuned = utils.hyperparameter_selection(self.embeddings, self.threads, metric=self.metric, starting_size=5)
-        best = utils.best_validity(tuned)
-        self.clusterer = hdbscan.HDBSCAN(
-            algorithm='best',
-            alpha=1.0,
-            approx_min_span_tree=True,
-            gen_min_span_tree=True,
-            leaf_size=40,
-            cluster_selection_method='eom',
-            metric=self.metric,
-            min_cluster_size=int(best['min_cluster_size']),
-            min_samples=int(best['min_samples']),
-            allow_single_cluster=False,
-            core_dist_n_jobs=self.threads,
-            prediction_data=True
-        )
-        logging.info("Running HDBSCAN - %s" % self.clusterer)
-        self.clusterer.fit(self.embeddings)
+    def cluster(self, embeddings):
         try:
-            self.validity, self.cluster_validity = hdbscan.validity.validity_index(self.embeddings.astype(np.float64),
-                                                                                   self.clusterer.labels_,
-                                                                                   per_cluster_scores=True)
-        except ValueError:
-            self.validity = None
-            self.cluster_validity = [0.5 for i in range(len(set(self.clusterer.labels_)))]
-        self.soft_clusters = hdbscan.all_points_membership_vectors(
-            self.clusterer)
-        self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
+            ## Cluster on the UMAP embeddings and return soft clusters
+            tuned = utils.hyperparameter_selection(embeddings, self.threads, metric=self.metric, starting_size=max(2, round(embeddings.shape[0] * 0.05)), use_multi_processing=False)
+            best = utils.best_validity(tuned)
+            self.clusterer = hdbscan.HDBSCAN(
+                algorithm='best',
+                alpha=1.0,
+                approx_min_span_tree=True,
+                gen_min_span_tree=True,
+                leaf_size=40,
+                cluster_selection_method='eom',
+                metric=self.metric,
+                min_cluster_size=int(best['min_cluster_size']),
+                min_samples=int(best['min_samples']),
+                allow_single_cluster=False,
+                core_dist_n_jobs=self.threads,
+                prediction_data=True
+            )
+            # logging.info("Running HDBSCAN - %s" % self.clusterer)
+            self.clusterer.fit(embeddings)
+            try:
+                self.validity, self.cluster_validity = hdbscan.validity.validity_index(embeddings.astype(np.float64),
+                                                                                       self.clusterer.labels_,
+                                                                                       per_cluster_scores=True)
+            except ValueError:
+                self.validity = None
+                self.cluster_validity = [0.5 for i in range(len(set(self.clusterer.labels_)))]
+
+            return self.clusterer.labels_
+        except TypeError:
+            return None
+
+    """
+    Reclusters unclustered elements and updates the labels array with the potential new label making sure to make the label
+    at least 1 value higher than the previous max label value
+    """
+    def recover_unbinned(self):
+        unclustered_truth_array = self.labels == -1
+        unclustered_embeddings = self.embeddings[unclustered_truth_array]
+        if unclustered_embeddings.shape[0] > 5:
+            unclustered_labels = self.cluster(unclustered_embeddings)
+
+            if unclustered_labels is not None:
+                previous_max_label = np.max(self.labels)
+
+                unclustered_idx = 0
+                for (idx, label) in enumerate(self.labels):
+                    if label == -1:
+                        new_label = unclustered_labels[unclustered_idx]
+                        if new_label != -1:
+                            new_label += previous_max_label + 1
+                            self.labels[idx] = new_label
+                        unclustered_idx += 1
+
+    def recluster(self):
+        unique_labels = set(self.labels)
+        logging.info("Refining clusters...")
+        for label in unique_labels:
+            if label != -1:
+                truth_array = self.labels == label
+                embeddings_for_label = self.embeddings[truth_array]
+                recluster_attempt = self.cluster(embeddings_for_label)
+                if recluster_attempt is not None:
+                    try:
+                        cluster_validity = hdbscan.validity.validity_index(embeddings_for_label.astype(np.float64), np.array(recluster_attempt), per_cluster_scores=False)
+                    except ValueError:
+                        cluster_validity = -1
+
+                    if cluster_validity >= 0.9:
+                        # print("reclustering %d validity %.3f" % (label, cluster_validity))
+                        if not np.any(recluster_attempt == -1):
+                            # shift all labels greater than current label down by one since this label is fully
+                            # removed
+                            self.labels[self.labels >= label] = self.labels[self.labels >= label] - 1
+
+                        previous_max_label = np.max(self.labels)
+
+                        new_labels_idx = 0
+                        for (idx, label) in enumerate(truth_array):
+                            if label:
+                                new_label = recluster_attempt[new_labels_idx]
+                                if new_label != -1:
+                                    new_label += previous_max_label + 1
+                                    self.labels[idx] = new_label
+                                new_labels_idx += 1
 
     def cluster_separation(self):
-        dist_mat = utils.cluster_distances(self.embeddings, self.clusterer, self.threads)
+        # dist_mat = utils.cluster_distances(self.embeddings, self.labels, self.threads)
+        labels_no_unlabelled = set(self.labels[self.labels != -1])
+        cluster_centres = [[] for _ in range(len(labels_no_unlabelled))]
+        for label in labels_no_unlabelled:
+            cluster_centres[label] = self.cluster_means[label]
+
+        dist_mat = pairwise_distances(cluster_centres)
+
         return dist_mat
 
 
@@ -305,14 +345,14 @@ class Cluster():
         self.clusterer.fit(self.embeddings)
 
     def plot(self):
-        color_palette = sns.color_palette('Paired', max(self.clusterer.labels_) + 1)
+        color_palette = sns.color_palette('Paired', max(self.labels) + 1)
         cluster_colors = [
-            color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.clusterer.labels_
+            color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.labels
         ]
         # cluster_member_colors = [
             # sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
         # ]
-        cluster_means = self.get_cluster_means()
+
         fig = plt.figure()
         ax = fig.add_subplot(111)
         ax.scatter(self.embeddings[:, 0],
@@ -322,14 +362,15 @@ class Cluster():
                    c=cluster_colors,
                    alpha=0.7)
 
-        for label, coords in cluster_means.items():
-            plt.annotate(
-                label,
-                coords,
-                size = 14,
-                weight = 'bold',
-                color = color_palette[label - 1]
-            )
+        for label, coords in self.cluster_means.items():
+            if label != -1:
+                plt.annotate(
+                    label,
+                    coords,
+                    size = 14,
+                    weight = 'bold',
+                    color = color_palette[label]
+                )
 
         # ax.add_artist(legend)
         plt.gca().set_aspect('equal', 'datalim')
@@ -339,14 +380,14 @@ class Cluster():
     def get_cluster_means(self):
         result = {}
         cluster_size = {}
-        for (i, label) in enumerate(self.clusterer.labels_ + 1):
+        for (i, label) in enumerate(self.labels):
             try:
                 label_val = result[label]
                 label_val[0] += self.embeddings[i, 0]
                 label_val[1] += self.embeddings[i, 1]
                 cluster_size[label] += 1
             except KeyError:
-                result[label] = list(self.embeddings[i, :])
+                result[label] = list(self.embeddings[i, :2])
                 cluster_size[label] = 1
 
         new_result = {}
@@ -363,11 +404,11 @@ class Cluster():
         plt.title('Hierarchical tree of clusters', fontsize=24)
         plt.savefig(self.path + '_UMAP_projection_with_clusters.png')
 
-    def labels(self):
+    def labels_for_printing(self):
         try:
-            return self.clusterer.labels_.astype('int32') + 1
+            return self.labels.astype('int32') + 1
         except AttributeError:
-            return self.clusterer.labels_.astype('int32')
+            return self.labels.astype('int32')
 
     def break_clusters(self):
         redo_bins = {}
