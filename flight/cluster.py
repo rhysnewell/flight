@@ -219,10 +219,13 @@ class Cluster:
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
-        dist_embeddings = self.distance_reducer.fit(self.clr_depths)
-        rho_embeddings = self.rho_reducer.fit(self.clr_depths)
-        intersect = dist_embeddings * rho_embeddings
-        self.embeddings = intersect.embedding_
+        if self.clr_depths.shape[0] >= 10:
+            dist_embeddings = self.distance_reducer.fit(self.clr_depths)
+            rho_embeddings = self.rho_reducer.fit(self.clr_depths)
+            intersect = dist_embeddings * rho_embeddings
+            self.embeddings = intersect.embedding_
+        else:
+            self.embeddings = self.clr_depths
 
     def cluster(self, embeddings):
         try:
@@ -313,14 +316,18 @@ class Cluster:
 
     def cluster_separation(self):
         # dist_mat = utils.cluster_distances(self.embeddings, self.labels, self.threads)
+
         labels_no_unlabelled = set(self.labels[self.labels != -1])
-        cluster_centres = [[] for _ in range(len(labels_no_unlabelled))]
-        for label in labels_no_unlabelled:
-            cluster_centres[label] = self.cluster_means[label]
+        if len(labels_no_unlabelled) > 1:
+            cluster_centres = [[] for _ in range(len(labels_no_unlabelled))]
+            for label in labels_no_unlabelled:
+                cluster_centres[label] = self.cluster_means[label]
 
-        dist_mat = pairwise_distances(cluster_centres)
+            dist_mat = pairwise_distances(cluster_centres)
 
-        return dist_mat
+            return dist_mat
+        else:
+            return np.zeros((1, 1))
 
 
     def cluster_distances(self):
