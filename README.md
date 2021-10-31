@@ -1,5 +1,5 @@
 # Flight
-The python component used by [Lorikeet](https:/github.com/rhysnewell/Lorikeet) and [Rosella](https:/github.com/rhysnewell/rosella)
+The python component used by [Lorikeet](https://github.com/rhysnewell/Lorikeet) and [Rosella](https://github.com/rhysnewell/rosella)
 It can be used as a standalone binning algorithm for MAGs, but will not include contig SNP information
 which is collected by Rosella.
 # Installation
