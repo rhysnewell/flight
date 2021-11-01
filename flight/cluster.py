@@ -258,7 +258,7 @@ class Cluster:
 
             return self.clusterer.labels_
         except TypeError:
-            return None
+            return np.array([-1 for _ in range(embeddings.shape[0])])
 
     """
     Reclusters unclustered elements and updates the labels array with the potential new label making sure to make the label
@@ -413,7 +413,7 @@ class Cluster:
 
     def labels_for_printing(self):
         try:
-            return self.labels.astype('int32') + 1
+            return self.labels.astype('int32')
         except AttributeError:
             return self.labels.astype('int32')
 
