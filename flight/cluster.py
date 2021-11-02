@@ -154,6 +154,7 @@ class Cluster:
         threads=8,
         b=0.4,
         a=1.58,
+        random_seed=42069,
     ):
         set_num_threads(threads)
         self.embeddings = []
@@ -171,14 +172,15 @@ class Cluster:
         ## Scale the data
         # self.sample_distance = utils.sample_distance(self.depths)
 
-        self.clr_depths = skbio.stats.composition.clr((self.depths + 1).T).T
+        self.clr_depths = skbio.stats.composition.clr((self.depths[:, 2:] + 1).T).T
         if self.single_sample:
             # Have to reshape after clr transformation
             self.clr_depths = self.clr_depths.reshape((-1, 1))
 
-        self.n_samples = self.depths.shape[1] // 2
 
-        # if n_components > self.depths.shape[1]:
+        # self.depths[:, 2:] = self.clr_depths
+        self.n_samples = (self.depths.shape[1] - 2) // 2
+
         n_components = min(self.n_samples, 10)
 
         if n_neighbors > self.depths.shape[0]:
@@ -188,10 +190,9 @@ class Cluster:
             n_neighbors=n_neighbors,
             min_dist=min_dist,
             n_components=n_components,
-            # random_state=random_state,
+            random_state=random_seed,
             spread=1,
             metric=metrics.rho_variants,
-            # metric_kwds={'n_samples': self.n_samples},
             a=a,
             b=b,
         )
@@ -199,10 +200,9 @@ class Cluster:
             n_neighbors=n_neighbors,
             min_dist=min_dist,
             n_components=n_components,
-            # random_state=random_state,
+            random_state=random_seed,
             spread=1,
-            # metric="euclidean",
-            # metric_kwds={'n_samples': self.n_samples, 'sample_distances': self.sample_distance},
+            # metric=metrics.euclidean_variant,
             a=a,
             b=b,
         )
@@ -219,7 +219,7 @@ class Cluster:
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
-        if self.clr_depths.shape[0] >= 10:
+        if self.depths.shape[0] >= 10:
             dist_embeddings = self.distance_reducer.fit(self.clr_depths)
             rho_embeddings = self.rho_reducer.fit(self.clr_depths)
             intersect = dist_embeddings * rho_embeddings

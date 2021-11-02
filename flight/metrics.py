@@ -581,6 +581,12 @@ def rho_variants(x, y):
     transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
     """
 
+    # if x[0] == y[0] and x[1] == y[1]:
+    #     return 2
+    #
+    # x = x[2:]
+    # y = y[2:]
+
     mu_x = 0.0
     mu_y = 0.0
     norm_x = 0.0
@@ -610,6 +616,23 @@ def rho_variants(x, y):
     rho = 2 - rho
     
     return rho
+
+
+@njit(fastmath=True)
+def euclidean_variant(a, b):
+    if a[0] == b[0] and a[1] == b[1]:
+        return 100000000000000000
+
+    a = a[2:]
+    b = b[2:]
+
+    result = 0.0
+    for i in range(a.shape[0] - 1):
+        result += (a[i + 1] - b[i + 1]) ** 2
+
+    return np.sqrt(result)
+
+
 
 @njit(fastmath=True)
 def rho_coverage(a, b):
