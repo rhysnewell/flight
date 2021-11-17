@@ -152,7 +152,7 @@ class Cluster:
         metric='hellinger_distance_poisson',
         hdbscan_metric="euclidean",
         threads=8,
-        b=0.4,
+        b=0.5,
         a=1.58,
         random_seed=42069,
     ):
