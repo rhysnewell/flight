@@ -188,20 +188,20 @@ class Cluster:
 
         self.rho_reducer = umap.UMAP(
             n_neighbors=n_neighbors,
-            min_dist=min_dist,
+            # min_dist=min_dist,
             n_components=n_components,
             random_state=random_seed,
-            spread=1,
+            # spread=1,
             metric=metrics.rho_variants,
             a=a,
             b=b,
         )
         self.distance_reducer = umap.UMAP(
             n_neighbors=n_neighbors,
-            min_dist=min_dist,
+            # min_dist=min_dist,
             n_components=n_components,
             random_state=random_seed,
-            spread=1,
+            # spread=1,
             # metric=metrics.euclidean_variant,
             a=a,
             b=b,
@@ -285,34 +285,37 @@ class Cluster:
     def recluster(self):
         unique_labels = set(self.labels)
         logging.info("Refining clusters...")
-        for label in unique_labels:
-            if label != -1:
-                truth_array = self.labels == label
-                embeddings_for_label = self.embeddings[truth_array]
-                recluster_attempt = self.cluster(embeddings_for_label)
-                if recluster_attempt is not None:
-                    try:
-                        cluster_validity = hdbscan.validity.validity_index(embeddings_for_label.astype(np.float64), np.array(recluster_attempt), per_cluster_scores=False)
-                    except ValueError:
-                        cluster_validity = -1
+        if len(unique_labels) == 1 and -1 in unique_labels:
+            self.labels = self.labels + 1
+        else:
+            for label in unique_labels:
+                if label != -1:
+                    truth_array = self.labels == label
+                    embeddings_for_label = self.embeddings[truth_array]
+                    recluster_attempt = self.cluster(embeddings_for_label)
+                    if recluster_attempt is not None:
+                        try:
+                            cluster_validity = hdbscan.validity.validity_index(embeddings_for_label.astype(np.float64), np.array(recluster_attempt), per_cluster_scores=False)
+                        except ValueError:
+                            cluster_validity = -1
 
-                    if cluster_validity >= 0.9:
-                        # print("reclustering %d validity %.3f" % (label, cluster_validity))
-                        if not np.any(recluster_attempt == -1):
-                            # shift all labels greater than current label down by one since this label is fully
-                            # removed
-                            self.labels[self.labels >= label] = self.labels[self.labels >= label] - 1
+                        if cluster_validity >= 0.9:
+                            # print("reclustering %d validity %.3f" % (label, cluster_validity))
+                            if not np.any(recluster_attempt == -1):
+                                # shift all labels greater than current label down by one since this label is fully
+                                # removed
+                                self.labels[self.labels >= label] = self.labels[self.labels >= label] - 1
 
-                        previous_max_label = np.max(self.labels)
+                            previous_max_label = np.max(self.labels)
 
-                        new_labels_idx = 0
-                        for (idx, label) in enumerate(truth_array):
-                            if label:
-                                new_label = recluster_attempt[new_labels_idx]
-                                if new_label != -1:
-                                    new_label += previous_max_label + 1
-                                    self.labels[idx] = new_label
-                                new_labels_idx += 1
+                            new_labels_idx = 0
+                            for (idx, label) in enumerate(truth_array):
+                                if label:
+                                    new_label = recluster_attempt[new_labels_idx]
+                                    if new_label != -1:
+                                        new_label += previous_max_label + 1
+                                        self.labels[idx] = new_label
+                                    new_labels_idx += 1
 
     def cluster_separation(self):
         # dist_mat = utils.cluster_distances(self.embeddings, self.labels, self.threads)
@@ -359,30 +362,34 @@ class Cluster:
         # cluster_member_colors = [
             # sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
         # ]
+        try:
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
 
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        ax.scatter(self.embeddings[:, 0],
-                   self.embeddings[:, 1],
-                   s=7,
-                   linewidth=0,
-                   c=cluster_colors,
-                   alpha=0.7)
+            ax.scatter(self.embeddings[:, 0],
+                       self.embeddings[:, 1],
+                       s=7,
+                       linewidth=0,
+                       c=cluster_colors,
+                       alpha=0.7)
 
-        for label, coords in self.cluster_means.items():
-            if label != -1:
-                plt.annotate(
-                    label,
-                    coords,
-                    size = 14,
-                    weight = 'bold',
-                    color = color_palette[label]
-                )
+            for label, coords in self.cluster_means.items():
+                if label != -1:
+                    plt.annotate(
+                        label,
+                        coords,
+                        size = 14,
+                        weight = 'bold',
+                        color = color_palette[label]
+                    )
 
-        # ax.add_artist(legend)
-        plt.gca().set_aspect('equal', 'datalim')
-        plt.title('UMAP projection of variants', fontsize=24)
-        plt.savefig(self.path + '_UMAP_projection_with_clusters.png')
+            # ax.add_artist(legend)
+            plt.gca().set_aspect('equal', 'datalim')
+            plt.title('UMAP projection of variants', fontsize=24)
+            plt.savefig(self.path + '_UMAP_projection_with_clusters.png')
+
+        except IndexError:
+            pass
 
     def get_cluster_means(self):
         result = {}
@@ -390,11 +397,19 @@ class Cluster:
         for (i, label) in enumerate(self.labels):
             try:
                 label_val = result[label]
-                label_val[0] += self.embeddings[i, 0]
-                label_val[1] += self.embeddings[i, 1]
+                try:
+                    label_val[0] += self.embeddings[i, 0]
+                    label_val[1] += self.embeddings[i, 1]
+                except IndexError:
+                    label_val[0] += self.embeddings[0]
+                    label_val[1] += self.embeddings[1]
                 cluster_size[label] += 1
             except KeyError:
-                result[label] = list(self.embeddings[i, :2])
+                try:
+                    result[label] = list(self.embeddings[i, :2])
+                except IndexError:
+                    result[label] = list(self.embeddings[:2]) # when only one variant
+
                 cluster_size[label] = 1
 
         new_result = {}
