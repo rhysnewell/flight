@@ -138,7 +138,6 @@ class CustomHelpFormatter(argparse.HelpFormatter):
 
 class Cluster:
     def __init__(
-<<<<<<< HEAD:flight/cluster.py
         self,
         count_path,
         output_prefix,
@@ -163,29 +162,6 @@ class Cluster:
         self.embeddings = []
         self.labels = None
         self.cluster_means = None
-=======
-            self,
-            count_path,
-            output_prefix,
-            scaler="clr",
-            n_neighbors=100,
-            min_dist=0.1,
-            n_components=2,
-            random_state=42,
-            min_cluster_size=100,
-            min_samples=50,
-            prediction_data=True,
-            cluster_selection_method="eom",
-            precomputed=False,
-            metric='hellinger_distance_poisson',
-            hdbscan_metric="euclidean",
-            threads=8,
-            b=0.4,
-            a=1.58,
-    ):
-        set_num_threads(threads)
-        self.embeddings = []
->>>>>>> rosella:flight/lorikeet/cluster.py
         self.threads = threads
         ## Set up clusterer and UMAP
         self.path = output_prefix
@@ -197,18 +173,14 @@ class Cluster:
             self.single_sample = False
         ## Scale the data
         # self.sample_distance = utils.sample_distance(self.depths)
-<<<<<<< HEAD:flight/cluster.py
 
         self.clr_depths = skbio.stats.composition.clr((self.depths[:, 2:] + 1).T).T
         if self.single_sample:
             # Have to reshape after clr transformation
             self.clr_depths = self.clr_depths.reshape((-1, 1))
-=======
->>>>>>> rosella:flight/lorikeet/cluster.py
 
         self.clr_depths = skbio.stats.composition.clr((self.depths + 1).T).T
 
-<<<<<<< HEAD:flight/cluster.py
         # self.depths[:, 2:] = self.clr_depths
         self.n_samples = (self.depths.shape[1] - 2) // 2
 
@@ -224,40 +196,16 @@ class Cluster:
             random_state=random_seed,
             # spread=1,
             metric=metrics.rho_variants,
-=======
-        self.n_samples = self.depths.shape[1]
-
-        if n_components > self.depths.shape[1]:
-            n_components = min(max(self.depths.shape[1], 2), 5)
-
-        self.rho_reducer = umap.UMAP(
-            n_neighbors=n_neighbors,
-            min_dist=min_dist,
-            n_components=n_components,
-            # random_state=random_state,
-            spread=1,
-            metric=metrics.rho_variants,
-            # metric_kwds={'n_samples': self.n_samples},
->>>>>>> rosella:flight/lorikeet/cluster.py
             a=a,
             b=b,
         )
         self.distance_reducer = umap.UMAP(
             n_neighbors=n_neighbors,
-<<<<<<< HEAD:flight/cluster.py
             # min_dist=min_dist,
             n_components=n_components,
             random_state=random_seed,
             # spread=1,
             # metric=metrics.euclidean_variant,
-=======
-            min_dist=min_dist,
-            n_components=n_components,
-            # random_state=random_state,
-            spread=1,
-            # metric="euclidean",
-            # metric_kwds={'n_samples': self.n_samples, 'sample_distances': self.sample_distance},
->>>>>>> rosella:flight/lorikeet/cluster.py
             a=a,
             b=b,
         )
@@ -305,7 +253,6 @@ class Cluster:
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
-<<<<<<< HEAD:flight/cluster.py
         if self.depths.shape[0] >= 10:
             dist_embeddings = self.distance_reducer.fit(self.clr_depths)
             rho_embeddings = self.rho_reducer.fit(self.clr_depths)
@@ -313,12 +260,7 @@ class Cluster:
             self.embeddings = intersect.embedding_
         else:
             self.embeddings = self.clr_depths
-=======
-        dist_embeddings = self.distance_reducer.fit(self.depths)
-        rho_embeddings = self.rho_reducer.fit(self.clr_depths)
-        intersect = dist_embeddings * rho_embeddings
-        self.embeddings = intersect.embedding_
->>>>>>> rosella:flight/lorikeet/cluster.py
+
 
     def cluster(self, embeddings):
         try:
@@ -520,11 +462,7 @@ class Cluster:
 
     def labels_for_printing(self):
         try:
-<<<<<<< HEAD:flight/cluster.py
             return self.labels.astype('int32')
-=======
-            return self.clusterer.labels_.astype('int32')
->>>>>>> rosella:flight/lorikeet/cluster.py
         except AttributeError:
             return self.labels.astype('int32')
 
