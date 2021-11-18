@@ -42,6 +42,7 @@ import hdbscan
 import seaborn as sns
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib
+
 matplotlib.use('pdf')
 import matplotlib.pyplot as plt
 import skbio.stats.composition
@@ -66,6 +67,7 @@ debug = {
     4: logging.INFO,
     5: logging.DEBUG
 }
+
 
 ###############################################################################
 ############################### - Exceptions - ################################
@@ -112,9 +114,9 @@ class CustomHelpFormatter(argparse.HelpFormatter):
         h = action.help
         if '%(default)' not in action.help:
             if action.default != '' and \
-               action.default != [] and \
-               action.default != None \
-               and action.default != False:
+                    action.default != [] and \
+                    action.default != None \
+                    and action.default != False:
                 if action.default is not argparse.SUPPRESS:
                     defaulting_nargs = [
                         argparse.OPTIONAL, argparse.ZERO_OR_MORE
@@ -136,6 +138,7 @@ class CustomHelpFormatter(argparse.HelpFormatter):
 
 class Cluster:
     def __init__(
+<<<<<<< HEAD:flight/cluster.py
         self,
         count_path,
         output_prefix,
@@ -160,6 +163,29 @@ class Cluster:
         self.embeddings = []
         self.labels = None
         self.cluster_means = None
+=======
+            self,
+            count_path,
+            output_prefix,
+            scaler="clr",
+            n_neighbors=100,
+            min_dist=0.1,
+            n_components=2,
+            random_state=42,
+            min_cluster_size=100,
+            min_samples=50,
+            prediction_data=True,
+            cluster_selection_method="eom",
+            precomputed=False,
+            metric='hellinger_distance_poisson',
+            hdbscan_metric="euclidean",
+            threads=8,
+            b=0.4,
+            a=1.58,
+    ):
+        set_num_threads(threads)
+        self.embeddings = []
+>>>>>>> rosella:flight/lorikeet/cluster.py
         self.threads = threads
         ## Set up clusterer and UMAP
         self.path = output_prefix
@@ -171,13 +197,18 @@ class Cluster:
             self.single_sample = False
         ## Scale the data
         # self.sample_distance = utils.sample_distance(self.depths)
+<<<<<<< HEAD:flight/cluster.py
 
         self.clr_depths = skbio.stats.composition.clr((self.depths[:, 2:] + 1).T).T
         if self.single_sample:
             # Have to reshape after clr transformation
             self.clr_depths = self.clr_depths.reshape((-1, 1))
+=======
+>>>>>>> rosella:flight/lorikeet/cluster.py
 
+        self.clr_depths = skbio.stats.composition.clr((self.depths + 1).T).T
 
+<<<<<<< HEAD:flight/cluster.py
         # self.depths[:, 2:] = self.clr_depths
         self.n_samples = (self.depths.shape[1] - 2) // 2
 
@@ -193,16 +224,40 @@ class Cluster:
             random_state=random_seed,
             # spread=1,
             metric=metrics.rho_variants,
+=======
+        self.n_samples = self.depths.shape[1]
+
+        if n_components > self.depths.shape[1]:
+            n_components = min(max(self.depths.shape[1], 2), 5)
+
+        self.rho_reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            n_components=n_components,
+            # random_state=random_state,
+            spread=1,
+            metric=metrics.rho_variants,
+            # metric_kwds={'n_samples': self.n_samples},
+>>>>>>> rosella:flight/lorikeet/cluster.py
             a=a,
             b=b,
         )
         self.distance_reducer = umap.UMAP(
             n_neighbors=n_neighbors,
+<<<<<<< HEAD:flight/cluster.py
             # min_dist=min_dist,
             n_components=n_components,
             random_state=random_seed,
             # spread=1,
             # metric=metrics.euclidean_variant,
+=======
+            min_dist=min_dist,
+            n_components=n_components,
+            # random_state=random_state,
+            spread=1,
+            # metric="euclidean",
+            # metric_kwds={'n_samples': self.n_samples, 'sample_distances': self.sample_distance},
+>>>>>>> rosella:flight/lorikeet/cluster.py
             a=a,
             b=b,
         )
@@ -212,6 +267,37 @@ class Cluster:
         else:
             self.metric = "euclidean"
 
+        self.update_umap_params(self.depths.shape[0])
+
+    def update_umap_params(self, nrows):
+        if nrows <= 10000:  # high gear
+            # Small datasets can have larger n_neighbors without being prohibitively slow
+            if nrows <= 1000:  # wheels fell off
+                self.rho_reducer.n_neighbors = nrows // 10
+                self.distance_reducer.n_neighbors = nrows // 10
+            else:
+                self.rho_reducer.n_neighbors = 100
+                self.distance_reducer.n_neighbors = 100
+            self.rho_reducer.n_epochs = 500
+            self.distance_reducer.n_epochs = 500
+        elif nrows <= 50000:  # mid gear
+            # Things start to get too slow around here, so scale back params
+            self.rho_reducer.n_neighbors = 50
+            self.rho_reducer.n_epochs = 400
+            self.distance_reducer.n_neighbors = 50
+            self.distance_reducer.n_epochs = 400
+        else:  # low gear
+            # This is the super slow zone, but don't want to dip values below this
+            # Hopefully pick out easy bins, then scale data down with each iterations
+            # Allowing the params to bump up into other gears
+            self.rho_reducer.n_neighbors = 30
+            self.rho_reducer.n_epochs = 300
+            self.distance_reducer.n_neighbors = 30
+            self.distance_reducer.n_epochs = 300
+
+    def filter(self):
+        # Not sure to include this
+        pass
 
     def filter(self):
         # Not sure to include this
@@ -219,6 +305,7 @@ class Cluster:
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
+<<<<<<< HEAD:flight/cluster.py
         if self.depths.shape[0] >= 10:
             dist_embeddings = self.distance_reducer.fit(self.clr_depths)
             rho_embeddings = self.rho_reducer.fit(self.clr_depths)
@@ -226,6 +313,12 @@ class Cluster:
             self.embeddings = intersect.embedding_
         else:
             self.embeddings = self.clr_depths
+=======
+        dist_embeddings = self.distance_reducer.fit(self.depths)
+        rho_embeddings = self.rho_reducer.fit(self.clr_depths)
+        intersect = dist_embeddings * rho_embeddings
+        self.embeddings = intersect.embedding_
+>>>>>>> rosella:flight/lorikeet/cluster.py
 
     def cluster(self, embeddings):
         try:
@@ -332,10 +425,9 @@ class Cluster:
         else:
             return np.zeros((1, 1))
 
-
     def cluster_distances(self):
         ## Cluster on the UMAP embeddings and return soft clusters
-        
+
         tuned = utils.hyperparameter_selection(self.depths, self.threads, metric=self.metric)
         best = utils.best_validity(tuned)
         self.clusterer = hdbscan.HDBSCAN(
@@ -360,7 +452,7 @@ class Cluster:
             color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.labels
         ]
         # cluster_member_colors = [
-            # sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
+        # sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
         # ]
         try:
             fig = plt.figure()
@@ -428,7 +520,11 @@ class Cluster:
 
     def labels_for_printing(self):
         try:
+<<<<<<< HEAD:flight/cluster.py
             return self.labels.astype('int32')
+=======
+            return self.clusterer.labels_.astype('int32')
+>>>>>>> rosella:flight/lorikeet/cluster.py
         except AttributeError:
             return self.labels.astype('int32')
 
@@ -447,9 +543,10 @@ class Cluster:
                         redo_bins[label.item()]["indices"] = [idx]
 
         removed_labels = redo_bins.keys()
-        self.clusterer.labels_[:] = [label - sum(i < label for i in removed_labels) if label not in removed_labels else label for label in self.clusterer.labels_]
-        
-        
+        self.clusterer.labels_[:] = [
+            label - sum(i < label for i in removed_labels) if label not in removed_labels else label for label in
+            self.clusterer.labels_]
+
         # break up very large bins. Not sure how to threshold this
         max_bin_id = max([label for label in set(self.clusterer.labels_) if label not in removed_labels]) + 1
         for (bin, values) in redo_bins.items():

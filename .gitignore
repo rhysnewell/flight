@@ -1,0 +1,6 @@
+flight.egg-info
+flight_genome.egg-info
+*pyc
+dist
+build
+.idea

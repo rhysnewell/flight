@@ -21,6 +21,7 @@
 ###############################################################################
 from Bio import SeqIO
 from flight.__init__ import __version__
+
 __author__ = "Rhys Newell"
 __copyright__ = "Copyright 2020"
 __credits__ = ["Rhys Newell"]
@@ -38,15 +39,13 @@ import os
 import datetime
 
 # Function imports
-import numpy as np
-import pandas as pd
-import threadpoolctl
-import warnings
-import imageio
 import random
+import numpy
+import faulthandler
+faulthandler.enable()
 
 # Self imports
-import flight.utils as utils
+
 
 # Debug
 debug = {
@@ -56,6 +55,7 @@ debug = {
     4: logging.INFO,
     5: logging.DEBUG
 }
+
 
 ###############################################################################
 ############################### - Exceptions - ################################
@@ -69,7 +69,7 @@ class BadTreeFileException(Exception):
 ################################ - Functions - ################################
 def main():
     random.seed(42069)
-    np.random.seed(42069)
+    numpy.random.seed(42069)
     ############################ ~ Main Parser ~ ##############################
     main_parser = argparse.ArgumentParser(prog='flight',
                                           formatter_class=CustomHelpFormatter,
@@ -162,7 +162,6 @@ def main():
 
     fit_options.set_defaults(func=fit)
 
-
     bin_options = subparsers.add_parser(
         'bin',
         description='Perform UMAP and then HDBSCAN on array of variant depths',
@@ -245,7 +244,6 @@ def main():
                              dest="n_neighbors",
                              default=100)
 
-
     bin_options.add_argument(
         '--a_spread',
         help=
@@ -258,19 +256,19 @@ def main():
         help=
         'Similar to the heavy-tail parameter sometimes used in t-SNE. Directly manipulates the "b" parameter',
         dest="b",
-        default=0.5)
+        default=0.4)
 
     bin_options.add_argument(
         '--min_dist',
         help=
         'Minimum distance used by UMAP during construction of high dimensional graph',
         dest="min_dist",
-        default=0.1)
+        default=0.0)
 
     bin_options.add_argument('--n_components',
                              help='Dimensions to use in UMAP projection',
                              dest="n_components",
-                             default=3)
+                             default=2)
 
     bin_options.add_argument('--metric',
                              help='Metric to use in UMAP projection',
@@ -309,37 +307,34 @@ def main():
                              default=8)
     bin_options.set_defaults(func=bin)
 
-    vamb_options = subparsers.add_parser(
-        'vamb',
-        description='Bin out the results of vamb',
+    filter_options = subparsers.add_parser(
+        'filter',
+        description='Filter out contigs larger than the given base pair threshold',
         formatter_class=CustomHelpFormatter,
         epilog='''
-                                        ~ vamb ~
-            How to use vamb:
+                                        ~ filter ~
+            How to use filter:
 
-            flight vamb --reference assembly.fasta --clusters vamb_clusters.tsv
+            flight filter --reference assembly.fasta --min_size 200000
 
             ''')
 
-    vamb_options.add_argument('--reference',
+    filter_options.add_argument('--reference',
                               help='The assembly file to be binned',
                               dest='assembly')
 
-    vamb_options.add_argument('--clusters',
-                              help='The vamb clusters',
-                              dest='clusters')
 
-    vamb_options.add_argument('--min_size',
+    filter_options.add_argument('--min_size',
                               help='Minimum bin size',
                               dest='min_size',
                               default=200000)
 
-    vamb_options.add_argument('--output',
+    filter_options.add_argument('--output',
                               help='The output directory',
                               dest='output',
-                              default='vamb_bins/')
+                              default='filtered_contigs/')
 
-    vamb_options.set_defaults(func=vamb)
+    filter_options.set_defaults(func=filter)
     ###########################################################################
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Parsing input ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
@@ -370,61 +365,61 @@ def main():
 
         args.func(args)
 
+
 def fit(args):
     prefix = args.input.replace(".npy", "")
-    os.environ["NUMEXPR_MAX_THREADS"] = args.threads
+    os.environ["NUMBA_NUM_THREADS"] = args.threads
+    os.environ["MKL_NUM_THREADS"] = args.threads
+    os.environ["OPENBLAS_NUM_THREADS"] = args.threads
+    from flight.lorikeet.cluster import Cluster
+    import numpy as np
 
-    from .cluster import Cluster
-    from numba import config, set_num_threads
+    if not args.precomputed:
+        clusterer = Cluster(args.input,
+                           prefix,
+                           n_neighbors=int(args.n_neighbors),
+                           min_cluster_size=int(args.min_cluster_size),
+                           min_samples=int(args.min_samples),
+                           min_dist=float(args.min_dist),
+                           n_components=int(args.n_components),
+                           threads=int(args.threads),
+                           )
+        clusterer.fit_transform()
+        clusterer.labels = clusterer.cluster(clusterer.embeddings)
+        clusterer.recover_unbinned()
+        clusterer.recluster()
+        clusterer.cluster_means = clusterer.get_cluster_means()
+        clusterer.plot()
 
-    set_num_threads(int(args.threads))
-    with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            if not args.precomputed:
-                clusterer = Cluster(args.input,
-                                   prefix,
-                                   n_neighbors=int(args.n_neighbors),
-                                   min_cluster_size=int(args.min_cluster_size),
-                                   min_samples=int(args.min_samples),
-                                   min_dist=float(args.min_dist),
-                                   n_components=int(args.n_components),
-                                   threads=int(args.threads),
-                                   )
-                clusterer.fit_transform()
-                clusterer.labels = clusterer.cluster(clusterer.embeddings)
-                clusterer.recover_unbinned()
-                clusterer.recluster()
-                clusterer.cluster_means = clusterer.get_cluster_means()
-                clusterer.plot()
+        logging.info("Writing variant labels...")
+        np.save(prefix + '_labels.npy', clusterer.labels_for_printing())
+        logging.info("Calculating cluster separation values...")
+        np.save(prefix + '_separation.npy', clusterer.cluster_separation())
+    else:
+        clusterer = Cluster(args.input,
+                           prefix,
+                           n_neighbors=int(args.n_neighbors),
+                           min_cluster_size=int(args.min_cluster_size),
+                           min_samples=int(args.min_samples),
+                           scaler="none",
+                           precomputed=args.precomputed,
+                           threads=int(args.threads),
+                           )
+        clusterer.cluster_distances()
+        clusterer.plot_distances()
+        np.save(prefix + '_labels.npy', clusterer.labels())
 
-                logging.info("Writing variant labels...")
-                np.save(prefix + '_labels.npy', clusterer.labels_for_printing())
-                logging.info("Calculating cluster separation values...")
-                np.save(prefix + '_separation.npy', clusterer.cluster_separation())
-            else:
-                clusterer = Cluster(args.input,
-                                   prefix,
-                                   n_neighbors=int(args.n_neighbors),
-                                   min_cluster_size=int(args.min_cluster_size),
-                                   min_samples=int(args.min_samples),
-                                   scaler="none",
-                                   precomputed=args.precomputed,
-                                   threads=int(args.threads),
-                                   )
-                clusterer.cluster_distances()
-                clusterer.plot_distances()
-                np.save(prefix + '_labels.npy', clusterer.labels())
 
 
 def bin(args):
     prefix = args.output
-    os.environ["NUMEXPR_MAX_THREADS"] = "1"
+    # os.environ["NUMEXPR_MAX_THREADS"] = str(max((int(args.threads) // 2 + 1), 1))
+    # os.environ["NUMBA_NUM_THREADS"] = str(min(1, max((int(args.threads) // 2 + 1), 1))) # try and reduce the number of race conditions occurring in numba functions?
+    os.environ["NUMBA_NUM_THREADS"] = str(10) # try and reduce the number of race conditions occurring in numba functions?
+    os.environ["MKL_NUM_THREADS"] = str(max((int(args.threads) // 2 + 1), 1))
+    os.environ["OPENBLAS_NUM_THREADS"] = str(((int(args.threads) // 2 + 1), 1))
+    from flight.rosella.rosella import Rosella
 
-    from .binning import Binner
-    from numba import config, set_num_threads
-
-    set_num_threads(int(args.threads))
     if args.long_input is None and args.input is None:
         logging.warning("bin requires either short or longread coverage values.")
         sys.exit()
@@ -433,171 +428,46 @@ def bin(args):
         os.makedirs(prefix)
 
     if not args.precomputed:
-        clusterer = Binner(args.input,
-                           args.long_input,
-                           args.kmer_frequencies,
-                           # args.variant_rates,
-                           prefix,
-                           args.assembly,
-                           n_neighbors=int(args.n_neighbors),
-                           metric=args.metric,
-                           min_cluster_size=int(args.min_cluster_size),
-                           min_contig_size=int(args.min_contig_size),
-                           min_samples=int(args.min_samples),
-                           min_dist=float(args.min_dist),
-                           scaler=args.scaler,
-                           n_components=int(args.n_components),
-                           cluster_selection_method=args.cluster_selection_method,
-                           threads=int(args.threads),
-                           a=float(args.a),
-                           b=float(args.b),
-                           )
+        rosella = Rosella(
+            count_path=args.input,
+            long_count_path=args.long_input,
+            kmer_frequencies=args.kmer_frequencies,
+            output_prefix=prefix,
+            assembly=args.assembly,
+            n_neighbors=int(args.n_neighbors),
+            min_contig_size=int(args.min_contig_size),
+            min_dist=float(args.min_dist),
+            threads=int(args.threads),
+            a=float(args.a),
+            b=float(args.b),
+            initialization='spectral'
+            )
 
-        kwargs_write = {'fps':1.0, 'quantizer':'nq'}
-        plots = []
-        with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
-            
-            if clusterer.tnfs.values.shape[0] > int(args.n_neighbors):
-                # First pass quick TNF filter to speed up next steps
-                clusterer.update_parameters()
-                clusterer.filter()
-                if clusterer.tnfs[~clusterer.disconnected].values.shape[0] > int(args.n_neighbors)*5:
-                    # Second pass intersection filtering
-                    clusterer.update_parameters()
-                    found_disconnections = clusterer.fit_disconnect()
-                    # found_disconnections = True
-                    if clusterer.tnfs[~clusterer.disconnected][~clusterer.disconnected_intersected].values.shape[0] > int(args.n_neighbors) * 5 and found_disconnections:
-                        # Final fully filtered embedding to cluster on
-                        # clusterer.update_parameters()
-                        clusterer.fit_transform()
-                        clusterer.cluster()
-
-                        ## Plot limits
-                        x_min = min(clusterer.embeddings[:, 0])
-                        x_max = max(clusterer.embeddings[:, 0])
-                        y_min = min(clusterer.embeddings[:, 1])
-                        y_max = max(clusterer.embeddings[:, 1])
-
-                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.clusterer.labels_, x_min, x_max, y_min, y_max, 0))
-                        clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-
-                        n = 0
-                        old_tids = []
-                        logging.info("Performing iterative clustering...")
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore")
-                            while n <= 50:
-                                
-                                clusterer.pairwise_distances()
-                                try:
-                                    max_bin_id = max(clusterer.bins.keys()) + 1
-                                except ValueError:
-                                    max_bin_id = 1
-                                    
-                                if n == 0 or old_tids != set(clusterer.unbinned_tids):
-                                    old_tids = set(clusterer.unbinned_tids)
-                                else:
-                                    plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                                               plots, x_min, x_max, y_min, y_max, n+1,
-                                                               delete_unbinned=True,
-                                                               bin_unbinned=False) # First pass get bins
-                                    clusterer.pairwise_distances(bin_unbinned=True)
-                                    break  # nothing changed
-                                plots = clusterer.reembed_unbinned(clusterer.unbinned_tids, max_bin_id,
-                                                                plots, x_min, x_max, y_min, y_max, n+1, delete_unbinned=True)
-                                n += 1
+        rosella.perform_binning(args)
 
 
 
-                        clusterer.bin_filtered(int(args.min_bin_size))
-                        clusterer.plot()
-                    elif not found_disconnections: # run clustering based off first round of embeddings
-                        clusterer.cluster()
-                        clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
-                        ## Plot limits
-                        x_min = min(clusterer.embeddings[:, 0])
-                        x_max = min(clusterer.embeddings[:, 0])
-                        y_min = min(clusterer.embeddings[:, 1])
-                        y_max = min(clusterer.embeddings[:, 1])
-                        plots.append(utils.plot_for_offset(clusterer.embeddings, clusterer.clusterer.labels_, x_min, x_max, y_min, y_max, 0))
-
-
-                        n = 0
-                        old_tids = []
-                        logging.info("Performing iterative clustering...")
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore")
-                            while n <= 50:
-
-                                clusterer.pairwise_distances()
-                                try:
-                                    max_bin_id = max(clusterer.bins.keys()) + 1
-                                except ValueError:
-                                    max_bin_id = 1
-                                    
-                                if n == 0 or old_tids != set(clusterer.unbinned_tids):
-                                    old_tids = set(clusterer.unbinned_tids)
-                                else:
-                                    plots = clusterer.reembed_unbinned(clusterer.unbinned_tids,
-                                                                       max_bin_id,
-                                                                       plots, x_min, x_max, y_min, y_max, n+1,
-                                                                       delete_unbinned=True,
-                                                                       bin_unbinned=True)
-                                    clusterer.pairwise_distances(bin_unbinned=True)
-                                    break  # nothing changed
-                                plots = clusterer.reembed_unbinned(clusterer.unbinned_tids,
-                                                                   max_bin_id,
-                                                                   plots, x_min, x_max, y_min, y_max, n+1, delete_unbinned=True)
-                                n += 1
-
-                        clusterer.bin_filtered(int(args.min_bin_size))
-                        clusterer.plot()
-                    else:
-                        clusterer.rescue_contigs(int(args.min_bin_size))
-                else:
-                    clusterer.rescue_contigs(int(args.min_bin_size))
-            else:
-                clusterer.rescue_contigs(int(args.min_bin_size))
-
-        clusterer.write_bins(int(args.min_bin_size))
-        imageio.mimsave(clusterer.path + '/UMAP_projections.gif', plots, fps=1)
-
-def vamb(args):
+def filter(args):
+    """
+    Filters out big contigs in an assembly and writes them to individual fasta files
+    """
     min_bin_size = int(args.min_size)
     prefix = args.output
     if not os.path.exists(prefix):
         os.makedirs(prefix)
 
-    bins = {}
-    with open(args.clusters, 'r') as vamb_file:
-        for line in vamb_file:
-            line = line.split()
-            try:
-                bins[line[0]].append(line[1])
-            except KeyError:
-                bins[line[0]] = [line[1]]
-
     assembly = SeqIO.to_dict(SeqIO.parse(args.assembly, "fasta"))
 
     logging.info("Writing bins...")
-    max_cluster_id = max(bins.keys())
-    for (bin, contigs) in bins.items():
-        if bin != -1:
-            # Calculate total bin size and check if it is larger than min_bin_size
-            bin_length = sum([len(assembly[contig].seq) for contig in contigs])
-            if bin_length >= min_bin_size:
-                with open(prefix + '/vamb_bin.' + str(bin) + '.fna', 'w') as f:
-                    for contig in contigs:
-                        write_contig(contig, assembly, f)
-
-        else:
-            # Get final bin value
-            max_cluster_id += 1
+    bin_id = 0
+    for (contig_name, record) in assembly.items():
+        if len(record.seq) >= min_bin_size:
+            bin_id += 1
             # Rescue any large unbinned contigs and put them in their own cluster
-            for contig in contigs:
-                if len(assembly[contig].seq) >= min_bin_size:
-                    with open(prefix + '/vamb_bin.' + str(max_cluster_id) + '.fna', 'w') as f:
-                        write_contig(contig, assembly, f)
+            with open(prefix + '/filtered_contig.' + str(bin_id) + '.fna', 'w') as f:
+                fasta = ">" + record.id + '\n'
+                fasta += str(record.seq) + '\n'
+                f.write(fasta)
 
 
 def write_contig(contig, assembly, f):
@@ -605,6 +475,7 @@ def write_contig(contig, assembly, f):
     fasta = ">" + seq.id + '\n'
     fasta += str(seq.seq) + '\n'
     f.write(fasta)
+
 
 def phelp():
     print("""
@@ -641,9 +512,9 @@ class CustomHelpFormatter(argparse.HelpFormatter):
         h = action.help
         if '%(default)' not in action.help:
             if action.default != '' and \
-               action.default != [] and \
-               action.default != None \
-               and action.default != False:
+                    action.default != [] and \
+                    action.default != None \
+                    and action.default != False:
                 if action.default is not argparse.SUPPRESS:
                     defaulting_nargs = [
                         argparse.OPTIONAL, argparse.ZERO_OR_MORE
@@ -663,7 +534,5 @@ class CustomHelpFormatter(argparse.HelpFormatter):
         return ''.join([indent + line for line in text.splitlines(True)])
 
 
-
 if __name__ == '__main__':
-
-   sys.exit(main())
+    sys.exit(main())

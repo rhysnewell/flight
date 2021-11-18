@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+
 ###############################################################################
 # metrics.py - File containing additonal distance metrics for use with UMAP
 ###############################################################################
@@ -29,7 +30,7 @@ __status__ = "Development"
 # System imports
 
 # Function imports
-from numba import njit, float64
+from numba import njit, float64, prange
 from numba.typed import List
 from numba.experimental import jitclass
 import numpy as np
@@ -52,23 +53,24 @@ class NormalDist:
         self.scale = scale
 
     def cdf(self, x):
-        # https: // stackoverflow.com / questions / 809362 / how - to - calculate - cumulative - normal - distribution
+        # https://stackoverflow.com/questions/809362/how-to-calculate-cumulative-normal-distribution
         # 'Cumulative distribution function for the standard normal distribution'
         # Scale and shift the x value
-        x = (x - self.loc) / self.scale
-        return (1.0 + math.erf(x / np.sqrt(2.0))) / 2.0
+        # https: // www.boost.org / doc / libs / 1_38_0 / libs / math / doc / sf_and_dist / html / math_toolkit / dist / dist_ref / dists / normal_dist.html
+        # x = (x - self.loc) / self.scale
+        return (math.erfc(-(x - self.loc) / (self.scale * np.sqrt(2.0)))) / 2.0
 
 @njit(fastmath=True)
 def tnf_euclidean(a, b):
 
     # l = length_weighting(a[0], b[0])
-    rp = max(a[0], b[0])
-    
+    # rp = max(a[0], b[0], 1)
+    rp = 1
     result = 0.0
     for i in range(a.shape[0] - 1):
         result += (a[i + 1] - b[i + 1]) ** 2
         
-    d = np.sqrt(result)
+    d = result ** (1/2)
     # if rp > 1:
     d = d * rp
     
@@ -347,6 +349,7 @@ def metabat_distance(a, b, n_samples, sample_distances):
     returns distance as defined in metabat1 paper
     """
 
+
     # generate distirbutions for each sample
     # and calculate divergence between them
     # 
@@ -369,14 +372,23 @@ def metabat_distance(a, b, n_samples, sample_distances):
         a_var = a_vars[i] + 1e-6
         b_mean = b_means[i] + 1e-6
         b_var = b_vars[i] + 1e-6
+        d = 0
+
         if a_mean > 1e-6 and b_mean > 1e-6:
+            # both_present[i] = True
             both_present.append(i)
 
-        if a_mean > 1e-6 or b_mean > 1e-6 and a_mean != b_mean:
-            # if a_var > a_mean:
-                # a_var = a_mean
-            # if b_var > b_mean:
-                # b_var = b_mean
+        # if a_var >= 50 * a_mean and a_mean >= 10: # scale down extreme variances
+        #     a_var = a_mean
+        #
+        # if b_var >= 50 * b_mean and b_mean >= 10:
+        #     b_var = b_mean
+
+        if (a_mean > 1e-6 or b_mean > 1e-6) and a_mean != b_mean:
+            if a_var < 1:
+                a_var = 1
+            if b_var < 1:
+                b_var = 1
                 
             if abs(a_var - b_var) < 1e-4:
                 k1 = k2 = (a_mean + b_mean) / 2
@@ -391,23 +403,33 @@ def metabat_distance(a, b, n_samples, sample_distances):
                 k2 = tmp
 
             if a_var > b_var:
-                p1 = NormalDist(b_mean, np.sqrt(b_var))
-                p2 = NormalDist(a_mean, np.sqrt(a_var))
+                # p1 = NormalDist(b_mean, np.sqrt(b_var))
+                p1 = (b_mean, np.sqrt(b_var))
+                # p2 = NormalDist(a_mean, np.sqrt(a_var))
+                p2 = (a_mean, np.sqrt(a_var))
             else:
-                p1 = NormalDist(a_mean, np.sqrt(a_var))
-                p2 = NormalDist(b_mean, np.sqrt(b_var))
+                # p1 = NormalDist(a_mean, np.sqrt(a_var))
+                p1 = (a_mean, np.sqrt(a_var))
+                # p2 = NormalDist(b_mean, np.sqrt(b_var))
+                p2 = (b_mean, np.sqrt(b_var))
 
             if k1 == k2:
-                d = abs(p1.cdf(k1) - p2.cdf(k1))
-                mb_vec.append(max(d, 1e-6))
+                d = abs(cdf(p1, k1) - cdf(p2, k1))
+                # mb_vec[i] = min(max(d, 1e-6), 1 - 1e-6)
+                mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
                 # mb_vec.append(d)
             else:
-                d = p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)
-                mb_vec.append(max(d, 1e-6))
+                d = abs(cdf(p1, k2) - cdf(p1, k1) + cdf(p2, k1) - cdf(p2, k2))
+                # mb_vec[i] = min(max(d, 1e-6), 1 - 1e-6)
+                mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
                 # mb_vec.append(d)
+        elif a_mean == b_mean:
+            # mb_vec[i] = min(max(d, 1e-6), 1 - 1e-6)
+            mb_vec.append(1e-6)
+            # pass
         else:
-            mb_vec.append(max(d, 1e-6))
-    
+            pass
+
     if len(mb_vec) >= 1:
         # convert to log space to avoid overflow errors
         d = np.log(np.array(mb_vec))
@@ -422,6 +444,19 @@ def metabat_distance(a, b, n_samples, sample_distances):
         d = 1
 
     return d
+
+#function only method for getting CDF of normal distribution
+# since jitclass objects aren't pickleable
+@njit(fastmath=True)
+def cdf(dist, x):
+    """
+    @ param: dist is a tuple object of (f64, f64). The left index represents the loc (mean) and the right
+             index represents the scale (standard deviation)
+    @ param: x is the value being sampled from the distribution
+
+    @ return: cdf value f64
+    """
+    return (math.erfc(-(x - dist[0]) / (dist[1] * np.sqrt(2.0)))) / 2.0
 
 @njit(fastmath=True)
 def geom_sim_calc(both_present, sample_distances):
@@ -463,69 +498,6 @@ def combinations(pool, r):
             results.append(result)
     return results
 
-@njit()
-def kl_divergence(a, b, n_samples):
-    """
-    a - The mean and variance vec for contig a over n_samples
-    b - The mean and variance vec for contig b over n_samples
-
-    returns the geometric mean of the KL divergences for contigs a and b over n_samples
-    """
-
-    # generate distirbutions for each sample
-    # and calculate divergence between them
-    # https://stats.stackexchange.com/questions/7440/kl-divergence-between-two-univariate-gaussians
-    kl_vec = []
-
-    # Get the means and variances for each contig
-    a_means = a[::2]
-    a_vars = a[1::2]
-    b_means = b[::2]
-    b_vars = b[1::2]
-
-    for i in range(0, n_samples):
-        # Use this indexing method as zip does not seem to work so well in njit
-        # Add tiny value to each to avoid division by zero
-        a_mean = a_means[i] + 1e-6
-        a_var = a_vars[i] + 1e-6
-        b_mean = b_means[i] + 1e-6
-        b_var = b_vars[i] + 1e-6
-        
-        kl_1 = np.log(np.sqrt(b_var) / np.sqrt(a_var)) + ((a_var + (a_mean - b_mean)**2) / (2*b_var)) - 1/2
-        kl_2 = np.log(np.sqrt(a_var) / np.sqrt(b_var)) + ((b_var + (b_mean - a_mean)**2) / (2*a_var)) - 1/2
-        kl_sym = (kl_1 + kl_2)/2
-        
-        kl_vec.append(kl_sym)
-
-    # convert to log space to avoid overflow errors
-    kl_vec = np.log(np.array(kl_vec))
-    # return the geometric mean
-    return np.exp(kl_vec.sum() / len(kl_vec))
-
-@njit(fastmath=True)
-def symmetric_kl(x, y, sample_distances, z=1e-11):
-    n = x.shape[0]
-    x_sum = 0
-    y_sum = 0
-    kl1 = 0
-    kl2 = 0
-
-    for i in range(n):
-        x[i] += z
-        x_sum += x[i]
-        y[i] += z
-        y_sum += y[i]
-
-    for i in range(n):
-        x[i] /= x_sum
-        y[i] /= y_sum
-
-    for i in range(n):
-        kl1 += x[i] * np.log(x[i] / y[i])
-        kl2 += y[i] * np.log(y[i] / x[i])
-
-    return (kl1 + kl2) / 2
-
 
 @njit(fastmath=True)
 def rho(a, b):
@@ -533,11 +505,12 @@ def rho(a, b):
     a - CLR transformed coverage distribution vector a
     b - CLR transformed coverage distribution vector b
 
-    return - This is a transformed, inversed version of rho. Normal those -1 <= rho <= 1
+    return - This is a transformed, inversed version of rho. Normal rho -1 <= rho <= 1
     transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
     """
 
-    rp =  max(max(a[0], b[0]), 1)
+    # rp = max(a[0], b[0], 1)
+    rp = 1
     # l = 0
     x = a[1:]
     y = b[1:]
@@ -546,6 +519,7 @@ def rho(a, b):
     norm_x = 0.0
     norm_y = 0.0
     dot_product = 0.0
+    total_shared = 0
 
     for i in range(x.shape[0]):
         mu_x += x[i]
@@ -651,12 +625,9 @@ def rho_coverage(a, b):
     rho = 1 - vlr / (var_a + var_b)
     rho += 1
     rho = 2 - rho
-    
+
     return rho
 
-@njit()
-def pearson(a, b):
-    return np.corrcoef(a, b)[0, 1]
 
 @njit(fastmath=True)
 def aggregate_tnf(a, b, n_samples, sample_distances):
@@ -664,70 +635,243 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
     a, b - concatenated contig depth, variance, and TNF info with contig length at index 0
     n_samples - the number of samples
 
-    returns - an aggregate distance metric between KL divergence and TNF
+    returns - an aggregate distance metric between MetaBAT ADP divergence and TNF
     """
-    w = (n_samples + 1) / (n_samples + 1 + 1) # weighting by number of samples same as in metabat2
+    # w = (n_samples) / (n_samples + 1) # weighting by number of samples same as in metabat2
 
     
-    kl = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples, sample_distances)
-    if n_samples < 3:
-        tnf_dist = rho(a[n_samples*2:], b[n_samples*2:])
-        kl = np.sqrt((kl**(w)) * (tnf_dist**(1-w)))
+    md = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples, sample_distances)
+    # tnf_dist = rho(a[n_samples*2:], b[n_samples*2:])
+    # agg = np.sqrt((md**w) * (tnf_dist**(1-w)))
        
-    return kl
+    return md
+
 
 @njit(fastmath=True)
-def populate_matrix(depths, n_samples, sample_distances):
-    contigs = {}
+def aggregate_md(a, b, n_samples, sample_distances):
+    """
+    a, b - concatenated contig depth, variance, and TNF info with contig length at index 0
+    n_samples - the number of samples
+
+    returns - an aggregate distance metric between MetaBAT ADP divergence and TNF
+    """
+    w = (n_samples) / (n_samples + 1)  # weighting by number of samples same as in metabat2
+
+    md = metabat_distance(a[0:n_samples * 2], b[0:n_samples * 2], n_samples, sample_distances)
+    tnf_dist = rho(a[n_samples * 2:], b[n_samples * 2:])
+    agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
+
+    return agg
+
+
+@njit(fastmath=True)
+def rho_variants(x, y):
+    """
+    x - CLR transformed coverage distribution vector x
+    y - CLR transformed coverage distribution vector y
+
+    return - This is a transformed, inversed version of rho. Normal those -1 <= rho <= 1
+    transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
+    """
+
+    mu_x = 0.0
+    mu_y = 0.0
+    norm_x = 0.0
+    norm_y = 0.0
+    dot_product = 0.0
+
+    for i in range(x.shape[0]):
+        mu_x += x[i]
+        mu_y += y[i]
+
+    mu_x /= x.shape[0]
+    mu_y /= x.shape[0]
+
+    for i in range(x.shape[0]):
+        shifted_x = x[i] - mu_x
+        shifted_y = y[i] - mu_y
+        norm_x += shifted_x ** 2
+        norm_y += shifted_y ** 2
+        dot_product += shifted_x * shifted_y
+
+    norm_x = norm_x / (x.shape[0] - 1)
+    norm_y = norm_y / (x.shape[0] - 1)
+    dot_product = dot_product / (x.shape[0] - 1)
+    vlr = -2 * dot_product + norm_x + norm_y
+    rho = 1 - vlr / (norm_x + norm_y)
+    rho += 1
+    rho = 2 - rho
+
+    return rho
+
+@njit(fastmath=True, parallel=False)
+def check_connections(current, others, n_samples, sample_distances, rho_threshold=0.05, euc_threshold=3, dep_threshold=0.05):
+    rho_connected = False
+    euc_connected = False
+    dep_connected = False
+
+    for contig_idx in prange(others.shape[0]):
+        other = others[contig_idx]
+        if not rho_connected:
+            rho_value = rho(current[n_samples * 2:], other[n_samples * 2:])
+            if rho_value <= rho_threshold:
+                rho_connected = True
+
+        if not euc_connected:
+            euc_value = tnf_euclidean(current[n_samples * 2:], other[n_samples * 2:])
+            if euc_value <= euc_threshold:
+                euc_connected = True
+
+        if not dep_connected:
+            dep_value = metabat_distance(current[:n_samples * 2],
+                                         other[:n_samples * 2],
+                                         n_samples, sample_distances)
+            if dep_value <= dep_threshold:
+                dep_connected = True
+
+        if euc_connected and rho_connected and dep_connected:
+            break
+
+    # rho_bool = rho_connected > 0
+    # euc_bool = euc_connected > 0
+    # dep_bool = dep_connected > 0
+
+    return rho_connected, euc_connected, dep_connected
+
+@njit(fastmath=True)
+def average_values_and_min_values(current, others, n_samples, sample_distances):
+    """
+    Computes the average distances for a given contig values compared to all other contigs
+    """
+    rho_sum = 0
+    euc_sum = 0
+    dep_sum = 0
+
+    rho_min = None
+    euc_min = None
+    dep_min = None
+
+    for contig_idx in range(others.shape[0]):
+        rho_value = rho(current[0, n_samples * 2:],
+                        others[contig_idx, n_samples * 2:])
+        rho_sum += rho_value
+        if rho_min is not None:
+            if rho_min > rho_value:
+                rho_min = rho_value
+        else:
+            rho_min = rho_value
+
+        euc_value = tnf_euclidean(current[0, n_samples * 2:],
+                                  others[contig_idx, n_samples * 2:])
+        euc_sum += euc_value
+        if euc_min is not None:
+            if euc_min > euc_value:
+                euc_min = euc_value
+        else:
+            euc_min = euc_value
+
+        dep_value = metabat_distance(current[0, :n_samples * 2],
+                                     others[contig_idx, :n_samples * 2],
+                                     n_samples, sample_distances)
+        dep_sum += dep_value
+        if dep_min is not None:
+            if dep_min > dep_value:
+                dep_min = dep_value
+        else:
+            dep_min = dep_value
+
+    rho_mean = rho_sum / others.shape[0]
+    euc_mean = euc_sum / others.shape[0]
+    dep_mean = dep_sum / others.shape[0]
+
+    return (rho_mean, euc_mean, dep_mean), (rho_min, euc_min, dep_min)
+
+@njit(fastmath=True)
+def get_single_contig_averages(contig_depth, depths, n_samples, sample_distances):
+    values = List([0.0, 0.0, 0.0, 0.0])
     # distances = np.zeros((depths.shape[0], depths.shape[0]))
-    w = (n_samples + 1) / (n_samples + 1 + 1) # weighting by number of samples same as in metabat2
+    w = (n_samples) / (n_samples + 1)  # weighting by number of samples same as in metabat2
+
+    for i in range(depths.shape[0]):
+        md = metabat_distance(contig_depth[0, :n_samples * 2],
+                              depths[i, :n_samples * 2],
+                              n_samples, sample_distances)
+        tnf_dist = rho(contig_depth[0, n_samples * 2:], depths[i, n_samples * 2:])
+        tnf_euc = tnf_euclidean(contig_depth[0, n_samples * 2:], depths[i, n_samples * 2:])
+        agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
+
+        values[0] += md
+        values[1] += tnf_dist
+        values[2] += tnf_euc
+        values[3] += agg
+
+    values[0] /= depths.shape[0]
+    values[1] /= depths.shape[0]
+    values[2] /= depths.shape[0]
+    values[3] /= depths.shape[0]
+
+    return values
+
+@njit(fastmath=True)
+def get_averages(depths, n_samples, sample_distances):
+    contigs = List()
     tids = List()
-    [tids.append(x) for x in range(depths.shape[0])]
-    for tid in tids:
-        contigs[tid] = List([0.0, 0.0, 0.0])
+    # distances = np.zeros((depths.shape[0], depths.shape[0]))
+    w = (n_samples) / (n_samples + 1) # weighting by number of samples same as in metabat2
+
+    [(contigs.append(List([0.0, 0.0, 0.0, 0.0])), tids.append(x)) for x in range(depths.shape[0])]
+
     pairs = combinations(tids, 2)
     mean_md = 0
     mean_tnf = 0
+    mean_euc = 0
     mean_agg = 0
     
     for i in pairs:
         md = metabat_distance(depths[i[0], :n_samples*2], depths[i[1], :n_samples*2], n_samples, sample_distances)
         tnf_dist = rho(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
+        tnf_euc = tnf_euclidean(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
 
-        agg = np.sqrt((md**(w)) * (tnf_dist**(1-w)))
+        agg = np.sqrt((md**w) * (tnf_dist**(1-w)))
 
         mean_md += md
         mean_tnf += tnf_dist
+        mean_euc += tnf_euc
         mean_agg += agg
-
-        # distances[i[0], i[1]] = agg
-        # distances[i[1], i[0]] = agg
 
         contigs[i[0]][0] += md
         contigs[i[0]][1] += tnf_dist
-        contigs[i[0]][2] += agg
+        contigs[i[0]][2] += tnf_euc
+        contigs[i[0]][3] += agg
+
 
         contigs[i[1]][0] += md
         contigs[i[1]][1] += tnf_dist
-        contigs[i[1]][2] += agg
-        
-        
+        contigs[i[1]][2] += tnf_euc
+        contigs[i[1]][3] += agg
+
+
+    for i in range(len(contigs)):
+        contigs[i][0] /= (len(contigs) - 1)
+        contigs[i][1] /= (len(contigs) - 1)
+        contigs[i][2] /= (len(contigs) - 1)
+        contigs[i][3] /= (len(contigs) - 1)
+                
     mean_md = mean_md / len(pairs)
     mean_tnf = mean_tnf / len(pairs)
+    mean_euc = mean_euc / len(pairs)
     mean_agg = mean_agg / len(pairs)
     
-    return mean_md, mean_tnf, mean_agg, contigs
+    return mean_md, mean_tnf, mean_euc, mean_agg, contigs
 
 
 @njit(fastmath=True)
-def populate_dictionary(depths, n_samples, sample_distances):
-    distances = {}
+def distance_matrix(depths, n_samples, sample_distances):
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
+    distances = np.zeros((depths.shape[0], depths.shape[0]))
     tids = List()
     [tids.append(x) for x in range(depths.shape[0])]
 
-    for tid in tids:
-        distances[tid] = List([0.0, 0.0, 0.0])
     pairs = combinations(tids, 2)
     mean_md = 0.0
     mean_tnf = 0.0
@@ -737,89 +881,15 @@ def populate_dictionary(depths, n_samples, sample_distances):
         md = metabat_distance(depths[i[0], :n_samples*2], depths[i[1], :n_samples*2], n_samples, sample_distances)
         tnf_dist = rho(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
 
-        agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
+        agg = np.sqrt((md**w) * (tnf_dist**(1-w)))
 
         mean_md += md
         mean_tnf += tnf_dist
         mean_agg += agg
 
-
-        distances[i[0]][0] += md
-        distances[i[0]][1] += tnf_dist
-        distances[i[0]][2] += agg
-
-        distances[i[1]][0] += md
-        distances[i[1]][1] += tnf_dist
-        distances[i[1]][2] += agg
-
-        
+        distances[i[0]][i[1]] = agg
+        distances[i[1]][i[0]] = agg
     
-    mean_md = mean_md / len(pairs)
-    mean_tnf = mean_tnf / len(pairs)
-    mean_agg = mean_agg / len(pairs)
-    
-    return mean_md, mean_tnf, mean_agg, distances
+    return distances
 
-@njit(fastmath=True)
-def get_mean_metabat(depths, n_samples, sample_distances):
-    tids = List()
-    [tids.append(x) for x in range(depths.shape[0])]
-    pairs = combinations(tids, 2)
-    mean_d = 0
-    for i in pairs:
-        d = metabat_distance(depths[i[0], :], depths[i[1], :], n_samples, sample_distances)
-        mean_d += d
-        
-    mean_d = mean_d / len(pairs)
-    
-    return mean_d
 
-@njit(fastmath=True)
-def metabat_tdp(a, b):
-    """
-    a, b - concatenated TNF info with contig length at index 0    
-    returns - A correlation distance weighted by contig lengths
-    """
-    lw11 = min(a[0], b[0])
-    lw21 = max(a[0], b[0])
-    lw12 = lw11 * lw11
-    lw13 = lw12 * lw11
-    lw14 = lw13 * lw11
-    lw15 = lw14 * lw11
-    lw16 = lw15 * lw11
-    lw17 = lw16 * lw11
-    lw22 = lw21 * lw21
-    lw23 = lw22 * lw21
-    lw24 = lw23 * lw21
-    lw25 = lw24 * lw21
-    lw26 = lw25 * lw21
-
-    param1 = 46349.1624324381 + -76092.3748553155 * lw11 + -639.918334183 * lw21 + 53873.3933743949 * lw12 + -156.6547554844 * lw22 + -21263.6010657275 * lw13 + 64.7719132839 * lw23 + 5003.2646455284 * lw14 + -8.5014386744 * lw24 + -700.5825500292 * lw15 + 0.3968284526 * lw25 + 54.037542743 * lw16 + -1.7713972342 * lw17 + 474.0850141891 * lw11 * lw21 + -23.966597785 * lw12 * lw22 + 0.7800219061 * lw13 * lw23 + -0.0138723693 * lw14 * lw24 + 0.0001027543 * lw15 * lw25
-    param2 = -443565.465710869 + 718862.10804858 * lw11 + 5114.1630934534 * lw21 + -501588.206183097 * lw12 + 784.4442123743 * lw22 + 194712.394138513 * lw13 + -377.9645994741 * lw23 + -45088.7863182741 * lw14 + 50.5960513287 * lw24 + 6220.3310639927 * lw15 + -2.3670776453 * lw25 + -473.269785487 * lw16 + 15.3213264134 * lw17 + -3282.8510348085 * lw11 * lw21 + 164.0438603974 * lw12 * lw22 + -5.2778800755 * lw13 * lw23 + 0.0929379305 * lw14 * lw24 + -0.0006826817 * lw15 * lw25
-
-    
-    # l1 = ((a[0] + b[0]) / 2 )/ max(a[0], b[0])
-    # l2 = min(a[0], b[0]) / (max(a[0], b[0]) + 1)
-
-    
-    # tnf_dist = tnf_correlation(a[1:], b[1:], 0)
-    # L2 norm is equivalent to euclidean distance
-    euc_dist = euclidean(a[1:], b[1:])
-    
-    tnf_dist = -(param1 + param2 * euc_dist)
-
-    prob = 1 / (1 + math.exp(tnf_dist))
-
-    floor_preProb = np.log((1.0 / 0.1) - 1.0)
-    
-    if prob >= 0.1:
-        param1 = 6770.9351457442 + -5933.7589419767 * lw11 + -2976.2879986855 * lw21 + 3279.7524685865 * lw12 + 1602.7544794819 * lw22 + -967.2906583423 * lw13 + -462.0149190219 * lw23 + 159.8317289682 * lw14 + 74.4884405822 * lw24 + -14.0267151808 * lw15 + -6.3644917671 * lw25 + 0.5108811613 * lw16  + 0.2252455343 * lw26 + 0.965040193 * lw12 * lw22 + -0.0546309127 * lw13 * lw23 + 0.0012917084 * lw14 * lw24 + -1.14383e-05 * lw15 * lw25
-        param2 = 39406.5712626297 + -77863.1741143294 * lw11 + 9586.8761567725 * lw21 + 55360.1701572325 * lw12 + -5825.2491611377 * lw22 + -21887.8400068324 * lw13 + 1751.6803621934 * lw23 + 5158.3764225203 * lw14 + -290.1765894829 * lw24 + -724.0348081819 * lw15 + 25.364646181 * lw25 + 56.0522105105 * lw16  + -0.9172073892 * lw26 + -1.8470088417 * lw17 + 449.4660736502 * lw11 * lw21 + -24.4141920625 * lw12 * lw22 + 0.8465834103 * lw13 * lw23 + -0.0158943762 * lw14 * lw24 + 0.0001235384 * lw15 * lw25
-        preProb = -(param1 + param2 * euc_dist)
-        if preProb <= floor_preProb:
-            prob = 1.0 / (1 + math.exp(preProb))
-        else:
-            prob = 0.1    
-
-    return prob
-    
