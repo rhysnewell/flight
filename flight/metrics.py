@@ -350,6 +350,47 @@ def aggregate_md(a, b, n_samples, sample_distances):
 
     return agg
 
+
+@njit(fastmath=True)
+def rho_variants(x, y):
+    """
+    x - CLR transformed coverage distribution vector x
+    y - CLR transformed coverage distribution vector y
+
+    return - This is a transformed, inversed version of rho. Normal those -1 <= rho <= 1
+    transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
+    """
+
+    mu_x = 0.0
+    mu_y = 0.0
+    norm_x = 0.0
+    norm_y = 0.0
+    dot_product = 0.0
+
+    for i in range(x.shape[0]):
+        mu_x += x[i]
+        mu_y += y[i]
+
+    mu_x /= x.shape[0]
+    mu_y /= x.shape[0]
+
+    for i in range(x.shape[0]):
+        shifted_x = x[i] - mu_x
+        shifted_y = y[i] - mu_y
+        norm_x += shifted_x ** 2
+        norm_y += shifted_y ** 2
+        dot_product += shifted_x * shifted_y
+
+    norm_x = norm_x / (x.shape[0] - 1)
+    norm_y = norm_y / (x.shape[0] - 1)
+    dot_product = dot_product / (x.shape[0] - 1)
+    vlr = -2 * dot_product + norm_x + norm_y
+    rho = 1 - vlr / (norm_x + norm_y)
+    rho += 1
+    rho = 2 - rho
+
+    return rho
+
 @njit(fastmath=True, parallel=False)
 def check_connections(current, others, n_samples, sample_distances, rho_threshold=0.05, euc_threshold=3, dep_threshold=0.05):
     rho_connected = False

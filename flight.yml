@@ -13,6 +13,7 @@ dependencies:
   - scikit-learn
   - scikit-bio
   - numba=0.53.0
+  - pebble
   - biopython
   - pynndescent
   - threadpoolctl

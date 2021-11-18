@@ -371,7 +371,7 @@ def fit(args):
     os.environ["NUMBA_NUM_THREADS" ]= args.threads
     os.environ["MKL_NUM_THREADS"] = args.threads
     os.environ["OPENBLAS_NUM_THREADS"] = args.threads
-    from .cluster import Cluster
+    from flight.lorikeet.cluster import Cluster
     import numpy as np
     # os.environ["MKL_NUM_THREADS"] = args.threads
     # os.environ["OPENBLAS_NUM_THREADS"] = args.threads
