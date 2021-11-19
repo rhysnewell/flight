@@ -46,6 +46,7 @@ faulthandler.enable()
 
 # Self imports
 
+
 # Debug
 debug = {
     1: logging.CRITICAL,
@@ -367,45 +368,47 @@ def main():
 
 def fit(args):
     prefix = args.input.replace(".npy", "")
-    os.environ["NUMEXPR_MAX_THREADS"] = args.threads
-    os.environ["NUMBA_NUM_THREADS" ]= args.threads
+    # os.environ["NUMBA_NUM_THREADS"] = args.threads
     os.environ["MKL_NUM_THREADS"] = args.threads
     os.environ["OPENBLAS_NUM_THREADS"] = args.threads
-    from .cluster import Cluster
+    from flight.lorikeet.cluster import Cluster
     import numpy as np
-    # os.environ["MKL_NUM_THREADS"] = args.threads
-    # os.environ["OPENBLAS_NUM_THREADS"] = args.threads
 
     if not args.precomputed:
         clusterer = Cluster(args.input,
-                            prefix,
-                            n_neighbors=int(args.n_neighbors),
-                            min_cluster_size=int(args.min_cluster_size),
-                            min_samples=int(args.min_samples),
-                            min_dist=float(args.min_dist),
-                            n_components=int(args.n_components),
-                            threads=int(args.threads),
-                            )
+                           prefix,
+                           n_neighbors=int(args.n_neighbors),
+                           min_cluster_size=int(args.min_cluster_size),
+                           min_samples=int(args.min_samples),
+                           min_dist=float(args.min_dist),
+                           n_components=int(args.n_components),
+                           threads=int(args.threads),
+                           )
         clusterer.fit_transform()
-        clusterer.cluster()
-        # clusterer.break_clusters()
+        clusterer.labels = clusterer.cluster(clusterer.embeddings)
+        clusterer.recover_unbinned()
+        clusterer.recluster()
+        clusterer.cluster_means = clusterer.get_cluster_means()
         clusterer.plot()
 
-        np.save(prefix + '_labels.npy', clusterer.labels())
+        logging.info("Writing variant labels...")
+        np.save(prefix + '_labels.npy', clusterer.labels_for_printing())
+        logging.info("Calculating cluster separation values...")
         np.save(prefix + '_separation.npy', clusterer.cluster_separation())
     else:
         clusterer = Cluster(args.input,
-                            prefix,
-                            n_neighbors=int(args.n_neighbors),
-                            min_cluster_size=int(args.min_cluster_size),
-                            min_samples=int(args.min_samples),
-                            scaler="none",
-                            precomputed=args.precomputed,
-                            threads=int(args.threads),
-                            )
+                           prefix,
+                           n_neighbors=int(args.n_neighbors),
+                           min_cluster_size=int(args.min_cluster_size),
+                           min_samples=int(args.min_samples),
+                           scaler="none",
+                           precomputed=args.precomputed,
+                           threads=int(args.threads),
+                           )
         clusterer.cluster_distances()
         clusterer.plot_distances()
         np.save(prefix + '_labels.npy', clusterer.labels())
+
 
 
 def bin(args):

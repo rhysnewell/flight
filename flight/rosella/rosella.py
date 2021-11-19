@@ -213,21 +213,6 @@ class Rosella(Validator):
                 self.sort_bins()
                 break  # no more clusters have broken
 
-    def check_if_bins_should_combine(self, n=0, n_max=5, threshold=0.001):
-        old_labels = None
-        while n <= n_max:
-            self.get_labels_from_bins()
-            if old_labels is None:
-                old_labels = self.labels
-            elif (old_labels == self.labels).all():
-                break
-            else:
-                old_labels = self.labels
-
-            self.combine_bins(threshold=threshold)
-            self.sort_bins()
-            n += 1
-
     def perform_binning(self, args):
         plots = []
         with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
@@ -268,8 +253,9 @@ class Rosella(Validator):
                             self.bin_contigs(args.assembly, int(args.min_bin_size))
 
                             self.findem = [
-                                'contig_29111_pilon', 'contig_5229_pilon', 'contig_7458_pilon', # Ega
-                                'contig_124_pilon' # Ret
+                                # 'contig_29111_pilon', 'contig_5229_pilon', 'contig_7458_pilon', # Ega
+                                # 'contig_124_pilon' # Ret
+                                'contig_1298_pilon', 'contig_1033_pilon', 'contig_10125_pilon'
                             ]
                             self.plot(
                                 self.findem
@@ -287,19 +273,17 @@ class Rosella(Validator):
                             logging.info("Reclustering individual bins.")
                             self.sort_bins()
 
-                            # self.validation_settings(0, self.a, self.b)
-                            # self.slow_refine(plots, 0, 0, x_min, x_max, y_min, y_max)
-                            # self.quick_filter(plots, 0, 5, x_min, x_max, y_min, y_max)
-                            # self.size_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
                             self.slow_refine(plots, 0, 100, x_min, x_max, y_min, y_max)
-                            # self.quick_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
-                            # self.size_filter(plots, 0, 5, x_min, x_max, y_min, y_max)
                             self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
-                            # self.force_splitting(plots, 0, 5, x_min, x_max, y_min, y_max)
-                            # self.check_if_bins_should_combine(0, 1, 0.01)
+                            self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
+                            # Final clean of unbinned
+                            self.reembed(self.unbinned_tids,
+                                         max(self.bins.keys()) + 1, plots,
+                                         x_min, x_max, y_min, y_max, 0, delete_unbinned=True,
+                                         skip_clustering=True, reembed=True, force=True,
+                                         update_embeddings=False)
 
                             self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
-                            # self.assign_unbinned(0, 0, 2e5)
 
                         else:
                             self.rescue_contigs(int(args.min_bin_size))

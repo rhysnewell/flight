@@ -91,6 +91,256 @@ def length_weighting(a, b):
     return min(np.log(a), np.log(b)) / (max(np.log(a), np.log(b)))
 
 @njit(fastmath=True)
+def tnf_correlation(a, b):
+    rp =  max(a[0], b[0])
+    # l = 0
+    x = a[1:]
+    y = b[1:]
+    mu_x = 0.0
+    mu_y = 0.0
+    norm_x = 0.0
+    norm_y = 0.0
+    dot_product = 0.0
+
+    for i in range(x.shape[0]):
+        mu_x += x[i]
+        mu_y += y[i]
+
+    mu_x /= x.shape[0]
+    mu_y /= x.shape[0]
+
+    for i in range(x.shape[0]):
+        shifted_x = x[i] - mu_x
+        shifted_y = y[i] - mu_y
+        norm_x += shifted_x ** 2
+        norm_y += shifted_y ** 2
+        dot_product += shifted_x * shifted_y
+
+    if norm_x == 0.0 and norm_y == 0.0:
+        return 0.0
+    elif dot_product == 0.0:
+        return 1.0
+    else:
+        return rp * (1.0 - (dot_product / np.sqrt(norm_x * norm_y)))
+
+
+@njit(fastmath=True)
+def inverse_correlation(a, b):
+    rp =  max(a[0], b[0]) ** min(a[0], b[0])
+    # l = 0
+    x = a[1:]
+    y = b[1:]
+    mu_x = 0.0
+    mu_y = 0.0
+    norm_x = 0.0
+    norm_y = 0.0
+    dot_product = 0.0
+
+    for i in range(x.shape[0]):
+        mu_x += x[i]
+        mu_y += y[i]
+
+    mu_x /= x.shape[0]
+    mu_y /= x.shape[0]
+
+    for i in range(x.shape[0]):
+        shifted_x = x[i] - mu_x
+        shifted_y = y[i] - mu_y
+        norm_x += shifted_x ** 2
+        norm_y += shifted_y ** 2
+        dot_product += shifted_x * shifted_y
+
+    if norm_x == 0.0 and norm_y == 0.0:
+        return 1.0
+    elif dot_product == 0.0:
+        return 0.0
+    else:
+        return (dot_product / np.sqrt(norm_x * norm_y) + 1) / rp
+
+@njit(fastmath=True)
+def tnf_spearman(a, b):
+    rp = max(a[0], b[0])
+
+    # Sum of sqaured difference between ranks
+    result = 0.0
+    for i in range(a.shape[0] - 1):
+        result += (a[i + 1] - b[i + 1]) ** 2
+
+    n = len(a[1:])
+    
+    spman = 1 -  6 * result / (n*(n**2 - 1))
+    # we would use spman = 1 - spman for actual correlation
+    spman += 1
+    spman = 2 - spman
+    
+    if a[0] > 1 and b[0] > 1:
+       spman = spman * a[0] * b[0]
+    elif rp > 1:
+        spman = spman * rp
+
+    return spman
+    
+@njit(fastmath=True)
+def tnf_kendall_tau(x, y):
+    rp = max(y[0], x[0])
+    values1 = x[1:]
+    values2 = y[1:]
+    
+    n = len(values1)
+    d = 0
+    for i in range(0, n):
+        a = values1[i] - values2[i] # 
+        b = values2[i] - values1[i]
+        if a * b < 0:
+            d += 1
+
+    d = d / (n * (n - 1) / 2)
+    if rp > 1:
+        d = d * rp
+    return d
+      
+
+
+@njit()
+def hellinger_distance_normal(a, b, n_samples, sample_distances):
+    """
+    a - The mean and variance vec for contig a over n_samples
+    b - The mean and variance vec for contig b over n_samples
+
+    returns average hellinger distance of multiple normal distributions
+    """
+
+    # generate distirbutions for each sample
+    # and calculate divergence between them
+  
+    # Get the means and variances for each contig
+    a_means = a[::2]
+    a_vars = a[1::2]
+    b_means = b[::2]
+    b_vars = b[1::2]
+    h_geom_mean = []
+    both_present = []
+
+    for i in range(0, n_samples):
+        # Use this indexing method as zip does not seem to work so well in njit
+        # Add tiny value to each to avoid division by zero
+        a_mean = a_means[i] + 1e-6
+        a_var = a_vars[i] + 1e-6
+        b_mean = b_means[i] + 1e-6
+        b_var = b_vars[i] + 1e-6
+        if a_mean > 1e-6 and b_mean > 1e-6:
+            both_present.append(i)
+        # First component of hellinger distance
+        h1 = np.sqrt(((2*np.sqrt(a_var)*np.sqrt(b_var)) / (a_var + b_var)))
+
+        h2 = math.exp(-0.25 * ((a_mean - b_mean)**2) / (a_var + b_var))
+
+        h_geom_mean.append(1 - h1 * h2)
+
+    if len(h_geom_mean) >= 1:
+    
+        # convert to log space to avoid overflow errors
+        d = np.log(np.array(h_geom_mean))
+        # return the geometric mean
+        d = np.exp(d.sum() / len(d))
+        geom_sim = geom_sim_calc(both_present, sample_distances)
+        d = d ** (1/geom_sim)
+    else:
+        d = 1
+    
+    return d
+
+
+@njit()
+def hellinger_distance_poisson(a, b, n_samples, sample_distances):
+    """
+    a - The mean and variance vec for contig a over n_samples
+    b - The mean and variance vec for contig b over n_samples
+
+    returns average hellinger distance of multiple normal distributions
+    """
+
+    # generate distirbutions for each sample
+    # and calculate divergence between them
+
+    # Get the means for each contig
+    a_means = a[::2]
+    b_means = b[::2]
+    h_geom_mean = []
+    both_present = []
+    
+    for i in range(0, n_samples):
+        # Use this indexing method as zip does not seem to work so well in njit
+        # Add tiny value to each to avoid division by zero
+        a_mean = a_means[i] + 1e-6
+        b_mean = b_means[i] + 1e-6
+        
+        if a_mean > 1e-6 and b_mean > 1e-6:
+            both_present.append(i)
+
+        if a_mean > 1e-6 or b_mean > 1e-6:
+            # First component of hellinger distance
+            h1 = math.exp(-0.5 * ((np.sqrt(a_mean) - np.sqrt(b_mean))**2))
+
+            h_geom_mean.append(1 - h1)
+        
+    if len(h_geom_mean) >= 1:
+        # convert to log space to avoid overflow errors
+        d = np.log(np.array(h_geom_mean))
+        # return the geometric mean
+        d = np.exp(d.sum() / len(d))
+        geom_sim = geom_sim_calc(both_present, sample_distances)
+        d = d ** (1/geom_sim)
+    else:
+        d = 1
+    
+    return d
+
+@njit(fastmath=True)
+def hellinger_distance_poisson_variants(a_means, b_means, n_samples, sample_distances):
+    """
+    a - The coverage vec for a variant over n_samples
+    b - The coverage vec for a variant over n_samples
+
+    returns average hellinger distance of multiple poisson distributions
+    """
+
+    # generate distirbutions for each sample
+    # and calculate divergence between them
+
+    # Get the means for each contig
+    h_geom_mean = []
+    both_present = []
+
+    for i in range(0, n_samples):
+        # Use this indexing method as zip does not seem to work so well in njit
+        # Add tiny value to each to avoid division by zero
+        a_mean = a_means[i] + 1e-6
+        b_mean = b_means[i] + 1e-6
+
+        if a_mean > 1e-6 and b_mean > 1e-6:
+            both_present.append(i)
+
+        if a_mean > 1e-6 or b_mean > 1e-6:
+            # First component of hellinger distance
+            h1 = math.exp(-0.5 * ((np.sqrt(a_mean) - np.sqrt(b_mean))**2))
+
+            h_geom_mean.append(1 - h1)
+
+    if len(h_geom_mean) >= 1:
+        # convert to log space to avoid overflow errors
+        d = np.log(np.array(h_geom_mean))
+        # return the geometric mean
+        d = np.exp(d.sum() / len(d))
+        geom_sim = geom_sim_calc(both_present, sample_distances)
+        d = d ** (1/geom_sim)
+    else:
+        d = 1
+
+    return d
+
+
+@njit(fastmath=True)
 def metabat_distance(a, b, n_samples, sample_distances):
     """
     a - The mean and variance vec for contig a over n_samples
@@ -296,6 +546,69 @@ def rho(a, b):
     return rho * rp
 
 @njit(fastmath=True)
+def rho_variants(x, y):
+    """
+    x - CLR transformed coverage distribution vector x
+    y - CLR transformed coverage distribution vector y
+
+    return - This is a transformed, inversed version of rho. Normal those -1 <= rho <= 1
+    transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
+    """
+
+    # if x[0] == y[0] and x[1] == y[1]:
+    #     return 2
+    #
+    # x = x[2:]
+    # y = y[2:]
+
+    mu_x = 0.0
+    mu_y = 0.0
+    norm_x = 0.0
+    norm_y = 0.0
+    dot_product = 0.0
+
+    for i in range(x.shape[0]):
+        mu_x += x[i]
+        mu_y += y[i]
+
+    mu_x /= x.shape[0]
+    mu_y /= x.shape[0]
+
+    for i in range(x.shape[0]):
+        shifted_x = x[i] - mu_x
+        shifted_y = y[i] - mu_y
+        norm_x += shifted_x ** 2
+        norm_y += shifted_y ** 2
+        dot_product += shifted_x * shifted_y
+    
+    norm_x = norm_x / (x.shape[0] - 1)
+    norm_y = norm_y / (x.shape[0] - 1)
+    dot_product = dot_product / (x.shape[0] - 1)
+    vlr = -2 * dot_product + norm_x + norm_y
+    rho = 1 - vlr / (norm_x + norm_y)
+    rho += 1
+    rho = 2 - rho
+    
+    return rho
+
+
+@njit(fastmath=True)
+def euclidean_variant(a, b):
+    if a[0] == b[0] and a[1] == b[1]:
+        return 100000000000000000
+
+    a = a[2:]
+    b = b[2:]
+
+    result = 0.0
+    for i in range(a.shape[0] - 1):
+        result += (a[i + 1] - b[i + 1]) ** 2
+
+    return np.sqrt(result)
+
+
+
+@njit(fastmath=True)
 def rho_coverage(a, b):
     """
     a - CLR transformed coverage distribution vector a
@@ -349,6 +662,47 @@ def aggregate_md(a, b, n_samples, sample_distances):
     agg = np.sqrt((md ** w) * (tnf_dist ** (1 - w)))
 
     return agg
+
+
+@njit(fastmath=True)
+def rho_variants(x, y):
+    """
+    x - CLR transformed coverage distribution vector x
+    y - CLR transformed coverage distribution vector y
+
+    return - This is a transformed, inversed version of rho. Normal those -1 <= rho <= 1
+    transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
+    """
+
+    mu_x = 0.0
+    mu_y = 0.0
+    norm_x = 0.0
+    norm_y = 0.0
+    dot_product = 0.0
+
+    for i in range(x.shape[0]):
+        mu_x += x[i]
+        mu_y += y[i]
+
+    mu_x /= x.shape[0]
+    mu_y /= x.shape[0]
+
+    for i in range(x.shape[0]):
+        shifted_x = x[i] - mu_x
+        shifted_y = y[i] - mu_y
+        norm_x += shifted_x ** 2
+        norm_y += shifted_y ** 2
+        dot_product += shifted_x * shifted_y
+
+    norm_x = norm_x / (x.shape[0] - 1)
+    norm_y = norm_y / (x.shape[0] - 1)
+    dot_product = dot_product / (x.shape[0] - 1)
+    vlr = -2 * dot_product + norm_x + norm_y
+    rho = 1 - vlr / (norm_x + norm_y)
+    rho += 1
+    rho = 2 - rho
+
+    return rho
 
 @njit(fastmath=True, parallel=False)
 def check_connections(current, others, n_samples, sample_distances, rho_threshold=0.05, euc_threshold=3, dep_threshold=0.05):

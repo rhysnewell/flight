@@ -102,7 +102,7 @@ class Binner:
             initialization='spectral',
             random_seed=42069
     ):
-        self.max_time_to_recluster_bin = 7200 # two hours
+        self.max_time_to_recluster_bin = 1800 # 30 mins
         self.findem = []
         self.min_contig_size = min_contig_size
         self.min_bin_size = min_bin_size
@@ -217,7 +217,7 @@ class Binner:
         self.binning_method = 'eom'
         self.min_cluster_size = 2
 
-        n_components = min(max(self.n_samples, self.long_samples, 2), 5)
+        n_components = min(max(self.n_samples + self.long_samples, 2), 10)
 
         if self.use_euclidean:
             self.a = 1.9
@@ -315,91 +315,6 @@ class Binner:
         # Validator options
         self.overclustered = False  # large cluster
 
-
-
-    def nx_calculations(self):
-        """
-        Calculates NX of contigs greater than the min contig size, currently hardcoded to calc n10, n25, n50, n75, n90
-        Returns: A dict object with n values as keys and values a tuple of index and size values
-        """
-        lengths = np.sort(self.large_contigs['contigLen'])
-        lengths_sum = lengths.sum()
-
-        idx01, n01, done01 = 0, 0, False
-        idx05, n05, done05 = 0, 0, False
-        idx10, n10, done10 = 0, 0, False
-        idx25, n25, done25 = 0, 0, False
-        idx50, n50, done50 = 0, 0, False
-        idx75, n75, done75 = 0, 0, False
-        idx90, n90, done90 = 0, 0, False
-        idx95, n95, done95 = 0, 0, False
-        idx99, n99, done99 = 0, 0, False
-
-
-        sum01 = lengths_sum * 0.01
-        sum05 = lengths_sum * 0.05
-        sum10 = lengths_sum * 0.10
-        sum25 = lengths_sum * 0.25
-        sum50 = lengths_sum * 0.50
-        sum75 = lengths_sum * 0.75
-        sum90 = lengths_sum * 0.90
-        sum95 = lengths_sum * 0.95
-        sum99 = lengths_sum * 0.99
-
-        results = {}
-
-        for counter in range(1, len(lengths) + 1):
-            current_sum = lengths[0:counter].sum()
-
-            # individual checks for each point
-            if current_sum > sum01 and not done01:
-                idx01 = counter - 1
-                n01 = lengths[counter - 1]
-                done01 = True
-                results["N01"] = (idx01, n01)
-            if current_sum > sum05 and not done05:
-                idx05 = counter - 1
-                n05 = lengths[counter - 1]
-                done05 = True
-                results["N05"] = (idx05, n05)
-            if current_sum > sum10 and not done10:
-                idx10 = counter - 1
-                n10 = lengths[counter - 1]
-                done10 = True
-                results["N10"] = (idx10, n10)
-            if current_sum > sum25 and not done25:
-                idx25 = counter - 1
-                n25 = lengths[counter - 1]
-                done25 = True
-                results["N25"] = (idx25, n25)
-            if current_sum > sum50 and not done50:
-                idx50 = counter - 1
-                n50 = lengths[counter - 1]
-                done50 = True
-                results["N50"] = (idx50, n50)
-            if current_sum > sum75 and not done75:
-                idx75 = counter - 1
-                n75 = lengths[counter - 1]
-                done75 = True
-                results["N75"] = (idx75, n75)
-            if current_sum > sum90 and not done90:
-                idx90 = counter - 1
-                n90 = lengths[counter - 1]
-                done90 = True
-                results["N90"] = (idx90, n90)
-            if current_sum > sum95 and not done95:
-                idx95 = counter - 1
-                n95 = lengths[counter - 1]
-                done95 = True
-                results["N95"] = (idx95, n95)
-            if current_sum > sum99 and not done99:
-                idx99 = counter - 1
-                n99 = lengths[counter - 1]
-                done99 = True
-                results["N99"] = (idx99, n99)
-                break
-
-        return results
 
     def nX(self, x = 50):
         lengths = np.sort(self.large_contigs['contigLen'])
