@@ -51,6 +51,7 @@ import umap
 from numba import set_num_threads
 import pynndescent
 import itertools
+# import pacmap
 
 # self imports
 import flight.utils as utils
@@ -154,7 +155,7 @@ class Cluster:
         metric='hellinger_distance_poisson',
         hdbscan_metric="euclidean",
         threads=8,
-        b=0.7,
+        b=0.5,
         a=1.48,
         random_seed=42069,
     ):
@@ -184,7 +185,7 @@ class Cluster:
         # self.depths[:, 2:] = self.clr_depths
         self.n_samples = (self.depths.shape[1] - 2) // 2
 
-        n_components = min(self.n_samples, 10)
+        n_components = min(max(self.n_samples, 2), 10)
 
         if n_neighbors > self.depths.shape[0]:
             n_neighbors = self.depths.shape[0] - 1
@@ -210,38 +211,49 @@ class Cluster:
             b=b,
         )
 
+        # self.distance_reducer = pacmap.PaCMAP(
+        #     n_neighbors=n_neighbors,
+        #     # min_dist=min_dist,
+        #     n_dims=n_components,
+        #     random_state=random_seed,
+        #     # spread=1,
+        #     # metric=metrics.euclidean_variant,
+        #     # a=a,
+        #     # b=b,
+        # )
+
         if precomputed:
             self.metric = "precomputed"
         else:
             self.metric = "euclidean"
 
-        self.update_umap_params(self.depths.shape[0])
+        # self.update_umap_params(self.depths.shape[0])
 
-    def update_umap_params(self, nrows):
-        if nrows <= 10000:  # high gear
-            # Small datasets can have larger n_neighbors without being prohibitively slow
-            if nrows <= 1000:  # wheels fell off
-                self.rho_reducer.n_neighbors = nrows // 10
-                self.distance_reducer.n_neighbors = nrows // 10
-            else:
-                self.rho_reducer.n_neighbors = 100
-                self.distance_reducer.n_neighbors = 100
-            self.rho_reducer.n_epochs = 500
-            self.distance_reducer.n_epochs = 500
-        elif nrows <= 50000:  # mid gear
-            # Things start to get too slow around here, so scale back params
-            self.rho_reducer.n_neighbors = 50
-            self.rho_reducer.n_epochs = 400
-            self.distance_reducer.n_neighbors = 50
-            self.distance_reducer.n_epochs = 400
-        else:  # low gear
-            # This is the super slow zone, but don't want to dip values below this
-            # Hopefully pick out easy bins, then scale data down with each iterations
-            # Allowing the params to bump up into other gears
-            self.rho_reducer.n_neighbors = 30
-            self.rho_reducer.n_epochs = 300
-            self.distance_reducer.n_neighbors = 30
-            self.distance_reducer.n_epochs = 300
+    # def update_umap_params(self, nrows):
+    #     if nrows <= 10000:  # high gear
+    #         # Small datasets can have larger n_neighbors without being prohibitively slow
+    #         if nrows <= 1000:  # wheels fell off
+    #             self.rho_reducer.n_neighbors = nrows // 10
+    #             self.distance_reducer.n_neighbors = nrows // 10
+    #         else:
+    #             self.rho_reducer.n_neighbors = 100
+    #             self.distance_reducer.n_neighbors = 100
+    #         self.rho_reducer.n_epochs = 500
+    #         self.distance_reducer.n_epochs = 500
+    #     elif nrows <= 50000:  # mid gear
+    #         # Things start to get too slow around here, so scale back params
+    #         self.rho_reducer.n_neighbors = 50
+    #         self.rho_reducer.n_epochs = 400
+    #         self.distance_reducer.n_neighbors = 50
+    #         self.distance_reducer.n_epochs = 400
+    #     else:  # low gear
+    #         # This is the super slow zone, but don't want to dip values below this
+    #         # Hopefully pick out easy bins, then scale data down with each iterations
+    #         # Allowing the params to bump up into other gears
+    #         self.rho_reducer.n_neighbors = 30
+    #         self.rho_reducer.n_epochs = 300
+    #         self.distance_reducer.n_neighbors = 30
+    #         self.distance_reducer.n_epochs = 300
 
     def filter(self):
         # Not sure to include this
@@ -258,6 +270,7 @@ class Cluster:
             rho_embeddings = self.rho_reducer.fit(self.clr_depths)
             intersect = dist_embeddings * rho_embeddings
             self.embeddings = intersect.embedding_
+            # self.embeddings = dist_embeddings
         else:
             self.embeddings = self.clr_depths
 

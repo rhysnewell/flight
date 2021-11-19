@@ -368,7 +368,7 @@ def main():
 
 def fit(args):
     prefix = args.input.replace(".npy", "")
-    os.environ["NUMBA_NUM_THREADS"] = args.threads
+    # os.environ["NUMBA_NUM_THREADS"] = args.threads
     os.environ["MKL_NUM_THREADS"] = args.threads
     os.environ["OPENBLAS_NUM_THREADS"] = args.threads
     from flight.lorikeet.cluster import Cluster

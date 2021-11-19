@@ -217,7 +217,7 @@ class Binner:
         self.binning_method = 'eom'
         self.min_cluster_size = 2
 
-        n_components = min(max(self.n_samples, self.long_samples, 2), 5)
+        n_components = min(max(self.n_samples + self.long_samples, 2), 10)
 
         if self.use_euclidean:
             self.a = 1.9
