@@ -270,7 +270,8 @@ class Cluster:
             rho_embeddings = self.rho_reducer.fit(self.clr_depths)
             intersect = dist_embeddings * rho_embeddings
             self.embeddings = intersect.embedding_
-            # self.embeddings = dist_embeddings
+            # self.embeddings = dist_embeddings.embedding_
+            # self.embeddings = rho_embeddings.embedding_
         else:
             self.embeddings = self.clr_depths
 
