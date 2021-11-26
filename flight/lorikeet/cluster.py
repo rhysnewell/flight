@@ -52,6 +52,7 @@ from numba import set_num_threads
 import pynndescent
 import itertools
 # import pacmap
+# import phate
 
 # self imports
 import flight.utils as utils
@@ -163,6 +164,7 @@ class Cluster:
         self.embeddings = []
         self.labels = None
         self.cluster_means = None
+        self.separation = None
         self.threads = threads
         ## Set up clusterer and UMAP
         self.path = output_prefix
@@ -180,10 +182,10 @@ class Cluster:
             # Have to reshape after clr transformation
             self.clr_depths = self.clr_depths.reshape((-1, 1))
 
-        self.clr_depths = skbio.stats.composition.clr((self.depths + 1).T).T
+        # self.clr_depths = skbio.stats.composition.clr((self.depths + 1).T).T
 
         # self.depths[:, 2:] = self.clr_depths
-        self.n_samples = (self.depths.shape[1] - 2) // 2
+        self.n_samples = (self.clr_depths.shape[1] - 2) // 2
 
         n_components = min(max(self.n_samples, 2), 10)
 
@@ -220,6 +222,12 @@ class Cluster:
         #     # metric=metrics.euclidean_variant,
         #     # a=a,
         #     # b=b,
+        # )
+
+        # self.distance_reducer = phate.PHATE(
+        #     n_jobs = threads,
+        #     n_components = 2,
+        #     knn = n_neighbors
         # )
 
         if precomputed:
@@ -263,50 +271,61 @@ class Cluster:
         # Not sure to include this
         pass
 
-    def fit_transform(self):
+    def fit_transform(self, second_pass=False):
         ## Calculate the UMAP embeddings
-        if self.depths.shape[0] >= 10:
-            dist_embeddings = self.distance_reducer.fit(self.clr_depths)
-            rho_embeddings = self.rho_reducer.fit(self.clr_depths)
-            intersect = dist_embeddings * rho_embeddings
-            self.embeddings = intersect.embedding_
-            # self.embeddings = dist_embeddings.embedding_
-            # self.embeddings = rho_embeddings.embedding_
-        else:
-            self.embeddings = self.clr_depths
-
+        try:
+            if self.depths.shape[0] >= 10:
+                dist_embeddings = self.distance_reducer.fit(self.clr_depths)
+                rho_embeddings = self.rho_reducer.fit(self.clr_depths)
+                intersect = dist_embeddings * rho_embeddings
+                self.embeddings = intersect.embedding_
+                # self.embeddings = self.distance_reducer.fit_transform(self.clr_depths)
+            else:
+                self.embeddings = self.clr_depths
+        except TypeError as e:
+            if not second_pass:
+                ## TypeError occurs here on sparse input. So need to lower the number of components
+                ## That are trying to be embedded to. Choose minimum of 2
+                self.distance_reducer.n_components = 2
+                self.rho_reducer.n_components = 2
+                self.fit_transform(True)
+            else:
+                raise e
 
     def cluster(self, embeddings):
-        try:
-            ## Cluster on the UMAP embeddings and return soft clusters
-            tuned = utils.hyperparameter_selection(embeddings, self.threads, metric=self.metric, starting_size=max(2, round(embeddings.shape[0] * 0.05)), use_multi_processing=False)
-            best = utils.best_validity(tuned)
-            self.clusterer = hdbscan.HDBSCAN(
-                algorithm='best',
-                alpha=1.0,
-                approx_min_span_tree=True,
-                gen_min_span_tree=True,
-                leaf_size=40,
-                cluster_selection_method='eom',
-                metric=self.metric,
-                min_cluster_size=int(best['min_cluster_size']),
-                min_samples=int(best['min_samples']),
-                allow_single_cluster=False,
-                core_dist_n_jobs=self.threads,
-                prediction_data=True
-            )
-            # logging.info("Running HDBSCAN - %s" % self.clusterer)
-            self.clusterer.fit(embeddings)
+        if embeddings.shape[0] >= 5 and len(embeddings.shape) >= 2:
             try:
-                self.validity, self.cluster_validity = hdbscan.validity.validity_index(embeddings.astype(np.float64),
-                                                                                       self.clusterer.labels_,
-                                                                                       per_cluster_scores=True)
-            except ValueError:
-                self.validity = None
-                self.cluster_validity = [0.5 for i in range(len(set(self.clusterer.labels_)))]
+                ## Cluster on the UMAP embeddings and return soft clusters
+                tuned = utils.hyperparameter_selection(embeddings, self.threads, metric=self.metric, starting_size=max(2, round(embeddings.shape[0] * 0.05)), use_multi_processing=False)
+                best = utils.best_validity(tuned)
+                self.clusterer = hdbscan.HDBSCAN(
+                    algorithm='best',
+                    alpha=1.0,
+                    approx_min_span_tree=True,
+                    gen_min_span_tree=True,
+                    leaf_size=40,
+                    cluster_selection_method='eom',
+                    metric=self.metric,
+                    min_cluster_size=int(best['min_cluster_size']),
+                    min_samples=int(best['min_samples']),
+                    allow_single_cluster=False,
+                    core_dist_n_jobs=self.threads,
+                    prediction_data=True
+                )
+                # logging.info("Running HDBSCAN - %s" % self.clusterer)
+                self.clusterer.fit(embeddings)
+                try:
+                    self.validity, self.cluster_validity = hdbscan.validity.validity_index(embeddings.astype(np.float64),
+                                                                                           self.clusterer.labels_,
+                                                                                           per_cluster_scores=True)
+                except ValueError:
+                    self.validity = None
+                    self.cluster_validity = [0.5 for i in range(len(set(self.clusterer.labels_)))]
 
-            return self.clusterer.labels_
-        except TypeError:
+                return self.clusterer.labels_
+            except TypeError:
+                return np.array([-1 for _ in range(embeddings.shape[0])])
+        else:
             return np.array([-1 for _ in range(embeddings.shape[0])])
 
     """
@@ -381,6 +400,39 @@ class Cluster:
         else:
             return np.zeros((1, 1))
 
+    def combine_bins(self):
+        not_neg_labs = self.labels[self.labels != -1]
+        # recscale the labels so that they increment by one
+        for (i, previous_label) in enumerate(set(not_neg_labs)):
+            not_neg_labs[not_neg_labs == previous_label] = i
+        self.labels[self.labels != -1] = not_neg_labs
+
+        self.cluster_means = self.get_cluster_means()
+        self.separation = self.cluster_separation()
+
+        clocked = set()
+        combine_these = {}
+
+        for i in range(self.separation.shape[0]):
+            if i not in clocked:
+                for j in range(self.separation.shape[1]):
+                    if j not in combine_these.keys() and i != j:
+                        if self.separation[i, j] <= 0.1:
+                            try:
+                                combine_these[i].append(j)
+                            except KeyError:
+                                combine_these[i] = [j]
+                                clocked.add(j)
+
+        if len(combine_these.keys()) >= 1:
+            for (base_label, other_labels) in combine_these.items():
+                # change the labels over to the base label
+                for other_label in other_labels:
+                    self.labels[self.labels == other_label] = base_label
+
+            self.combine_bins()
+
+
     def cluster_distances(self):
         ## Cluster on the UMAP embeddings and return soft clusters
 
@@ -433,7 +485,7 @@ class Cluster:
 
             # ax.add_artist(legend)
             plt.gca().set_aspect('equal', 'datalim')
-            plt.title('UMAP projection of variants', fontsize=24)
+            plt.title('UMAP projection of variants - %d Clusters' % len(self.cluster_means), fontsize=24)
             plt.savefig(self.path + '_UMAP_projection_with_clusters.png')
 
         except IndexError:

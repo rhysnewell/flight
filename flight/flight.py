@@ -368,7 +368,7 @@ def main():
 
 def fit(args):
     prefix = args.input.replace(".npy", "")
-    # os.environ["NUMBA_NUM_THREADS"] = args.threads
+    os.environ["NUMBA_NUM_THREADS"] = "10"
     os.environ["MKL_NUM_THREADS"] = args.threads
     os.environ["OPENBLAS_NUM_THREADS"] = args.threads
     from flight.lorikeet.cluster import Cluster
@@ -387,14 +387,16 @@ def fit(args):
         clusterer.fit_transform()
         clusterer.labels = clusterer.cluster(clusterer.embeddings)
         clusterer.recover_unbinned()
+        clusterer.recover_unbinned()
         clusterer.recluster()
-        clusterer.cluster_means = clusterer.get_cluster_means()
+        # clusterer.cluster_means = clusterer.get_cluster_means()
+        clusterer.combine_bins()
         clusterer.plot()
 
         logging.info("Writing variant labels...")
         np.save(prefix + '_labels.npy', clusterer.labels_for_printing())
         logging.info("Calculating cluster separation values...")
-        np.save(prefix + '_separation.npy', clusterer.cluster_separation())
+        np.save(prefix + '_separation.npy', clusterer.separation)
     else:
         clusterer = Cluster(args.input,
                            prefix,
