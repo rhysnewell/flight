@@ -29,18 +29,13 @@ __status__ = "Development"
 
 ###############################################################################
 # System imports
-import sys
 import argparse
 import logging
-import os
-import shutil
-import datetime
 
 # Function imports
 import numpy as np
 import hdbscan
 import seaborn as sns
-from sklearn.preprocessing import MinMaxScaler
 import matplotlib
 
 matplotlib.use('pdf')
@@ -48,9 +43,6 @@ import matplotlib.pyplot as plt
 import skbio.stats.composition
 from sklearn.metrics import pairwise_distances
 import umap
-from numba import set_num_threads
-import pynndescent
-import itertools
 # import pacmap
 # import phate
 
@@ -160,7 +152,7 @@ class Cluster:
         a=1.48,
         random_seed=42069,
     ):
-        set_num_threads(threads)
+        # set_num_threads(threads)
         self.embeddings = []
         self.labels = None
         self.cluster_means = None
@@ -185,10 +177,13 @@ class Cluster:
         # self.clr_depths = skbio.stats.composition.clr((self.depths + 1).T).T
 
         # self.depths[:, 2:] = self.clr_depths
-        self.n_samples = (self.clr_depths.shape[1] - 2) // 2
+        try:
+            self.n_samples = (self.depths.shape[1] - 2) // 2
+        except IndexError:
+            self.n_samples = (self.depths.shape[0] - 2) // 2
 
         n_components = min(max(self.n_samples, 2), 10)
-
+        # n_components = 2
         if n_neighbors > self.depths.shape[0]:
             n_neighbors = self.depths.shape[0] - 1
 
@@ -201,6 +196,7 @@ class Cluster:
             metric=metrics.rho_variants,
             a=a,
             b=b,
+            init="spectral"
         )
         self.distance_reducer = umap.UMAP(
             n_neighbors=n_neighbors,
@@ -211,6 +207,7 @@ class Cluster:
             # metric=metrics.euclidean_variant,
             a=a,
             b=b,
+            init="spectral"
         )
 
         # self.distance_reducer = pacmap.PaCMAP(
@@ -234,34 +231,6 @@ class Cluster:
             self.metric = "precomputed"
         else:
             self.metric = "euclidean"
-
-        # self.update_umap_params(self.depths.shape[0])
-
-    # def update_umap_params(self, nrows):
-    #     if nrows <= 10000:  # high gear
-    #         # Small datasets can have larger n_neighbors without being prohibitively slow
-    #         if nrows <= 1000:  # wheels fell off
-    #             self.rho_reducer.n_neighbors = nrows // 10
-    #             self.distance_reducer.n_neighbors = nrows // 10
-    #         else:
-    #             self.rho_reducer.n_neighbors = 100
-    #             self.distance_reducer.n_neighbors = 100
-    #         self.rho_reducer.n_epochs = 500
-    #         self.distance_reducer.n_epochs = 500
-    #     elif nrows <= 50000:  # mid gear
-    #         # Things start to get too slow around here, so scale back params
-    #         self.rho_reducer.n_neighbors = 50
-    #         self.rho_reducer.n_epochs = 400
-    #         self.distance_reducer.n_neighbors = 50
-    #         self.distance_reducer.n_epochs = 400
-    #     else:  # low gear
-    #         # This is the super slow zone, but don't want to dip values below this
-    #         # Hopefully pick out easy bins, then scale data down with each iterations
-    #         # Allowing the params to bump up into other gears
-    #         self.rho_reducer.n_neighbors = 30
-    #         self.rho_reducer.n_epochs = 300
-    #         self.distance_reducer.n_neighbors = 30
-    #         self.distance_reducer.n_epochs = 300
 
     def filter(self):
         # Not sure to include this

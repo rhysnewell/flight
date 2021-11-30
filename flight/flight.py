@@ -368,48 +368,51 @@ def main():
 
 def fit(args):
     prefix = args.input.replace(".npy", "")
-    os.environ["NUMBA_NUM_THREADS"] = "10"
+    os.environ["NUMBA_NUM_THREADS"] = str(10)
     os.environ["MKL_NUM_THREADS"] = args.threads
     os.environ["OPENBLAS_NUM_THREADS"] = args.threads
     from flight.lorikeet.cluster import Cluster
-    import numpy as np
+    import threadpoolctl
+    import warnings
 
-    if not args.precomputed:
-        clusterer = Cluster(args.input,
-                           prefix,
-                           n_neighbors=int(args.n_neighbors),
-                           min_cluster_size=int(args.min_cluster_size),
-                           min_samples=int(args.min_samples),
-                           min_dist=float(args.min_dist),
-                           n_components=int(args.n_components),
-                           threads=int(args.threads),
-                           )
-        clusterer.fit_transform()
-        clusterer.labels = clusterer.cluster(clusterer.embeddings)
-        clusterer.recover_unbinned()
-        clusterer.recover_unbinned()
-        clusterer.recluster()
-        # clusterer.cluster_means = clusterer.get_cluster_means()
-        clusterer.combine_bins()
-        clusterer.plot()
+    with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
+        with warnings.catch_warnings():
+            if not args.precomputed:
+                clusterer = Cluster(args.input,
+                                   prefix,
+                                   n_neighbors=int(args.n_neighbors),
+                                   min_cluster_size=int(args.min_cluster_size),
+                                   min_samples=int(args.min_samples),
+                                   min_dist=float(args.min_dist),
+                                   n_components=int(args.n_components),
+                                   threads=int(args.threads),
+                                   )
+                clusterer.fit_transform()
+                clusterer.labels = clusterer.cluster(clusterer.embeddings)
+                clusterer.recover_unbinned()
+                clusterer.recover_unbinned()
+                clusterer.recluster()
+                # clusterer.cluster_means = clusterer.get_cluster_means()
+                clusterer.combine_bins()
+                clusterer.plot()
 
-        logging.info("Writing variant labels...")
-        np.save(prefix + '_labels.npy', clusterer.labels_for_printing())
-        logging.info("Calculating cluster separation values...")
-        np.save(prefix + '_separation.npy', clusterer.separation)
-    else:
-        clusterer = Cluster(args.input,
-                           prefix,
-                           n_neighbors=int(args.n_neighbors),
-                           min_cluster_size=int(args.min_cluster_size),
-                           min_samples=int(args.min_samples),
-                           scaler="none",
-                           precomputed=args.precomputed,
-                           threads=int(args.threads),
-                           )
-        clusterer.cluster_distances()
-        clusterer.plot_distances()
-        np.save(prefix + '_labels.npy', clusterer.labels())
+                logging.info("Writing variant labels...")
+                numpy.save(prefix + '_labels.npy', clusterer.labels_for_printing())
+                logging.info("Calculating cluster separation values...")
+                numpy.save(prefix + '_separation.npy', clusterer.separation)
+            else:
+                clusterer = Cluster(args.input,
+                                   prefix,
+                                   n_neighbors=int(args.n_neighbors),
+                                   min_cluster_size=int(args.min_cluster_size),
+                                   min_samples=int(args.min_samples),
+                                   scaler="none",
+                                   precomputed=args.precomputed,
+                                   threads=int(args.threads),
+                                   )
+                clusterer.cluster_distances()
+                clusterer.plot_distances()
+                numpy.save(prefix + '_labels.npy', clusterer.labels())
 
 
 
