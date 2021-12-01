@@ -432,9 +432,12 @@ def metabat_distance(a, b):
 
     if len(mb_vec) >= 1:
         # convert to log space to avoid overflow errors
-        d = np.log(np.array(mb_vec))
-        # return the geometric mean
-        d = np.exp(d.sum() / len(d))
+        try:
+            d = np.log(np.array(mb_vec))
+            # return the geometric mean
+            d = np.exp(d.sum() / len(d))
+        except ZeroDivisionError:
+            d = 1
 
         # Calculate geometric mean of sample distances
         # geom_sim = geom_sim_calc(both_present, sample_distances)
