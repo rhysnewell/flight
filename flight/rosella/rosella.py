@@ -43,6 +43,7 @@ from numba import njit
 # self imports
 import flight.utils as utils
 from flight.rosella.validating import Validator
+from flight.distance import ProfileDistanceEngine
 import faulthandler
 faulthandler.enable()
 
@@ -224,17 +225,27 @@ class Rosella(Validator):
                     # are too distant from other contigs. These contigs tend to break UMAP results
                     self.filter()
                     self.kmer_signature = self.tnfs[~self.disconnected]
-                    self.coverage_profile = self.large_contigs[~self.disconnected]
+                    self.coverage_profile = self.large_contigs[~self.disconnected].iloc[:, 2:]
 
+                    de = ProfileDistanceEngine()
+                    stat = de.makeRankStat(
+                        self.coverage_profile,
+                        self.kmer_signature,
+                        self.large_contigs[~self.disconnected]["contigLen"],
+                        silent=False,
+                        fun= lambda a: a
+                    )
+
+                    print(stat[0:10, 0:10])
 
                 else:
                     self.rescue_contigs(int(args.min_bin_size))
             logging.debug("Writing bins...", len(self.bins.keys()))
-            self.write_bins(int(args.min_bin_size))
-            try:
-                imageio.mimsave(self.path + '/UMAP_projections.gif', plots, fps=1)
-            except RuntimeError:  # no plotting has occurred due to no embedding
-                pass
+            # self.write_bins(int(args.min_bin_size))
+            # try:
+            #     imageio.mimsave(self.path + '/UMAP_projections.gif', plots, fps=1)
+            # except RuntimeError:  # no plotting has occurred due to no embedding
+            #     pass
 
     def do_nothing(self):
         pass
