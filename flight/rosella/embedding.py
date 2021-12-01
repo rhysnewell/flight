@@ -210,9 +210,9 @@ class Embedder(Binner):
             prob1 = min(skew_dist1.pdf(log_lengths[idx]), 1.0)
             prob2 = min(skew_dist2.pdf(log_lengths[idx]), 1.0)
             prob = max(prob1, prob2)
-            rho_thresh = min(max(prob / 2, 0.05), 1.0)
+            rho_thresh = min(max(prob * 0.5, 0.05), 1.0)
             euc_thresh = min(max(prob * 10, 1.0), 10)
-            dep_thresh = min(max(prob / 2, 0.05), 1.0)
+            dep_thresh = min(max((prob / 2) + 0.05, 0.1), 1.0)
 
             dep_connected = sum(x <= dep_thresh
                                 for x in index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
@@ -222,7 +222,7 @@ class Embedder(Binner):
                                 for x in index_euc.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
 
 
-            if sum(x < minimum_connections for x in [dep_connected, rho_connected, euc_connected]) >= 1:
+            if sum(x < minimum_connections for x in [rho_connected, euc_connected, dep_connected]) >= 1:
                 disconnected_tids.append(tid)
                 disconnected = True
 
@@ -434,7 +434,9 @@ class Embedder(Binner):
         self.tnf_reducer.disconnection_distance = 2
         self.euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
         self.euc_reducer.disconnection_distance = 100
-        n_neighbours = min(n_neighbors, len(tids) - 1)
+        if self.n_samples >= 3:
+            self.depth_rho_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+            self.depth_rho_reducer.disconnection_distance = 2
         # self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
         contigs, log_lengths, tnfs = self.extract_contigs(tids)
 
@@ -457,60 +459,27 @@ class Embedder(Binner):
                      tnfs.iloc[:, 2:]),
                     axis=1))
             ## Intersect all of the embeddings
-            intersection_mapper = depth_mapping * euc_mapping * tnf_mapping
+            if self.n_samples >= 3:
+                depth_rho_mapping = self.depth_rho_reducer.fit(
+                    np.concatenate(
+                        (log_lengths.values[:, None], contigs.iloc[:, 3:]),
+                        axis=1
+                    )
+                )
+                intersection_mapper = depth_mapping * euc_mapping * tnf_mapping * depth_rho_mapping
+            else:
+                intersection_mapper = depth_mapping * euc_mapping * tnf_mapping
         else:
-            intersection_mapper = depth_mapping * tnf_mapping
-
-        # if self.use_euclidean:
-        #     numpy_thread_limit = max(self.threads // 3, 1)
-        #     max_workers = 3
-        # else:
-        #     numpy_thread_limit = max(self.threads // 2, 1)
-        #     max_workers = 2
-        #
-        # set_num_threads(numpy_thread_limit)
-        # with threadpoolctl.threadpool_limits(numpy_thread_limit, user_api='blas'):
-        #     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-        #         if self.use_euclidean:
-        #             results = [executor.submit(
-        #                 fit_transform_static,
-        #                 contigs,
-        #                 log_lengths,
-        #                 tnfs,
-        #                 n_neighbours,
-        #                 self.n_samples,
-        #                 self.short_sample_distance,
-        #                 self.a,
-        #                 self.b,
-        #                 self.random_seed,
-        #                 switch
-        #                 ) for switch in range(3)
-        #             ]
-        #         else:
-        #             results = [executor.submit(
-        #                 fit_transform_static,
-        #                 contigs,
-        #                 log_lengths,
-        #                 tnfs,
-        #                 n_neighbours,
-        #                 self.n_samples,
-        #                 self.short_sample_distance,
-        #                 self.a,
-        #                 self.b,
-        #                 self.random_seed,
-        #                 switch
-        #             ) for switch in range(2)
-        #             ]
-        #
-        #         reducers = []
-        #         for f in concurrent.futures.as_completed(results):
-        #             result = f.result()
-        #             reducers.append(result)
-        #
-        #         if len(reducers) == 3:
-        #             intersection_mapper = reducers[0] * reducers[1] * reducers[2]
-        #         else:
-        #             intersection_mapper = reducers[0] * reducers[1]
+            if self.n_samples >= 3:
+                depth_rho_mapping = self.depth_rho_reducer.fit(
+                    np.concatenate(
+                        (log_lengths.values[:, None], contigs.iloc[:, 3:]),
+                        axis=1
+                    )
+                )
+                intersection_mapper = depth_mapping * tnf_mapping * depth_rho_mapping
+            else:
+                intersection_mapper = depth_mapping * tnf_mapping
 
         self.intersection_mapper = intersection_mapper
 
@@ -649,7 +618,7 @@ class Embedder(Binner):
 def multi_transform_static(
         contigs, log_lengths, tnfs,
         depth_reducer, tnf_reducer, euc_reducer,
-        tids, n_neighbors, a=1.5, switch=None, random_seed=42069):
+        tids, n_neighbors, a=1.5, switch=None, random_seed=42069, second_pass=False):
     """
     Main function for performing UMAP embeddings and intersections
     """
@@ -679,27 +648,41 @@ def multi_transform_static(
     # depth_reducer.n_neighbors = len(tids) - 1
     # tnf_reducer.n_neighbors = len(tids) - 1
     # euc_reducer.n_neighbors = len(tids) - 1
-
-    if 0 in switch:
-        depth_reducer.fit(
-            np.concatenate(
-                (contigs.iloc[:, 3:],
-                 log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
-                axis=1))
-
-    if 1 in switch:
-        tnf_reducer.fit(
-            np.concatenate(
-                (log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
+    try:
+        if 0 in switch:
+            depth_reducer.fit(
+                np.concatenate(
+                    (contigs.iloc[:, 3:],
+                     log_lengths.values[:, None],
+                     tnfs.iloc[:, 2:]),
                     axis=1))
-    if 2 in switch:
-        euc_reducer.fit(
-            np.concatenate(
-                (log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
-                axis=1))
+
+        if 1 in switch:
+            tnf_reducer.fit(
+                np.concatenate(
+                    (log_lengths.values[:, None],
+                     tnfs.iloc[:, 2:]),
+                        axis=1))
+        if 2 in switch:
+            euc_reducer.fit(
+                np.concatenate(
+                    (log_lengths.values[:, None],
+                     tnfs.iloc[:, 2:]),
+                    axis=1))
+    except TypeError as e:
+        if not second_pass:
+            depth_reducer.n_components = 2
+            tnf_reducer.n_components = 2
+            euc_reducer.n_components = 2
+
+            multi_transform_static(
+                contigs, log_lengths, tnfs,
+                depth_reducer, tnf_reducer, euc_reducer,
+                tids, n_neighbors, a, switch, random_seed, second_pass=True
+            )
+        else:
+            raise e
+
 
 
 def switch_intersector_static(depth_reducer, tnf_reducer, euc_reducer, switch=None):
@@ -732,7 +715,7 @@ def switch_intersector_static(depth_reducer, tnf_reducer, euc_reducer, switch=No
 
 def fit_transform_static(
         contigs, log_lengths, tnfs,
-        n_neighbours, n_samples, sample_distances,
+        n_neighbours, n_components, n_samples, sample_distances,
         a, b, random_seed,
         switch=0):
     np.random.seed(random_seed)
@@ -744,7 +727,7 @@ def fit_transform_static(
             metric_kwds={"n_samples": n_samples,
                          "sample_distances": sample_distances},
             n_neighbors=n_neighbours,
-            n_components=2,
+            n_components=n_components,
             min_dist=0,
             set_op_mix_ratio=1,
             a=a,
@@ -761,7 +744,7 @@ def fit_transform_static(
             metric=metrics.rho,
             # disconnection_distance=2,
             n_neighbors=n_neighbours,
-            n_components=2,
+            n_components=n_components,
             min_dist=0,
             set_op_mix_ratio=1,
             a=a,
@@ -780,7 +763,7 @@ def fit_transform_static(
             metric=metrics.tnf_euclidean,
             # disconnection_distance=10,
             n_neighbors=n_neighbours,
-            n_components=2,
+            n_components=n_components,
             min_dist=0,
             set_op_mix_ratio=1,
             a=a,

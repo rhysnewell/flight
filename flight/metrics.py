@@ -341,7 +341,7 @@ def hellinger_distance_poisson_variants(a_means, b_means, n_samples, sample_dist
 
 
 @njit(fastmath=True)
-def metabat_distance(a, b, n_samples, sample_distances):
+def metabat_distance(a, b):
     """
     a - The mean and variance vec for contig a over n_samples
     b - The mean and variance vec for contig b over n_samples
@@ -364,7 +364,7 @@ def metabat_distance(a, b, n_samples, sample_distances):
     both_present = [] # sample indices where both a and b were present
     # only_a = []
     # only_b = []
-
+    n_samples = len(a_means)
     for i in range(0, n_samples):
         # Use this indexing method as zip does not seem to work so well in njit
         # Add tiny value to each to avoid division by zero
@@ -437,9 +437,9 @@ def metabat_distance(a, b, n_samples, sample_distances):
         d = np.exp(d.sum() / len(d))
 
         # Calculate geometric mean of sample distances
-        geom_sim = geom_sim_calc(both_present, sample_distances)
+        # geom_sim = geom_sim_calc(both_present, sample_distances)
         # geom_sim = 1
-        d = d * geom_sim
+        # d = d * geom_sim
     else:
         d = 1
 
@@ -630,7 +630,7 @@ def rho_coverage(a, b):
 
 
 @njit(fastmath=True)
-def aggregate_tnf(a, b, n_samples, sample_distances):
+def aggregate_tnf(a, b):
     """
     a, b - concatenated contig depth, variance, and TNF info with contig length at index 0
     n_samples - the number of samples
@@ -640,7 +640,7 @@ def aggregate_tnf(a, b, n_samples, sample_distances):
     # w = (n_samples) / (n_samples + 1) # weighting by number of samples same as in metabat2
 
     
-    md = metabat_distance(a[0:n_samples*2], b[0:n_samples*2], n_samples, sample_distances)
+    md = metabat_distance(a[0:n_samples*2], b[0:n_samples*2])
     # tnf_dist = rho(a[n_samples*2:], b[n_samples*2:])
     # agg = np.sqrt((md**w) * (tnf_dist**(1-w)))
        

@@ -124,6 +124,10 @@ class Binner:
         ## Set up clusterer and UMAP
         self.path = output_prefix
 
+        self.coverage_profile = None
+        self.kmer_signature = None
+        self.contig_lengths = None
+
         ## These tables should have the same ordering as each other if they came from rosella.
         ## I.e. all the rows match the same contig
         if count_path is not None and long_count_path is not None:
@@ -217,8 +221,8 @@ class Binner:
         self.binning_method = 'eom'
         self.min_cluster_size = 2
 
-        n_components = min(max(self.n_samples + self.long_samples, 2), 10)
-
+        # n_components = min(max(self.n_samples + self.long_samples, 2), 10)
+        n_components = 2
         if self.use_euclidean:
             self.a = 1.9
         else:
@@ -231,7 +235,7 @@ class Binner:
         self.rho_reducer = umap.UMAP(
             metric=metrics.rho,
             n_neighbors=int(n_neighbors),
-            n_components=2,
+            n_components=n_components,
             min_dist=0,
             set_op_mix_ratio=1,
             a=self.a,
@@ -243,7 +247,7 @@ class Binner:
         self.tnf_reducer = umap.UMAP(
             metric=metrics.rho,
             n_neighbors=int(n_neighbors),
-            n_components=2,
+            n_components=n_components,
             min_dist=0,
             set_op_mix_ratio=1,
             a=self.a,
@@ -255,7 +259,7 @@ class Binner:
         self.euc_reducer = umap.UMAP(
             metric=metrics.tnf_euclidean,
             n_neighbors=int(n_neighbors),
-            n_components=2,
+            n_components=n_components,
             min_dist=0,
             set_op_mix_ratio=1,
             a=self.a,
@@ -281,6 +285,18 @@ class Binner:
         self.md_reducer = umap.UMAP(
             metric=metrics.aggregate_md,
             metric_kwds={"n_samples": self.n_samples, "sample_distances": self.short_sample_distance},
+            n_neighbors=n_neighbors,
+            n_components=n_components,
+            min_dist=min_dist,
+            set_op_mix_ratio=1,
+            a=self.a,
+            b=self.b,
+            init=initialization,
+            random_state=random_seed
+        )
+
+        self.depth_rho_reducer = umap.UMAP(
+            metric=metrics.rho,
             n_neighbors=n_neighbors,
             n_components=n_components,
             min_dist=min_dist,

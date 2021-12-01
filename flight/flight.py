@@ -417,7 +417,7 @@ def bin(args):
     # os.environ["NUMBA_NUM_THREADS"] = str(min(1, max((int(args.threads) // 2 + 1), 1))) # try and reduce the number of race conditions occurring in numba functions?
     os.environ["NUMBA_NUM_THREADS"] = str(10) # try and reduce the number of race conditions occurring in numba functions?
     os.environ["MKL_NUM_THREADS"] = str(max((int(args.threads) // 2 + 1), 1))
-    os.environ["OPENBLAS_NUM_THREADS"] = str(((int(args.threads) // 2 + 1), 1))
+    os.environ["OPENBLAS_NUM_THREADS"] = str(max((int(args.threads) // 2 + 1), 1))
     from flight.rosella.rosella import Rosella
 
     if args.long_input is None and args.input is None:

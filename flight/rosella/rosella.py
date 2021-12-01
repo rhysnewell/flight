@@ -223,72 +223,10 @@ class Rosella(Validator):
                     # First pass quick TNF filter to speed up next steps and remove large contigs that
                     # are too distant from other contigs. These contigs tend to break UMAP results
                     self.filter()
-                    if self.tnfs[~self.disconnected].values.shape[0] > int(args.n_neighbors) * 5:
-                        # Second pass intersection filtering
-                        self.update_parameters()
-                        self.fit_disconnect()
-                        if self.tnfs[~self.disconnected][~self.disconnected_intersected].values.shape[
-                            0] > int(args.n_neighbors) * 2:
-                            # Final fully filtered embedding to cluster on
-                            self.fit_transform(
-                                self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'],
-                                int(args.n_neighbors))
-                            self.embeddings = self.intersection_mapper.embedding_
+                    self.kmer_signature = self.tnfs[~self.disconnected]
+                    self.coverage_profile = self.large_contigs[~self.disconnected]
 
-                            logging.info("HDBSCAN - Performing initial clustering.")
-                            self.labels = self.iterative_clustering(self.embeddings,
-                                                                      prediction_data=False,
-                                                                      allow_single_cluster=False,
-                                                                      double=False)
 
-                            ## Plot limits
-                            x_min = min(self.embeddings[:, 0]) - 10
-                            x_max = max(self.embeddings[:, 0]) + 10
-                            y_min = min(self.embeddings[:, 1]) - 10
-                            y_max = max(self.embeddings[:, 1]) + 10
-
-                            plots.append(
-                                utils.plot_for_offset(self.embeddings, self.labels, x_min, x_max, y_min,
-                                                      y_max, 0))
-                            self.bin_contigs(args.assembly, int(args.min_bin_size))
-
-                            self.findem = [
-                                # 'contig_29111_pilon', 'contig_5229_pilon', 'contig_7458_pilon', # Ega
-                                # 'contig_124_pilon' # Ret
-                                'contig_1298_pilon', 'contig_1033_pilon', 'contig_10125_pilon'
-                            ]
-                            self.plot(
-                                self.findem
-                            )
-
-                            logging.info("Second embedding.")
-                            self.sort_bins()
-
-                            # Clean up leftover stuff
-                            self.reembed(self.unbinned_tids,
-                                              max(self.bins.keys()) + 1, plots,
-                                              x_min, x_max, y_min, y_max, 0, delete_unbinned=True,
-                                              skip_clustering=True, reembed=True, force=True,
-                                              update_embeddings=False)
-                            logging.info("Reclustering individual bins.")
-                            self.sort_bins()
-
-                            self.slow_refine(plots, 0, 100, x_min, x_max, y_min, y_max)
-                            self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
-                            self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
-                            # Final clean of unbinned
-                            self.reembed(self.unbinned_tids,
-                                         max(self.bins.keys()) + 1, plots,
-                                         x_min, x_max, y_min, y_max, 0, delete_unbinned=True,
-                                         skip_clustering=True, reembed=True, force=True,
-                                         update_embeddings=False)
-
-                            self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
-
-                        else:
-                            self.rescue_contigs(int(args.min_bin_size))
-                    else:
-                        self.rescue_contigs(int(args.min_bin_size))
                 else:
                     self.rescue_contigs(int(args.min_bin_size))
             logging.debug("Writing bins...", len(self.bins.keys()))

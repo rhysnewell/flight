@@ -36,6 +36,7 @@ import re
 # Function imports
 import numpy as np
 import scipy.spatial.distance as sp_distance
+import flight.metrics as metrics
 import pandas as pd
 import multiprocessing as mp
 import hdbscan
@@ -63,7 +64,8 @@ class ProfileDistanceEngine:
             weights[k:(k + n - 1 - i)] = contigLengths[i] * contigLengths[(i + 1):n]
             k = k + n - 1 - i
         weight_fun = lambda i: weights[i]
-        cov_ranks = argrank(sp_distance.pdist(covProfiles, metric="euclidean"), weight_fun=weight_fun)
+        # cov_ranks = argrank(sp_distance.pdist(covProfiles, metric="euclidean"), weight_fun=weight_fun)
+        cov_ranks = argrank(sp_distance.pdist(covProfiles, metrics.aggregate_tnf), weight_fun=weight_fun)
         kmer_ranks = argrank(sp_distance.pdist(kmerSigs, metric="euclidean"), weight_fun=weight_fun)
         return (cov_ranks, kmer_ranks)
 

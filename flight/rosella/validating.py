@@ -102,7 +102,7 @@ class Validator(Clusterer, Embedder):
         bins_to_remove = []
         new_bins = {}
         new_bin_counter = 0
-        logging.debug("Checking bin internal distances...")
+        logging.info("Checking bin internal distances...")
         big_tids = []
         reembed_separately = []  # container for bin ids that look like chimeras
         force_new_clustering = []
@@ -116,7 +116,7 @@ class Validator(Clusterer, Embedder):
         big_switches = []
         bins = self.bins.keys()
         for bin in bins:
-            logging.debug("Beginning check on bin: ", bin)
+            logging.info("Beginning check on bin: %d " % bin)
             tids = self.bins[bin]
             if len(tids) == 1:
                 continue
@@ -131,54 +131,6 @@ class Validator(Clusterer, Embedder):
                 if bin_size < self.min_bin_size:
                     self.unbinned_tids = self.unbinned_tids + tids
                     bins_to_remove.append(bin)
-                # else:
-                #     try:
-                #         mean_md, \
-                #         mean_tnf, \
-                #         mean_euc, \
-                #         mean_agg, \
-                #         per_contig_avg = \
-                #                 metrics.get_averages(
-                #                     np.concatenate((contigs.iloc[:, 3:].values,
-                #                                     log_lengths.values[:, None],
-                #                                     tnfs.iloc[2:].values), axis=1),
-                #                      n_samples,
-                #                      sample_distances)
-                #
-                #         per_contig_avg = np.array(per_contig_avg)
-                #
-                #         removed = []
-                #         if debug:
-                #             print('before check for distant contigs: ', len(tids))
-                #             _, _, _, _ = self.bin_stats(bin)
-                #
-                #             md_median = np.median(per_contig_avg[:, 0])
-                #             agg_median = np.median(per_contig_avg[:, 3])
-                #             rho_median = np.median(per_contig_avg[:, 1])
-                #             euc_median = np.median(per_contig_avg[:, 2])
-                #
-                #
-                #         if mean_md >= 0.15 or mean_agg >= 0.25:
-                #             # Simply remove
-                #             if quick_filter:
-                #                 for (tid, avgs) in zip(tids, per_contig_avg):
-                #                     if avgs[0] >= 0.7:
-                #                         removed.append(tid)
-                #         remove = False
-                #
-                #         if len(removed) > 0 and len(removed) != len(tids):
-                #             [(tids.remove(r), self.unbinned_tids.append(r)) for r in removed]
-                #             current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
-                #
-                #             if current_contigs['contigLen'].sum() <= self.min_bin_size:
-                #                 [self.unbinned_tids.append(tid) for tid in tids]
-                #                 remove = True
-                #
-                #         if len(tids) == 0 or remove:
-                #             bins_to_remove.append(bin)
-                #     except (ZeroDivisionError, ValueError) as e:
-                #         # Only one contig left, break out
-                #         continue
 
             elif big_only:
                 # filtering = True
@@ -276,7 +228,6 @@ class Validator(Clusterer, Embedder):
                                                                  tnfs.iloc[:, 2:].values), axis=1),
                                                  n_samples,
                                                  sample_distances)
-                        per_contig_avg = np.array(per_contig_avg)
 
                     except ZeroDivisionError:
                         continue
@@ -287,7 +238,6 @@ class Validator(Clusterer, Embedder):
 
                     f_level = 0.3
                     m_level = 0.2
-                    shared_level = 0.1
 
                     # Always check bins with bad bin stats or if they are large, just for sanity check
                     if (((mean_agg >= f_level or mean_md >= m_level) and (mean_tnf >= 0.1 or round(mean_euc, 1) >= 3))
@@ -296,13 +246,12 @@ class Validator(Clusterer, Embedder):
 
                         if debug:
                             print("Reclustering bin %d" % bin)
-                        if bin_size >= 18e6 or mean_agg >= 0.75:
+                        if bin_size >= 15e6 or mean_agg >= 0.75:
                             factor = min(mean_agg * 3, 1.0)
-                        elif bin_size >= 13e6 or mean_agg >= 0.5:
-                            factor = min(mean_agg * 3, 0.75)
+
                         else:
                             factor = mean_agg
-                        if len(tids) <= 500 and bin_size <= 13e6:
+                        if len(tids) <= 1000 and bin_size <= 13e6:
                             reembed_separately.append(bin)
                             lower_thresholds.append(1 - factor)
                             force_new_clustering.append(False)  # send it to regular hell
@@ -315,7 +264,7 @@ class Validator(Clusterer, Embedder):
                             big_reembed_if_no_cluster.append(True)
                             big_switches.append([0, 1, 2])
                     else:
-                        if len(tids) <= 500 and bin_size <= 13e6:
+                        if len(tids) <= 1000 and bin_size <= 13e6:
                             reembed_separately.append(bin)
                             force_new_clustering.append(False)  # send it to regular hell
                             reembed_if_no_cluster.append(True)  # take it easy, okay?
@@ -356,8 +305,8 @@ class Validator(Clusterer, Embedder):
             with threadpoolctl.threadpool_limits(limits=numpy_thread_limit, user_api='blas'):
                 with pebble.ProcessPool(max_workers=self.threads) as executor:
 
-                    futures = [executor.schedule(reembed_static,
-                                                 (
+                    futures = [reembed_static
+                                            (
                                                     bin,
                                                     self.bins[bin],
                                                     self.extract_contigs(self.bins[bin]),
@@ -370,15 +319,14 @@ class Validator(Clusterer, Embedder):
                                                     n_samples, sample_distances,
                                                     self.a, self.b,
                                                     self.n_neighbors,
+                                                    self.n_components,
                                                     min_validity,
                                                     reembed_cluster,
                                                     force_new,
                                                     False,
                                                     switch,
                                                     False
-                                                ),
-                                                timeout=self.max_time_to_recluster_bin * 12
-                                               ) for
+                                                ) for
                                (bin, force_new, min_validity, reembed_cluster, switch)
                                in zip(
                             reembed_separately,
@@ -390,13 +338,13 @@ class Validator(Clusterer, Embedder):
 
                     for future in futures:
                         try:
-                            result = future.result()
+                            # result = future.result()
+                            result = future
                             plots, remove = self.handle_new_embedding(
                                 result[0], result[1], result[2], result[3], result[4],
                                 plots, n, x_min, x_max, y_min, y_max, result[5], result[6], debug=False
                             )
-                            if debug:
-                                print("Problem bin result... removing: ", remove)
+                            logging.info("Problem bin result... removing: %d %d" % (remove, result[0]))
 
                             if remove:
                                 if debug:
@@ -418,7 +366,7 @@ class Validator(Clusterer, Embedder):
             if len(big_reembed_separately) > 0:
                 with threadpoolctl.threadpool_limits(limits=max(self.threads // 4, 2), user_api='blas'):
                     with pebble.ProcessPool(max_workers=min(self.threads, 4)) as executor:
-                        futures = [executor.schedule(reembed_static,
+                        futures = [reembed_static
                                                      (
                                                          bin,
                                                          self.bins[bin],
@@ -432,14 +380,14 @@ class Validator(Clusterer, Embedder):
                                                          n_samples, sample_distances,
                                                          self.a, self.b,
                                                          self.n_neighbors,
+                                                         self.n_components,
                                                          min_validity,
                                                          reembed_cluster,
                                                          force_new,
                                                          False,
                                                          switch,
                                                          False
-                                                     ),
-                                                     timeout=self.max_time_to_recluster_bin * 20
+
                                                  )
                                    for (bin, force_new, min_validity, reembed_cluster, switch)
                                    in zip(
@@ -457,8 +405,7 @@ class Validator(Clusterer, Embedder):
                                     result[0], result[1], result[2], result[3], result[4],
                                     plots, n, x_min, x_max, y_min, y_max, result[5], result[6], debug=False
                                 )
-                                if debug:
-                                    print("Problem bin result... removing: ", remove)
+                                logging.info("Problem bin result... removing: %d %d" % (remove, result[0]))
 
                                 if remove:
                                     if debug:
@@ -1041,6 +988,7 @@ def reembed_static(
             n_samples, sample_distances,
             a, b,
             max_n_neighbours=200,
+            n_components=2,
             default_min_validity=0.85,
             reembed=False,
             force=False,
@@ -1194,7 +1142,7 @@ def reembed_static(
             tnf_reducer = umap.UMAP(
                 metric=metrics.rho,
                 n_neighbors=max_n_neighbours,
-                n_components=2,
+                n_components=n_components,
                 # disconnection_distance=2,
                 min_dist=0,
                 set_op_mix_ratio=1,
@@ -1207,7 +1155,7 @@ def reembed_static(
             euc_reducer = umap.UMAP(
                 metric=metrics.tnf_euclidean,
                 n_neighbors=max_n_neighbours,
-                n_components=2,
+                n_components=n_components,
                 # disconnection_distance=100,
                 min_dist=0,
                 set_op_mix_ratio=1,
@@ -1223,7 +1171,7 @@ def reembed_static(
                              "sample_distances": sample_distances},
                 n_neighbors=max_n_neighbours,
                 # disconnection_distance=2,
-                n_components=2,
+                n_components=n_components,
                 min_dist=0,
                 set_op_mix_ratio=1,
                 a=a,
@@ -1345,7 +1293,7 @@ def get_best_kmeans_result(distances, max_n_clusters=10, random_seed=42069, n_jo
     best_labels = None
     for n in range(2, max_n_clusters + 1):
         try:
-            labels, score = kmeans_cluster(distances, 2, random_seed, n_jobs)
+            labels, score = kmeans_cluster(distances, 2, random_seed)
             if score > max_score:
                 best_labels = labels
                 max_score = score

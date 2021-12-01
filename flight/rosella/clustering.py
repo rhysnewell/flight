@@ -234,7 +234,7 @@ def kmeans_cluster(distances, n_clusters=2, random_seed=42, n_jobs=10):
     returns the calculated labels and silhouette score
     """
     # n_jobs was deprecated in sklearn 0.23 but seems to prevent hanging still?
-    kmeans = sk_cluster.KMeans(n_clusters=n_clusters, random_state=random_seed, n_jobs=n_jobs).fit(distances)
+    kmeans = sk_cluster.KMeans(n_clusters=n_clusters, random_state=random_seed).fit(distances)
     score = sk_metrics.silhouette_score(distances, kmeans.labels_)
     return (kmeans.labels_, score)
 
