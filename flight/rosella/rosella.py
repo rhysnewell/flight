@@ -39,6 +39,7 @@ import numpy as np
 import seaborn as sns
 import imageio
 from numba import njit
+import scipy.spatial.distance as sp_distance
 
 # self imports
 import flight.utils as utils
@@ -236,12 +237,15 @@ class Rosella(Validator):
                         fun= lambda a: a
                     )
 
-                    print(stat[0:10, 0:10])
+                    self.labels = self.iterative_clustering(sp_distance.squareform(stat), metric="precomputed")
 
+                    self.bin_contigs(args.assembly, int(args.min_bin_size))
+                    self.sort_bins()
+                    self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
                 else:
                     self.rescue_contigs(int(args.min_bin_size))
             logging.debug("Writing bins...", len(self.bins.keys()))
-            # self.write_bins(int(args.min_bin_size))
+            self.write_bins(int(args.min_bin_size))
             # try:
             #     imageio.mimsave(self.path + '/UMAP_projections.gif', plots, fps=1)
             # except RuntimeError:  # no plotting has occurred due to no embedding
