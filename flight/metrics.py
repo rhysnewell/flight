@@ -341,7 +341,7 @@ def hellinger_distance_poisson_variants(a_means, b_means, n_samples, sample_dist
 
 
 @njit(fastmath=True)
-def metabat_distance(a, b):
+def metabat_distance_pdist(a, b):
     """
     a - The mean and variance vec for contig a over n_samples
     b - The mean and variance vec for contig b over n_samples
@@ -372,7 +372,7 @@ def metabat_distance(a, b):
         a_var = a_vars[i] + 1e-6
         b_mean = b_means[i] + 1e-6
         b_var = b_vars[i] + 1e-6
-        d = 0
+
 
         if a_mean > 1e-6 and b_mean > 1e-6:
             # both_present[i] = True
@@ -438,6 +438,112 @@ def metabat_distance(a, b):
             d = np.exp(d.sum() / len(d))
         except ZeroDivisionError:
             d = 1
+
+        # Calculate geometric mean of sample distances
+        # geom_sim = geom_sim_calc(both_present, sample_distances)
+        # geom_sim = 1
+        # d = d * geom_sim
+    else:
+        d = 1
+
+    return d
+
+
+@njit(fastmath=True)
+def metabat_distance(a, b):
+    """
+    a - The mean and variance vec for contig a over n_samples
+    b - The mean and variance vec for contig b over n_samples
+
+    returns distance as defined in metabat1 paper
+    """
+
+    # generate distirbutions for each sample
+    # and calculate divergence between them
+    #
+    mb_vec = []
+
+    # Get the means and variances for each contig
+    a_means = a[::2]
+    a_vars = a[1::2]
+    b_means = b[::2]
+    b_vars = b[1::2]
+
+    both_present = []  # sample indices where both a and b were present
+    # only_a = []
+    # only_b = []
+    n_samples = len(a_means)
+    for i in range(0, n_samples):
+        # Use this indexing method as zip does not seem to work so well in njit
+        # Add tiny value to each to avoid division by zero
+        a_mean = a_means[i] + 1e-6
+        a_var = a_vars[i] + 1e-6
+        b_mean = b_means[i] + 1e-6
+        b_var = b_vars[i] + 1e-6
+
+        if a_mean > 1e-6 and b_mean > 1e-6:
+            # both_present[i] = True
+            both_present.append(i)
+
+        # if a_var >= 50 * a_mean and a_mean >= 10: # scale down extreme variances
+        #     a_var = a_mean
+        #
+        # if b_var >= 50 * b_mean and b_mean >= 10:
+        #     b_var = b_mean
+
+        if (a_mean > 1e-6 or b_mean > 1e-6) and a_mean != b_mean:
+            if a_var < 1:
+                a_var = 1
+            if b_var < 1:
+                b_var = 1
+
+            if abs(a_var - b_var) < 1e-4:
+                k1 = k2 = (a_mean + b_mean) / 2
+            else:
+                tmp = np.sqrt(a_var * b_var * ((a_mean - b_mean) * (a_mean - b_mean) - 2 * (a_var - b_var) * np.log(
+                    np.sqrt(b_var / a_var))))
+                k1 = (tmp - a_mean * b_var + b_mean * a_var) / (a_var - b_var)
+                k2 = (tmp + a_mean * b_var - b_mean * a_var) / (b_var - a_var)
+
+            if k1 > k2:
+                tmp = k1
+                k1 = k2
+                k2 = tmp
+
+            if a_var > b_var:
+                # p1 = NormalDist(b_mean, np.sqrt(b_var))
+                p1 = (b_mean, np.sqrt(b_var))
+                # p2 = NormalDist(a_mean, np.sqrt(a_var))
+                p2 = (a_mean, np.sqrt(a_var))
+            else:
+                # p1 = NormalDist(a_mean, np.sqrt(a_var))
+                p1 = (a_mean, np.sqrt(a_var))
+                # p2 = NormalDist(b_mean, np.sqrt(b_var))
+                p2 = (b_mean, np.sqrt(b_var))
+
+            if k1 == k2:
+                d = abs(cdf(p1, k1) - cdf(p2, k1))
+                # mb_vec[i] = min(max(d, 1e-6), 1 - 1e-6)
+                mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
+                # mb_vec.append(d)
+            else:
+                d = abs(cdf(p1, k2) - cdf(p1, k1) + cdf(p2, k1) - cdf(p2, k2))
+                # mb_vec[i] = min(max(d, 1e-6), 1 - 1e-6)
+                mb_vec.append(min(max(d, 1e-6), 1 - 1e-6))
+                # mb_vec.append(d)
+        elif a_mean == b_mean:
+            # mb_vec[i] = min(max(d, 1e-6), 1 - 1e-6)
+            mb_vec.append(1e-6)
+            # pass
+        else:
+            pass
+
+    if len(mb_vec) >= 1:
+        # convert to log space to avoid overflow errors
+        d = np.log(np.array(mb_vec))
+        # return the geometric mean
+        d = np.exp(d.sum() / len(d))
+
 
         # Calculate geometric mean of sample distances
         # geom_sim = geom_sim_calc(both_present, sample_distances)

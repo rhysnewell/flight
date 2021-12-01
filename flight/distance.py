@@ -65,7 +65,7 @@ class ProfileDistanceEngine:
             k = k + n - 1 - i
         weight_fun = lambda i: weights[i]
         # cov_ranks = argrank(sp_distance.pdist(covProfiles, metric="euclidean"), weight_fun=weight_fun)
-        cov_ranks = argrank(sp_distance.pdist(covProfiles, metrics.metabat_distance), weight_fun=weight_fun)
+        cov_ranks = argrank(sp_distance.pdist(covProfiles, metrics.metabat_distance_pdist), weight_fun=weight_fun)
         kmer_ranks = argrank(sp_distance.pdist(kmerSigs, metric="euclidean"), weight_fun=weight_fun)
         return (cov_ranks, kmer_ranks)
 

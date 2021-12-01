@@ -226,12 +226,12 @@ class Rosella(Validator):
                     self.filter()
                     self.kmer_signature = self.tnfs[~self.disconnected].iloc[:, 2:].values
                     self.coverage_profile = self.large_contigs[~self.disconnected].iloc[:, 3:].values
-
+                    contig_lengths = self.tnfs[~self.disconnected]["contigLen"].values
                     de = ProfileDistanceEngine()
                     stat = de.makeRankStat(
                         self.coverage_profile,
                         self.kmer_signature,
-                        self.large_contigs[~self.disconnected]["contigLen"].values,
+                        contig_lengths,
                         silent=False,
                         fun= lambda a: a
                     )
