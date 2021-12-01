@@ -225,7 +225,7 @@ class Rosella(Validator):
                     # are too distant from other contigs. These contigs tend to break UMAP results
                     self.filter()
                     self.kmer_signature = self.tnfs[~self.disconnected]
-                    self.coverage_profile = self.large_contigs[~self.disconnected].iloc[:, 2:]
+                    self.coverage_profile = self.large_contigs[~self.disconnected].iloc[:, 3:]
 
                     de = ProfileDistanceEngine()
                     stat = de.makeRankStat(

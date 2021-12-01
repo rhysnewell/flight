@@ -198,8 +198,6 @@ class Embedder(Binner):
         index_dep = NNDescent(
             contigs.values[:, 3:],
             metric=metrics.metabat_distance,
-            metric_kwds={"n_samples": n_samples,
-                         "sample_distances": sample_distances},
             n_neighbors=30)
 
         for idx, tid in enumerate(tids):
