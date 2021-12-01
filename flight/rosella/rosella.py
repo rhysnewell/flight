@@ -224,14 +224,14 @@ class Rosella(Validator):
                     # First pass quick TNF filter to speed up next steps and remove large contigs that
                     # are too distant from other contigs. These contigs tend to break UMAP results
                     self.filter()
-                    self.kmer_signature = self.tnfs[~self.disconnected]
-                    self.coverage_profile = self.large_contigs[~self.disconnected].iloc[:, 3:]
+                    self.kmer_signature = self.tnfs[~self.disconnected].iloc[:, 2:].values
+                    self.coverage_profile = self.large_contigs[~self.disconnected].iloc[:, 3:].values
 
                     de = ProfileDistanceEngine()
                     stat = de.makeRankStat(
                         self.coverage_profile,
                         self.kmer_signature,
-                        self.large_contigs[~self.disconnected]["contigLen"],
+                        self.large_contigs[~self.disconnected]["contigLen"].values,
                         silent=False,
                         fun= lambda a: a
                     )
