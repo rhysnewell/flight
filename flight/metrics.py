@@ -542,7 +542,7 @@ def metabat_distance(a, b):
         # convert to log space to avoid overflow errors
         d = np.log(np.array(mb_vec))
         # return the geometric mean
-        d = np.exp(d.sum() / len(d))
+        d = np.exp(d.sum() / len(mb_vec))
 
 
         # Calculate geometric mean of sample distances
