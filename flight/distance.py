@@ -65,15 +65,27 @@ class ProfileDistanceEngine:
             k = k + n - 1 - i
         weight_fun = lambda i: weights[i]
         # cov_ranks = argrank(sp_distance.pdist(covProfiles, metric="euclidean"), weight_fun=weight_fun)
-        cov_ranks = argrank(sp_distance.pdist(covProfiles, metric="euclidean"), weight_fun=weight_fun)
-        kmer_ranks = argrank(sp_distance.pdist(kmerSigs, metric="euclidean"), weight_fun=weight_fun)
-        return (cov_ranks, kmer_ranks)
+        # cov_ranks = argrank(sp_distance.pdist(covProfiles, metric="euclidean"), weight_fun=weight_fun)
+        # kmer_ranks = argrank(sp_distance.pdist(kmerSigs, metric="euclidean"), weight_fun=weight_fun)
+        # rho_ranks = argrank(sp_distance.pdist(kmerSigs, metrics.rho), weight_fun=weight_fun)
+        cov_ranks = sp_distance.pdist(covProfiles, metrics.coverage_distance)
+        cov_ranks = cov_ranks.argsort()
+        cov_ranks = cov_ranks.argsort()
+        kmer_ranks = sp_distance.pdist(kmerSigs, metric="euclidean")
+        kmer_ranks = kmer_ranks.argsort()
+        kmer_ranks = kmer_ranks.argsort()
+        rho_ranks = sp_distance.pdist(kmerSigs, metrics.rho)
+        rho_ranks = rho_ranks.argsort()
+        rho_ranks = rho_ranks.argsort()
+
+        return (cov_ranks, kmer_ranks, rho_ranks)
 
     def makeRankStat(self, covProfiles, kmerSigs, contigLengths, silent=False, fun=lambda a: a):
         """Compute norms in {coverage rank space x kmer rank space}
         """
-        (cov_ranks, kmer_ranks) = self.makeRanks(covProfiles, kmerSigs, contigLengths, silent=silent)
-        dists = fun(cov_ranks) + fun(kmer_ranks)
+        (cov_ranks, kmer_ranks, rho_ranks) = self.makeRanks(covProfiles, kmerSigs, contigLengths, silent=silent)
+        dists = fun(cov_ranks) * fun(kmer_ranks) * fun(rho_ranks)
+
         return dists
 
 
@@ -244,3 +256,95 @@ def squareform_coords(n, k):
     j += k
     j = np.asarray(j, dtype=np.int) * 1
     return i, j
+
+
+def core_distance(Y, weight_fun=None, minWt=None, minPts=None):
+    """Compute core distance for data points, defined as the distance to the furtherest
+    neighbour where the cumulative weight of closer points is less than minWt.
+
+    Parameters
+    ----------
+    Y : ndarray
+        Condensed distance matrix containing distances for pairs of
+        observations. See scipy's `squareform` function for details.
+    weight_fun : ndarray
+        Function to calculate pairwise weights for condensed distances.
+    minWt : ndarray
+        Total cumulative neighbour weight used to compute density distance for individual points.
+    minPts : int
+        Number of neighbours used to compute density distance.
+
+    Returns
+    -------
+    core_distance : ndarray
+        Core distances for data points.
+    """
+    (Y, _) = validate_y(Y, name="Y")
+    n = sp_distance.num_obs_y(Y)
+    core_dist = np.empty(n, dtype=Y.dtype)
+    m = np.empty(n, dtype=Y.dtype)  # store row distances
+    minPts = n - 1 if minPts is None else minPts
+    if weight_fun is None or minWt is None:
+        for (i, mp) in np.broadcast(np.arange(n), minPts):
+            others = np.flatnonzero(np.arange(n) != i)
+            m[others] = Y[condensed_index(n, i, others)]
+            m[i] = 0
+            m.sort()
+            core_dist[i] = m[np.minimum(n - 1, mp)]
+    else:
+        w = np.empty(n, dtype=np.double)  # store row weights
+        for (i, mp, mw) in np.broadcast(np.arange(n), minPts, minWt):
+            others = np.flatnonzero(np.arange(n) != i)
+            m[others] = Y[condensed_index(n, i, others)]
+            m[i] = 0
+            w[others] = weight_fun(i, others)
+            w[i] = 0
+            sorting_indices = m.argsort()
+            minPts = np.minimum(int(np.sum(w[sorting_indices].cumsum() < mw)), mp)
+            core_dist[i] = m[sorting_indices[np.minimum(n - 1, minPts)]]
+    return core_dist
+
+
+def reachability_order(Y, core_dist=None):
+    """Traverse collection of nodes by choosing the closest unvisited node to
+    a visited node at each step to produce a reachability plot.
+
+    Parameters
+    ----------
+    Y : ndarray
+        Condensed distance matrix
+    core_dist : ndarray
+        Core distances for original observations of Y.
+
+    Returns
+    -------
+    o : ndarray
+        1-D array of indices of original observations in traversal order.
+    d : ndarray
+        1-D array. `d[i]` is the `i`th traversal distance.
+    """
+    Y = np.asanyarray(Y)
+    n = sp_distance.num_obs_y(Y)
+    if core_dist is not None:
+        core_dist = np.asarray(core_dist)
+        if core_dist.shape != (n,):
+            raise ValueError("core_dist is not a 1-D array with compatible size to Y.")
+    o = np.empty(n, dtype=np.intp)
+    to_visit = np.ones(n, dtype=bool)
+    closest = 0
+    o[0] = 0
+    to_visit[0] = False
+    d = np.empty(n, dtype=Y.dtype)
+    d[0] = 0
+    d[1:] = Y[condensed_index(n, 0, np.arange(1, n))]
+    if core_dist is not None:
+        d = np.maximum(d, core_dist[0])
+    for i in range(1, n):
+        closest = np.flatnonzero(to_visit)[d[to_visit].argmin()]
+        o[i] = closest
+        to_visit[closest] = False
+        m = Y[condensed_index(n, closest, np.flatnonzero(to_visit))]
+        if core_dist is not None:
+            m = np.maximum(m, core_dist[closest])
+        d[to_visit] = np.minimum(d[to_visit], m)
+    return (o, d[o])

@@ -207,71 +207,20 @@ class Binner:
         if list(self.large_contigs['contigName']) != list(self.tnfs['contigName']):
             sys.exit("Contig ordering incorrect for kmer table or coverage table")
 
-        if np.median(self.large_contigs['contigLen']) < 10000:
-            # Lower median can use euclidean UMAP
-            self.use_euclidean = True
-            # os.environ["NUMEXPR_MAX_THREADS"] = str(max(self.threads // 3, 1))
-            # os.environ["NUMBA_NUM_THREADS"] = str(max(self.threads // 3, 1))
-        else:
-            # Distribution of contigs tends to be larger, so euclidean distance breaks down
-            self.use_euclidean = False
-            # os.environ["NUMEXPR_MAX_THREADS"] = str(max(self.threads // 2, 1))
-            # os.environ["NUMBA_NUM_THREADS"] = str(max(self.threads // 2, 1))
-
         self.binning_method = 'eom'
         self.min_cluster_size = 2
 
         # n_components = min(max(self.n_samples + self.long_samples, 2), 10)
         n_components = 2
-        if self.use_euclidean:
-            self.a = 1.9
-        else:
-            self.a = 1.5
+
+        self.a = 1.5
         # self.a = a
         numerator = min(max(np.log10(self.nX(25)[1]), np.log10(50000)), np.log10(100000))
         # set self.b by scaling the based on the n25 of the sample, between 0.3 and 0.4
         self.b = 0.1 * ((numerator - np.log10(50000)) / (np.log10(100000) - np.log10(50000))) + 0.3
-        # self.b = 0.3
-        self.rho_reducer = umap.UMAP(
-            metric=metrics.rho,
-            n_neighbors=int(n_neighbors),
-            n_components=n_components,
-            min_dist=0,
-            set_op_mix_ratio=1,
-            a=self.a,
-            b=self.b,
-            init=initialization,
-            random_state=random_seed,
-        )
 
-        self.tnf_reducer = umap.UMAP(
-            metric=metrics.rho,
-            n_neighbors=int(n_neighbors),
-            n_components=n_components,
-            min_dist=0,
-            set_op_mix_ratio=1,
-            a=self.a,
-            b=self.b,
-            init=initialization,
-            random_state=random_seed
-        )
-
-        self.euc_reducer = umap.UMAP(
-            metric=metrics.tnf_euclidean,
-            n_neighbors=int(n_neighbors),
-            n_components=n_components,
-            min_dist=0,
-            set_op_mix_ratio=1,
-            a=self.a,
-            b=self.b,
-            init=initialization,
-            random_state=random_seed
-        )
-        
-        self.depth_reducer = umap.UMAP(
-            metric=metrics.aggregate_tnf,
-            metric_kwds={"n_samples": self.n_samples,
-                         "sample_distances": self.short_sample_distance},
+        self.precomputed_reducer_low = umap.UMAP(
+            metric="precomputed",
             n_neighbors=n_neighbors,
             n_components=n_components,
             min_dist=min_dist,
@@ -279,34 +228,18 @@ class Binner:
             a=self.a,
             b=self.b,
             init=initialization,
-            random_state=random_seed
         )
 
-        self.md_reducer = umap.UMAP(
-            metric=metrics.aggregate_md,
-            metric_kwds={"n_samples": self.n_samples, "sample_distances": self.short_sample_distance},
+        self.precomputed_reducer_high = umap.UMAP(
+            metric="precomputed",
             n_neighbors=n_neighbors,
             n_components=n_components,
             min_dist=min_dist,
             set_op_mix_ratio=1,
-            a=self.a,
-            b=self.b,
+            a=1.58,
+            b=0.5,
             init=initialization,
-            random_state=random_seed
         )
-
-        self.depth_rho_reducer = umap.UMAP(
-            metric=metrics.rho,
-            n_neighbors=n_neighbors,
-            n_components=n_components,
-            min_dist=min_dist,
-            set_op_mix_ratio=1,
-            a=self.a,
-            b=self.b,
-            init=initialization,
-            random_state=random_seed
-        )
-
 
         # Embedder options
         self.n_neighbors = n_neighbors
@@ -347,18 +280,6 @@ class Binner:
 
         return idx50, n50
 
-    def update_parameters(self):
-        """
-        Mainly deprecated
-        """
-        self.depth_reducer.disconnection_distance = 1
-        self.md_reducer.disconnection_distance = 0.15
-
-        self.depth_reducer.n_neighbors = 5
-        self.tnf_reducer.n_neighbors = 5
-        self.md_reducer.n_neighbors = 5
-
-
     def sort_bins(self):
         """
         Helper functiont that sorts bin tids
@@ -371,9 +292,9 @@ class Binner:
     def extract_contigs(self, tids):
         contigs = self.large_contigs[self.large_contigs['tid'].isin(tids)]
         contigs = contigs.drop(['tid'], axis=1)
-        log_lengths = np.log(contigs['contigLen']) / np.log(max(sp_stats.mstats.gmean(self.large_contigs['contigLen']), 10000))
+        # log_lengths = np.log(contigs['contigLen']) / np.log(max(sp_stats.mstats.gmean(self.large_contigs['contigLen']), 10000))
         tnfs = self.tnfs[self.tnfs['contigName'].isin(contigs['contigName'])]
-
+        log_lengths = contigs['contigLen']
         return contigs, log_lengths, tnfs
 
     def reload(self, old_binning):
@@ -718,19 +639,6 @@ class Binner:
         plt.title(format('UMAP projection of contigs - 0: %d clusters' % (len(label_set))), fontsize=24)
         plt.savefig(self.path + '/UMAP_projection_with_clusters.png')
 
-
-    def use_soft_clusters(self, contigs):
-        """"""
-        for (idx, label) in enumerate(self.labels):
-            if label == -1:
-                # if contigs['contigLen'].iloc[idx] < 2e6:
-                soft_values = self.soft_clusters[idx]
-                max_value, best_label = metrics.get_best_soft_value(soft_values)
-                if max_value >= 0.1:
-                    self.labels[idx] = best_label
-        # pass
-
-
     def bin_contigs(self, assembly_file, min_bin_size=200000):
         logging.info("Binning contigs...")
         try:
@@ -751,7 +659,6 @@ class Binner:
             else:
                 self.unbinned_tids.append(self.assembly[self.large_contigs[~self.disconnected][~self.disconnected_intersected].iloc[idx, 0]])
                 # self.unbinned_embeddings.append(self.embeddings[idx, :])
-
 
 
     def bin_filtered(self,  min_bin_size=200000, keep_unbinned=False, unbinned_only=False):
@@ -810,21 +717,7 @@ class Binner:
             self.bins[0] = list(set(self.bins[0]))
         else:
             self.unbinned_tids = list(np.sort(self.unbinned_tids))
-        
 
-    def bin_big_contigs(self, min_bin_size=200000):
-        """
-        Bins out any disconnected vertices if they are of sufficient size
-        """
-        try:
-            max_bin_id = max(self.bins.keys()) + 1
-        except ValueError:
-            max_bin_id = 1
-        
-        for (idx, contig) in self.large_contigs.iterrows():
-            if contig["contigLen"] >= min_bin_size:
-                self.bins[max_bin_id] = [self.assembly[contig["contigName"]]]
-                max_bin_id += 1
 
     def rescue_contigs(self, min_bin_size=200000):
         """
@@ -835,12 +728,12 @@ class Binner:
             max_bin_id = max(self.bins.keys()) + 1
         except ValueError:
             max_bin_id = 1
-        
+
         for (idx, contig) in self.large_contigs.iterrows():
             if contig["contigLen"] >= min_bin_size:
                 self.bins[max_bin_id] = [self.assembly[contig["contigName"]]]
                 max_bin_id += 1
-                
+
         for (idx, contig) in self.small_contigs.iterrows():
             if contig["contigLen"] >= min_bin_size:
                 self.bins[max_bin_id] = [self.assembly[contig["contigName"]]]

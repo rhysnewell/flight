@@ -44,13 +44,14 @@ import seaborn as sns
 import matplotlib
 import sklearn.cluster as sk_cluster
 import sklearn.metrics as sk_metrics
+import ClusterEnsembles as CE
+from flight.DBCV import DBCV
 from scipy.spatial.distance import euclidean
 
 # self imports
 import flight.metrics as metrics
 import flight.utils as utils
 from flight.rosella.binning import Binner
-from flight.DBCV import DBCV
 
 # Set plotting style
 sns.set(style='white', context='notebook', rc={'figure.figsize': (14, 10)})
@@ -88,17 +89,30 @@ class Clusterer(Binner):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def cluster(self, distances, metric='euclidean', binning_method='eom',
+    def cluster(self, distances, metric='euclidean',
                 allow_single_cluster=False, prediction_data=False, min_cluster_size=2):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             ## Cluster on the UMAP embeddings and return soft clusters
-            tuned = utils.hyperparameter_selection(distances, self.threads,
+            tuned_eom = utils.hyperparameter_selection(distances, self.threads,
                                                    metric=metric,
-                                                   method=binning_method,
+                                                   method="eom",
                                                    allow_single_cluster=allow_single_cluster,
                                                    starting_size = min_cluster_size)
-            best = utils.best_validity(tuned)
+            tuned_leaf = utils.hyperparameter_selection(distances, self.threads,
+                                                   metric=metric,
+                                                   method="leaf",
+                                                   allow_single_cluster=allow_single_cluster,
+                                                   starting_size = min_cluster_size)
+            best_eom = utils.best_validity(tuned_eom)
+            best_leaf = utils.best_validity(tuned_leaf)
+
+            if int(best_eom["validity_score"]) >= int(best_leaf["validity_score"]):
+                best = best_eom
+                binning_method = "eom"
+            else:
+                best = best_leaf
+                binning_method = "leaf"
 
             if metric == 'precomputed':
                 clusterer = hdbscan.HDBSCAN(
@@ -110,6 +124,7 @@ class Clusterer(Binner):
                     min_samples=int(best['min_samples']),
                     allow_single_cluster=allow_single_cluster,
                     core_dist_n_jobs=self.threads,
+                    approx_min_span_tree=False
                 )
                 clusterer.fit(distances)
                 if prediction_data:
@@ -134,6 +149,122 @@ class Clusterer(Binner):
                 if prediction_data:
                     self.soft_clusters = hdbscan.all_points_membership_vectors(clusterer)
             return clusterer.labels_
+
+    @staticmethod
+    def get_cluster_labels_array(
+            distances,
+            metric="euclidean",
+            cluster_selection_methods=["eom"],
+            top_n=3,
+            # min_sizes = [2, 4, 6, 8, 10],
+            # min_samples = [3, 6, 9, 12],
+            solver="hbgf",
+            threads=16,
+    ):
+        """
+        Uses cluster ensembling with ClusterEnsembles package to produce partitioned set of
+        high quality clusters from multiple HDBSCAN runs
+        Takes top N clustering results and combines them
+        solver - one of {'cspa', 'hgpa', 'mcla', 'hbgf', 'nmf', 'all'}, default='hbgf'
+        """
+        label_array = np.array([np.array([-1 for _ in range(distances.shape[0])]) for _ in range(top_n)])
+        best_min_size = np.array([None for _ in range(top_n)])
+        best_min_sample = np.array([None for _ in range(top_n)])
+        best_selection_method = np.array([None for _ in range(top_n)])
+        best_validity = np.array([None for _ in range(top_n)])
+        index = 0
+        for min_size in range(3, 15):
+            for min_sample in range(5, 20):
+                for selection_method in cluster_selection_methods:
+                    clusterer = hdbscan.HDBSCAN(
+                        algorithm='best',
+                        alpha=1.0,
+                        cluster_selection_method=selection_method,
+                        metric=metric,
+                        min_cluster_size=min_size,
+                        min_samples=min_sample,
+                        core_dist_n_jobs=threads,
+                        approx_min_span_tree=False
+                    )
+                    clusterer.fit(distances)
+
+                    try:
+                        cluster_validity = Clusterer.validity(
+                            clusterer.labels_, distances, quick=True
+                        )
+                    except (ValueError, FloatingPointError):
+                        try:
+                            cluster_validity = Clusterer.validity(
+                                clusterer.labels_, distances, quick=False
+                            )
+                        except (ValueError, FloatingPointError):
+                            cluster_validity = -1
+
+                    if np.any(best_validity == None):
+                        best_min_size[index] = min_size
+                        best_min_sample[index] = min_sample
+                        best_selection_method[index] = selection_method
+                        best_validity[index] = cluster_validity
+                        label_array[index] = clusterer.labels_
+                        index += 1
+
+                        if index == top_n:
+
+                            # sort the current top by ascending validity order
+                            ranks = np.argsort(best_validity)
+                            best_validity = best_validity[ranks]
+                            best_min_sample = best_min_sample[ranks]
+                            best_min_size = best_min_size[ranks]
+                            best_selection_method = best_selection_method[ranks]
+                            label_array = label_array[ranks]
+                            # with np.set_printoptions(precision=3, suppress=True, formatter={'float': '{: 0.3f}'.format}):
+                            # print(best_validity)
+                            # print(label_array)
+
+                    elif np.any(best_validity < cluster_validity):
+                        # insert the new result and remove the worst result
+                        ind = np.searchsorted(best_validity, cluster_validity)
+                        best_validity = np.insert(best_validity, ind, cluster_validity)[1:]
+                        best_min_size = np.insert(best_min_size, ind, min_size)[1:]
+                        best_min_sample = np.insert(best_min_sample, ind, min_sample)[1:]
+                        best_selection_method = np.insert(best_selection_method, ind, selection_method)[1:]
+                        label_array = np.insert(label_array, ind, clusterer.labels_, axis=0)[1:]
+
+
+        return label_array
+
+    @staticmethod
+    def ensemble_cluster_multiple_embeddings(
+            embeddings_array,
+            metric="euclidean",
+            cluster_selection_methods=["eom"],
+            top_n=3,
+            # min_sizes = [2, 4, 6, 8, 10],
+            # min_samples = [3, 6, 9, 12],
+            solver="hbgf",
+            threads=16,
+    ):
+        """
+        Uses cluster ensembles to find best results across multiple different embeddings
+        and clustering results.
+        embeddings_array - an array of n different embeddings of distance matrix
+        """
+        best_clusters = []
+        for embeddings in embeddings_array:
+            #         print(embeddings)
+            results = Clusterer.get_cluster_labels_array(
+                embeddings,
+                metric,
+                cluster_selection_methods,
+                top_n,
+                solver,
+                threads
+            )
+            for result in range(results.shape[0]):
+                best_clusters.append(results[result, :])
+
+        label_ensemble = CE.cluster_ensembles(np.array(best_clusters))
+        return label_ensemble
 
     def iterative_clustering(self,
                              distances,
@@ -215,7 +346,7 @@ class Clusterer(Binner):
                     cluster_validity = DBCV(distances, np.array(labels), dist_function=euclidean)
                 else:
                     cluster_validity = hdbscan.validity.validity_index(distances.astype(np.float64), np.array(labels), per_cluster_scores=False)
-            except ValueError:
+            except (ValueError, FloatingPointError):
                 # cluster_validity = DBCV(distances, np.array(labels), dist_function=euclidean)
                 # cluster_validity = hdbscan.validity.validity_index(distances.astype(np.float64), np.array(labels), per_cluster_scores=False)
                 cluster_validity = -1
@@ -241,7 +372,7 @@ def kmeans_cluster(distances, n_clusters=2, random_seed=42, n_jobs=10):
 def cluster_static(
         distances, metric='euclidean', binning_method='eom',
         allow_single_cluster=False, threads=1, min_cluster_size=2,
-        use_multi_processing=True,
+        use_multi_processing=True
 ):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -291,13 +422,17 @@ def iterative_clustering_static(
          double=True,
          threads=1,
          use_multi_processing=True,
+         cluster_selection_method="eom"
 ):
     if metric != "precomputed":
         try:
             first_labels = cluster_static(
-                distances, metric=metric,
+                distances,
+                metric=metric,
                 allow_single_cluster=allow_single_cluster,
-                threads=threads, use_multi_processing=use_multi_processing
+                threads=threads,
+                use_multi_processing=use_multi_processing,
+                binning_method=cluster_selection_method
             )
         except TypeError:
             first_labels = np.array([-1 for i in range(distances.shape[0])])
@@ -306,12 +441,14 @@ def iterative_clustering_static(
         if len(distances[bool_arr]) >= 10 and double: # try as it might fail with low numbers of leftover contigs
             try:
                 # Try to get unbinned super small clusters if they weren't binned
-                second_labels = cluster_static(distances[bool_arr],
-                                               metric=metric,
-                                               allow_single_cluster=False,
-                                               threads=threads,
-                                               use_multi_processing=use_multi_processing
-                                               )
+                second_labels = cluster_static(
+                    distances[bool_arr],
+                    metric=metric,
+                    allow_single_cluster=False,
+                    threads=threads,
+                    use_multi_processing=use_multi_processing,
+                    binning_method=cluster_selection_method
+                )
 
             except TypeError:
                 bool_arr = np.array([False for _ in first_labels])
@@ -319,8 +456,13 @@ def iterative_clustering_static(
             bool_arr = np.array([False for _ in first_labels])
     else:
         try:
-            first_labels = cluster_static(distances, metric=metric,
-                                        allow_single_cluster=allow_single_cluster, use_multi_processing=use_multi_processing)
+            first_labels = cluster_static(
+                distances,
+                metric=metric,
+                allow_single_cluster=allow_single_cluster,
+                use_multi_processing=use_multi_processing,
+                binning_method=cluster_selection_method
+            )
         except TypeError:
             first_labels = np.array([-1 for i in range(distances.shape[0])])
             # first_labels = np.array([-1 for i in range(distances.shape[0])])

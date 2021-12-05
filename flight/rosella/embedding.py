@@ -39,6 +39,7 @@ import seaborn as sns
 import matplotlib
 import umap
 import scipy.stats as sp_stats
+import scipy.spatial.distance as sp_distance
 from sklearn.mixture import GaussianMixture
 import threadpoolctl
 import concurrent.futures
@@ -95,46 +96,11 @@ class Embedder(Binner):
 
             initial_disconnections = self.check_contigs(self.large_contigs['tid'], minimum_connections, close_check)
 
-            # logging.info("Running UMAP Filter - %s" % self.rho_reducer)
-            # self.rho_reducer.n_neighbors = 5
-            # self.rho_reducer.disconnection_distance = 0.5
-            #
-            # contigs, log_lengths, tnfs = self.extract_contigs(
-            #     self.large_contigs[~initial_disconnections]['tid']
-            # )
-            #
-            # filterer_rho = self.rho_reducer.fit(
-            #     np.concatenate((log_lengths.values[:, None],
-            #                     tnfs.iloc[:, 2:]), axis=1))
-            #
-            # disconnected_umap = umap.utils.disconnected_vertices(filterer_rho)
-
             disconnected = initial_disconnections #+ np.array(self.large_contigs['tid'].isin(
-                # self.large_contigs[~initial_disconnections][disconnected_umap]['tid']
-            # ))
         except ValueError: # Everything was disconnected
             disconnected = np.array([True for i in range(self.large_contigs.values.shape[0])])
 
         self.disconnected = disconnected
-
-    def validation_settings(self, op_mix_ratio=1, a = 1.5, b = 0.3):
-        self.set_op(op_mix_ratio)
-
-        self.depth_reducer.b = b
-        self.tnf_reducer.b = b
-        self.euc_reducer.b = b
-
-        self.set_a(a)
-
-    def set_op(self, op_mix_ratio = 1):
-        self.depth_reducer.set_op_mix_ratio = op_mix_ratio
-        self.tnf_reducer.set_op_mix_ratio = op_mix_ratio
-        self.euc_reducer.set_op_mix_ratio = op_mix_ratio
-
-    def set_a(self, a = 1.5):
-        self.depth_reducer.a = a
-        self.tnf_reducer.a = a
-        self.euc_reducer.a = a
 
     def check_contigs(self, tids, minimum_connections=1, close_check=None):
         """
@@ -195,10 +161,10 @@ class Embedder(Binner):
 
         index_rho = NNDescent(current_tnfs, metric=metrics.rho, n_neighbors=30)
         index_euc = NNDescent(current_tnfs, metric=metrics.tnf_euclidean, n_neighbors=30)
-        index_dep = NNDescent(
-            contigs.values[:, 3:],
-            metric=metrics.metabat_distance,
-            n_neighbors=30)
+        # index_dep = NNDescent(
+        #     contigs.values[:, 3:],
+        #     metric=metrics.coverage_distance,
+        #     n_neighbors=30)
 
         for idx, tid in enumerate(tids):
 
@@ -212,15 +178,15 @@ class Embedder(Binner):
             euc_thresh = min(max(prob * 10, 1.0), 10)
             dep_thresh = min(max((prob / 2) + 0.05, 0.1), 1.0)
 
-            dep_connected = sum(x <= dep_thresh
-                                for x in index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
+            # dep_connected = sum(x <= dep_thresh
+            #                     for x in index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
             rho_connected = sum(x <= rho_thresh
                                 for x in index_rho.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
             euc_connected = sum(x <= euc_thresh
                                 for x in index_euc.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
 
 
-            if sum(x < minimum_connections for x in [rho_connected, euc_connected, dep_connected]) >= 1:
+            if sum(x < minimum_connections for x in [rho_connected, euc_connected]) >= 1:
                 disconnected_tids.append(tid)
                 disconnected = True
 
@@ -228,8 +194,8 @@ class Embedder(Binner):
                 if close_check == tid or tid in close_check:
                     print("tid: ", tid, disconnected)
                     print(dep_thresh, rho_thresh, euc_thresh)
-                    print(dep_connected, rho_connected, euc_connected)
-                    print(index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)], index_dep.neighbor_graph[0][idx, 1:(minimum_connections + 1)])
+                    print(rho_connected, euc_connected)
+                    # print(index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)], index_dep.neighbor_graph[0][idx, 1:(minimum_connections + 1)])
                     print(index_rho.neighbor_graph[1][idx, 1:(minimum_connections + 1)], index_rho.neighbor_graph[0][idx, 1:(minimum_connections + 1)])
                     print(index_euc.neighbor_graph[1][idx, 1:(minimum_connections + 1)], index_euc.neighbor_graph[0][idx, 1:(minimum_connections + 1)])
 
@@ -237,33 +203,6 @@ class Embedder(Binner):
         disconnections = np.array(self.large_contigs['tid'].isin(disconnected_tids))
 
         return disconnections
-
-
-    def disconnect_contig(
-            self,
-            idx, tid,
-            index_dep, index_rho, index_euc,
-            dep_thresh, rho_thresh, euc_thresh,
-            mean_connections, minimum_connections
-    ):
-        """
-        If a contig is decided to be disconnected, we have to check to see if its neighbours
-        (up to mean_connections, inclusive) are also disconnected. If they are, then this is likely a bin with only a few
-        members. If so, put them together and move on. If not, place the contig into the disconnected pile and handle it
-        later on
-        Params:
-            idx                                - index of the tid,
-            tid                                - contig id current being checked,
-            index_dep                          - pynndescent result for metabat distance metric
-            index_rho                          - pynndescent for rho
-            index_euc                          - pynndescent for euc
-            dep_thresh, rho_thresh, euc_thresh - thresholds for current contig
-
-        Returns: Bool deciding whether or not contig is to be added to disconnected pile
-        """
-        pass
-
-
 
     def check_contigs_inside_bin(self, tids, close_check=None):
         """
@@ -390,25 +329,6 @@ class Embedder(Binner):
         """
         Filter contigs based on ADP connections
         """
-        ## Calculate the UMAP embeddings
-        # logging.info("Finding disconnections...")
-        # self.md_reducer.disconnection_distance = 0.5
-        # self.depths = np.nan_to_num(
-        #     np.concatenate((self.large_contigs[~self.disconnected].iloc[:, 3:].drop(['tid'], axis=1),
-        #                     self.log_lengths[~self.disconnected].values[:, None],
-        #                     self.tnfs[~self.disconnected].iloc[:, 2:]), axis=1))
-        #
-        # # Get all disconnected points, i.e. contigs that were disconnected in ANY mapping
-        # # logging.info("Running UMAP Filter - %s" % self.depth_reducer)
-        # depth_mapping = self.md_reducer.fit(self.depths)
-        # disconnected_intersected = umap.utils.disconnected_vertices(depth_mapping)
-        #
-        # # Only disconnect big contigs
-        # for i, dis in enumerate(disconnected_intersected):
-        #     if dis:
-        #         contig = self.large_contigs[~self.disconnected].iloc[i, :]
-        #         if contig['contigLen'] < self.min_bin_size:
-        #             disconnected_intersected[i] = False
         disconnected_intersected = np.array([False for i in range(self.large_contigs[~self.disconnected].values.shape[0])])
         logging.info("Found %d disconnected points. %d TNF disconnected and %d ADP disconnected..." %
                      (sum(self.disconnected) + sum(disconnected_intersected), sum(self.disconnected),
@@ -420,397 +340,7 @@ class Embedder(Binner):
 
         self.disconnected_intersected = disconnected_intersected
 
-
-    def fit_transform(self, tids, n_neighbors):
-        """
-        Main function for performing UMAP embeddings and intersections
-        """
-        # update parameters to artificially high values to avoid disconnected vertices in the final manifold
-        self.depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.depth_reducer.disconnection_distance = 2
-        self.tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.tnf_reducer.disconnection_distance = 2
-        self.euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.euc_reducer.disconnection_distance = 100
-        if self.n_samples >= 3:
-            self.depth_rho_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-            self.depth_rho_reducer.disconnection_distance = 2
-        # self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
-        contigs, log_lengths, tnfs = self.extract_contigs(tids)
-
-        logging.debug("Running UMAP - %s" % self.tnf_reducer)
-        tnf_mapping = self.tnf_reducer.fit(
-            np.concatenate(
-                (log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
-                axis=1))
-
-        logging.debug("Running UMAP - %s" % self.depth_reducer)
-        depth_mapping = self.depth_reducer.fit(np.concatenate(
-            (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
-
-        if self.use_euclidean:
-            logging.debug("Running UMAP - %s" % self.euc_reducer)
-            euc_mapping = self.euc_reducer.fit(
-                np.concatenate(
-                    (log_lengths.values[:, None],
-                     tnfs.iloc[:, 2:]),
-                    axis=1))
-            ## Intersect all of the embeddings
-            if self.n_samples >= 3:
-                depth_rho_mapping = self.depth_rho_reducer.fit(
-                    np.concatenate(
-                        (log_lengths.values[:, None], contigs.iloc[:, 3:]),
-                        axis=1
-                    )
-                )
-                intersection_mapper = depth_mapping * euc_mapping * tnf_mapping * depth_rho_mapping
-            else:
-                intersection_mapper = depth_mapping * euc_mapping * tnf_mapping
-        else:
-            if self.n_samples >= 3:
-                depth_rho_mapping = self.depth_rho_reducer.fit(
-                    np.concatenate(
-                        (log_lengths.values[:, None], contigs.iloc[:, 3:]),
-                        axis=1
-                    )
-                )
-                intersection_mapper = depth_mapping * tnf_mapping * depth_rho_mapping
-            else:
-                intersection_mapper = depth_mapping * tnf_mapping
-
-        self.intersection_mapper = intersection_mapper
-
-
-    def rho_md_transform(self, tids, n_neighbors):
-        self.depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.depth_reducer.disconnection_distance = 0.99
-        self.tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.tnf_reducer.disconnection_distance = 1
-
-        contigs, log_lengths, tnfs = self.extract_contigs(tids)
-
-        logging.debug("Running UMAP - %s" % self.tnf_reducer)
-        tnf_mapping = self.tnf_reducer.fit(
-            np.concatenate(
-                (log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
-                axis=1))
-
-        logging.debug("Running UMAP - %s" % self.depth_reducer)
-        depth_mapping = self.depth_reducer.fit(np.concatenate(
-            (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
-
-
-        intersection_mapper = depth_mapping * tnf_mapping
-
-        self.intersection_mapper = intersection_mapper
-
-
-    def euc_md_transform(self, tids, n_neighbors):
-        """
-        Main function for performing UMAP embeddings and intersections
-        """
-        # update parameters to artificially high values to avoid disconnected vertices in the final manifold
-        self.depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.depth_reducer.disconnection_distance = 0.99
-        self.euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.euc_reducer.disconnection_distance = 10
-
-        # self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
-        contigs, log_lengths, tnfs = self.extract_contigs(tids)
-
-        logging.debug("Running UMAP - %s" % self.depth_reducer)
-        depth_mapping = self.depth_reducer.fit(np.concatenate(
-            (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
-
-        logging.debug("Running UMAP - %s" % self.euc_reducer)
-        euc_mapping = self.euc_reducer.fit(
-            np.concatenate(
-                (log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
-                axis=1))
-        ## Intersect all of the embeddings
-        intersection_mapper = depth_mapping * euc_mapping
-
-        self.intersection_mapper = intersection_mapper
-
-
-    def multi_transform(self, tids, n_neighbors, switch=None):
-        """
-        Main function for performing UMAP embeddings and intersections
-        """
-        # update parameters to artificially high values to avoid disconnected vertices in the final manifold
-        if switch is None:
-            switch = [0, 1, 2]
-        if len(switch) == 3:
-            # self.set_op(0)
-            self.set_a(1.9)
-        else:
-            # self.set_op(1)
-            self.set_a(self.a)
-
-        self.depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.depth_reducer.disconnection_distance = 2
-        self.tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.tnf_reducer.disconnection_distance = 2
-        self.euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-        self.euc_reducer.disconnection_distance = 10
-
-        # self.update_umap_params(self.large_contigs[~self.disconnected][~self.disconnected_intersected].shape[0])
-        contigs, log_lengths, tnfs = self.extract_contigs(tids)
-        if 0 in switch:
-            logging.debug("Running UMAP - %s" % self.depth_reducer)
-            self.depth_mapping = self.depth_reducer.fit(np.concatenate(
-                (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1))
-
-        if 1 in switch:
-            logging.debug("Running UMAP - %s" % self.tnf_reducer)
-            self.tnf_mapping = self.tnf_reducer.fit(
-                np.concatenate(
-                    (log_lengths.values[:, None],
-                     tnfs.iloc[:, 2:]),
-                        axis=1))
-        if 2 in switch:
-            logging.debug("Running UMAP - %s" % self.euc_reducer)
-            self.euc_mapping = self.euc_reducer.fit(
-                np.concatenate(
-                    (log_lengths.values[:, None],
-                     tnfs.iloc[:, 2:]),
-                    axis=1))
-
-
-    def switch_intersector(self, switch=None):
-        if switch is None:
-            if self.use_euclidean:
-                switch = [0, 1, 2]
-            else:
-                switch = [0, 1]
-        if 0 in switch and 1 in switch and 2 in switch:
-            # All
-            # print("All: Switch", switch)
-            self.intersection_mapper = self.depth_mapping * self.euc_mapping * self.tnf_mapping
-        elif 0 in switch and 1 in switch:
-            # Rho and MD
-            # print("MD and TNF: Switch", switch)
-            self.intersection_mapper = self.depth_mapping * self.tnf_mapping
-        elif 0 in switch and 2 in switch:
-            # print("MD and EUC: Switch", switch)
-            self.intersection_mapper = self.depth_mapping * self.euc_mapping
-        elif 1 in switch and 2 in switch:
-            # print("EUC and TNF: Switch", switch)
-            self.intersection_mapper = self.euc_mapping * self.tnf_mapping
-        elif 0 in switch:
-            # print("MD: Switch", switch)
-            self.intersection_mapper = self.depth_mapping
-        elif 1 in switch:
-            # print("TNF: Switch", switch)
-            self.intersection_mapper = self.tnf_mapping
-        elif 2 in switch:
-            # print("EUC: Switch", switch)
-            self.intersection_mapper = self.euc_mapping
-
-
-
-
-def multi_transform_static(
-        contigs, log_lengths, tnfs,
-        depth_reducer, tnf_reducer, euc_reducer,
-        tids, n_neighbors, a=1.5, switch=None, random_seed=42069, second_pass=False):
-    """
-    Main function for performing UMAP embeddings and intersections
-    """
-    np.random.seed(random_seed)
-    random.seed(random_seed)
-    # update parameters to artificially high values to avoid disconnected vertices in the final manifold
-    if switch is None:
-        switch = [0, 1, 2]
-    # if len(switch) == 3:
-    #     # self.set_op(0)
-    #     depth_reducer.a = 1.9
-    #     tnf_reducer.a = 1.9
-    #     euc_reducer.a = 1.9
-    # else:
-    # self.set_op(1)
-    depth_reducer.a = a
-    tnf_reducer.a = a
-    euc_reducer.a = a
-
-    depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-    depth_reducer.disconnection_distance = 2
-    tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-    tnf_reducer.disconnection_distance = 2
-    euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-    euc_reducer.disconnection_distance = 10
-
-    # depth_reducer.n_neighbors = len(tids) - 1
-    # tnf_reducer.n_neighbors = len(tids) - 1
-    # euc_reducer.n_neighbors = len(tids) - 1
-    try:
-        if 0 in switch:
-            depth_reducer.fit(
-                np.concatenate(
-                    (contigs.iloc[:, 3:],
-                     log_lengths.values[:, None],
-                     tnfs.iloc[:, 2:]),
-                    axis=1))
-
-        if 1 in switch:
-            tnf_reducer.fit(
-                np.concatenate(
-                    (log_lengths.values[:, None],
-                     tnfs.iloc[:, 2:]),
-                        axis=1))
-        if 2 in switch:
-            euc_reducer.fit(
-                np.concatenate(
-                    (log_lengths.values[:, None],
-                     tnfs.iloc[:, 2:]),
-                    axis=1))
-    except TypeError as e:
-        if not second_pass:
-            depth_reducer.n_components = 2
-            tnf_reducer.n_components = 2
-            euc_reducer.n_components = 2
-
-            multi_transform_static(
-                contigs, log_lengths, tnfs,
-                depth_reducer, tnf_reducer, euc_reducer,
-                tids, n_neighbors, a, switch, random_seed, second_pass=True
-            )
-        else:
-            raise e
-
-
-
-def switch_intersector_static(depth_reducer, tnf_reducer, euc_reducer, switch=None):
-    if switch is None:
-        switch = [0, 1, 2]
-    if 0 in switch and 1 in switch and 2 in switch:
-        # All
-        # print("All: Switch", switch)
-        return depth_reducer * tnf_reducer * euc_reducer
-    elif 0 in switch and 1 in switch:
-        # Rho and MD
-        # print("MD and TNF: Switch", switch)
-        return depth_reducer * tnf_reducer
-    elif 0 in switch and 2 in switch:
-        # print("MD and EUC: Switch", switch)
-        return depth_reducer * euc_reducer
-    elif 1 in switch and 2 in switch:
-        # print("EUC and TNF: Switch", switch)
-        return tnf_reducer * euc_reducer
-    elif 0 in switch:
-        # print("MD: Switch", switch)
-        return depth_reducer
-    elif 1 in switch:
-        # print("TNF: Switch", switch)
-        return tnf_reducer
-    elif 2 in switch:
-        # print("EUC: Switch", switch)
-        return euc_reducer
-
-
-def fit_transform_static(
-        contigs, log_lengths, tnfs,
-        n_neighbours, n_components, n_samples, sample_distances,
-        a, b, random_seed,
-        switch=0):
-    np.random.seed(random_seed)
-    random.seed(random_seed)
-    if switch == 0:
-        depth_reducer = umap.UMAP(
-            metric=metrics.aggregate_tnf,
-            # disconnection_distance=2,
-            metric_kwds={"n_samples": n_samples,
-                         "sample_distances": sample_distances},
-            n_neighbors=n_neighbours,
-            n_components=n_components,
-            min_dist=0,
-            set_op_mix_ratio=1,
-            a=a,
-            b=b,
-            random_state=random_seed
-        )
-
-        return depth_reducer.fit(
-            np.concatenate(
-                (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1)
-        )
-    elif switch == 1:
-        tnf_reducer = umap.UMAP(
-            metric=metrics.rho,
-            # disconnection_distance=2,
-            n_neighbors=n_neighbours,
-            n_components=n_components,
-            min_dist=0,
-            set_op_mix_ratio=1,
-            a=a,
-            b=b,
-            random_state=random_seed
-        )
-
-        return tnf_reducer.fit(
-            np.concatenate(
-                (log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
-                axis=1)
-        )
-    elif switch == 2:
-        euc_reducer = umap.UMAP(
-            metric=metrics.tnf_euclidean,
-            # disconnection_distance=10,
-            n_neighbors=n_neighbours,
-            n_components=n_components,
-            min_dist=0,
-            set_op_mix_ratio=1,
-            a=a,
-            b=b,
-            random_state=random_seed
-        )
-
-        return euc_reducer.fit(
-            np.concatenate(
-                (log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
-                axis=1)
-        )
-
-
-def check_contigs_static(
-        current,
-        others,
-        skew_dist1,
-        skew_dist2,
-        log_length,
-        n_samples,
-        sample_distances,
-        tid
-):
-    current_contigs, current_log_lengths, current_tnfs = \
-        current
-    other_contigs, other_log_lengths, other_tnfs = \
-        others
-    current = np.concatenate((current_contigs.iloc[:, 3:].values,
-                              current_log_lengths.values[:, None],
-                              current_tnfs.iloc[:, 2:].values), axis=1)[0]
-
-    others = np.concatenate((other_contigs.iloc[:, 3:].values,
-                             other_log_lengths.values[:, None],
-                             other_tnfs.iloc[:, 2:].values), axis=1)
-
-    # Scale the thresholds based on the probability distribution
-    # Use skew dist to get PDF value of current contig
-    prob1 = min(skew_dist1.pdf(log_length), 1.0)
-    prob2 = min(skew_dist2.pdf(log_length), 1.0)
-    prob = max(prob1, prob2)
-    rho_thresh = min(max(prob / 2, 0.05), 0.5)
-    euc_thresh = min(max(prob * 10, 1.0), 6)
-    dep_thresh = min(max(prob / 2, 0.05), 0.5)
-
-    connections = metrics.check_connections(
-        current, others, n_samples, sample_distances,
-        rho_threshold=rho_thresh, euc_threshold=euc_thresh, dep_threshold=dep_thresh
-    )
-
-    return connections, tid, rho_thresh, euc_thresh, dep_thresh
+    def fit_transform_precomputed(self, stat):
+        self.precomputed_reducer_low.fit(sp_distance.squareform(stat))
+        self.precomputed_reducer_high.fit(sp_distance.squareform(stat))
+        self.intersection_mapper = self.precomputed_reducer_low
