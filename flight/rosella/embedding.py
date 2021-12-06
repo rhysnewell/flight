@@ -161,10 +161,10 @@ class Embedder(Binner):
 
         index_rho = NNDescent(current_tnfs, metric=metrics.rho, n_neighbors=30)
         index_euc = NNDescent(current_tnfs, metric=metrics.tnf_euclidean, n_neighbors=30)
-        # index_dep = NNDescent(
-        #     contigs.values[:, 3:],
-        #     metric=metrics.coverage_distance,
-        #     n_neighbors=30)
+        index_dep = NNDescent(
+            contigs.values[:, 3:],
+            metric=metrics.metabat_distance_nn,
+            n_neighbors=30)
 
         for idx, tid in enumerate(tids):
 
@@ -178,15 +178,15 @@ class Embedder(Binner):
             euc_thresh = min(max(prob * 10, 1.0), 10)
             dep_thresh = min(max((prob / 2) + 0.05, 0.1), 1.0)
 
-            # dep_connected = sum(x <= dep_thresh
-            #                     for x in index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
+            dep_connected = sum(x <= dep_thresh
+                                for x in index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
             rho_connected = sum(x <= rho_thresh
                                 for x in index_rho.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
             euc_connected = sum(x <= euc_thresh
                                 for x in index_euc.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
 
 
-            if sum(x < minimum_connections for x in [rho_connected, euc_connected]) >= 1:
+            if sum(x < minimum_connections for x in [rho_connected, euc_connected, dep_connected]) >= 1:
                 disconnected_tids.append(tid)
                 disconnected = True
 
@@ -194,8 +194,8 @@ class Embedder(Binner):
                 if close_check == tid or tid in close_check:
                     print("tid: ", tid, disconnected)
                     print(dep_thresh, rho_thresh, euc_thresh)
-                    print(rho_connected, euc_connected)
-                    # print(index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)], index_dep.neighbor_graph[0][idx, 1:(minimum_connections + 1)])
+                    print(dep_connected, rho_connected, euc_connected)
+                    print(index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)], index_dep.neighbor_graph[0][idx, 1:(minimum_connections + 1)])
                     print(index_rho.neighbor_graph[1][idx, 1:(minimum_connections + 1)], index_rho.neighbor_graph[0][idx, 1:(minimum_connections + 1)])
                     print(index_euc.neighbor_graph[1][idx, 1:(minimum_connections + 1)], index_euc.neighbor_graph[0][idx, 1:(minimum_connections + 1)])
 
@@ -342,5 +342,5 @@ class Embedder(Binner):
 
     def fit_transform_precomputed(self, stat):
         self.precomputed_reducer_low.fit(sp_distance.squareform(stat))
-        self.precomputed_reducer_high.fit(sp_distance.squareform(stat))
+        # self.precomputed_reducer_high.fit(sp_distance.squareform(stat))
         self.intersection_mapper = self.precomputed_reducer_low

@@ -38,7 +38,7 @@ import matplotlib
 import numpy as np
 import seaborn as sns
 import imageio
-from numba import njit
+from numba import njit, set_num_threads
 import scipy.spatial.distance as sp_distance
 
 # self imports
@@ -140,6 +140,7 @@ class Rosella(Validator):
 
     def perform_binning(self, args):
         plots = []
+        set_num_threads(int(self.threads))
         with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -162,12 +163,14 @@ class Rosella(Validator):
                     # self.labels = self.iterative_clustering(sp_distance.squareform(stat), metric="precomputed")
 
                     # ensemble clustering against each umap embedding
-                    self.labels = self.ensemble_cluster_multiple_embeddings(
-                        [self.precomputed_reducer_low.embedding_, self.precomputed_reducer_high.embedding_],
+                    self.labels = self.get_cluster_labels_array(
+                        self.embeddings,
+                        top_n=3,
                         metric="euclidean",
                         cluster_selection_methods=["eom"],
-                        solver="hbgf"
-                    )
+                        solver="hbgf",
+                        embeddings_for_precomputed = self.embeddings
+                    )[-1]
                     # self.embeddings = np.random.rand(self.kmer_signature.shape[0], 2)
                     ## Plot limits
                     x_min = min(self.embeddings[:, 0]) - 10
@@ -182,8 +185,8 @@ class Rosella(Validator):
 
                     self.findem = [
                         # 'contig_29111_pilon', 'contig_5229_pilon', 'contig_7458_pilon', # Ega
-                        # 'contig_124_pilon' # Ret
-                        'contig_1298_pilon', 'contig_1033_pilon', 'contig_10125_pilon'
+                        'contig_124_pilon', # Ret
+                        'contig_3_pilon'
                     ]
                     self.plot(
                         self.findem

@@ -160,6 +160,7 @@ class Clusterer(Binner):
             # min_samples = [3, 6, 9, 12],
             solver="hbgf",
             threads=16,
+            embeddings_for_precomputed=None
     ):
         """
         Uses cluster ensembling with ClusterEnsembles package to produce partitioned set of
@@ -189,14 +190,24 @@ class Clusterer(Binner):
                     clusterer.fit(distances)
 
                     try:
-                        cluster_validity = Clusterer.validity(
-                            clusterer.labels_, distances, quick=True
-                        )
+                        if metric != "precomputed":
+                            cluster_validity = Clusterer.validity(
+                                clusterer.labels_, distances, quick=True
+                            )
+                        else:
+                            cluster_validity = Clusterer.validity(
+                                clusterer.labels_, embeddings_for_precomputed, quick=True
+                            )
                     except (ValueError, FloatingPointError):
                         try:
-                            cluster_validity = Clusterer.validity(
-                                clusterer.labels_, distances, quick=False
-                            )
+                            if metric != "precomputed":
+                                cluster_validity = Clusterer.validity(
+                                    clusterer.labels_, distances, quick=False
+                                )
+                            else:
+                                cluster_validity = Clusterer.validity(
+                                    clusterer.labels_, embeddings_for_precomputed, quick=False
+                                )
                         except (ValueError, FloatingPointError):
                             cluster_validity = -1
 
@@ -243,14 +254,21 @@ class Clusterer(Binner):
             # min_samples = [3, 6, 9, 12],
             solver="hbgf",
             threads=16,
+            embeddings_for_precomputed=None
     ):
         """
         Uses cluster ensembles to find best results across multiple different embeddings
         and clustering results.
         embeddings_array - an array of n different embeddings of distance matrix
         """
+        if metric == "precomputed":
+            if len(embeddings_for_precomputed) != len(embeddings_array):
+                sys.exit("Require reduced embeddings via UMAP or other method in addition to precomputed distance matrix")
+        else:
+            embeddings_for_precomputed = [None for _ in range(len(embeddings_array))]
+
         best_clusters = []
-        for embeddings in embeddings_array:
+        for idx, embeddings in enumerate(embeddings_array):
             #         print(embeddings)
             results = Clusterer.get_cluster_labels_array(
                 embeddings,
@@ -258,7 +276,8 @@ class Clusterer(Binner):
                 cluster_selection_methods,
                 top_n,
                 solver,
-                threads
+                threads,
+                embeddings_for_precomputed[idx]
             )
             for result in range(results.shape[0]):
                 best_clusters.append(results[result, :])

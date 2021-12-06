@@ -43,6 +43,7 @@ from concurrent.futures import TimeoutError
 import threadpoolctl
 import random
 import scipy.spatial.distance as sp_distance
+from numba import set_num_threads
 
 # self imports
 import flight.metrics as metrics
@@ -224,8 +225,8 @@ class Validator(Clusterer, Embedder):
 
                         if debug:
                             print("Reclustering bin %d" % bin)
-                        if mean_agg >= 0.75 or bin_size >= 15e6:
-                            factor = min(mean_agg * 3, 1.0)
+                        if mean_agg >= 0.5 or bin_size >= 15e6 or mean_md >= 0.5:
+                            factor = min(max(mean_agg, mean_md) * 3, 1.0)
                         else:
                             factor = max(mean_agg, mean_md)
                         reembed_separately.append(bin)
@@ -235,11 +236,15 @@ class Validator(Clusterer, Embedder):
                         switches.append([0, 1, 2])
 
                     else:
-                        reembed_separately.append(bin)
-                        force_new_clustering.append(False)  # send it to regular hell
-                        reembed_if_no_cluster.append(True)  # take it easy, okay?
-                        lower_thresholds.append(1 - max((mean_md + mean_tnf) / 2, 0.05))
-                        switches.append([0, 1, 2])
+                        factor = 1 - max((mean_md + mean_tnf) / 2, 0.05)
+                        if factor < 0.95:
+                            reembed_separately.append(bin)
+                            force_new_clustering.append(False)  # send it to regular hell
+                            reembed_if_no_cluster.append(True)  # take it easy, okay?
+                            lower_thresholds.append(factor)
+                            switches.append([0, 1, 2])
+                        else:
+                            self.survived.append(bin)
 
 
                 else:
@@ -280,7 +285,8 @@ class Validator(Clusterer, Embedder):
                                         force_new,
                                         False,
                                         switch,
-                                        False
+                                        False,
+                                        self.threads
                                         ) for
                        (bin, force_new, min_validity, reembed_cluster, switch)
                        in zip(
@@ -529,7 +535,8 @@ def reembed_static(
             skip_clustering=False,
             switch=None,
             debug=False,
-            random_seed=42069
+            random_seed=42069,
+        threads=10
 ):
     """
     Recluster -> Re-embedding -> Reclustering on the specified set of contigs
@@ -558,6 +565,7 @@ def reembed_static(
     """
     np.random.seed(random_seed)
     random.seed(random_seed)
+    set_num_threads(threads)
     if switch is None:
         switch = [0, 1, 2]
     remove = False
@@ -581,12 +589,13 @@ def reembed_static(
         if not skip_clustering:
 
             try:
-                labels_multi = Clusterer.ensemble_cluster_multiple_embeddings(
-                    [unbinned_embeddings],
+                labels_multi = Clusterer.get_cluster_labels_array(
+                    unbinned_embeddings,
+                    top_n=3,
                     metric="euclidean",
                     cluster_selection_methods=["eom"],
                     solver="hbgf"
-                )
+                )[-1]
 
                 # Try out precomputed method, validity metric does not work here
                 # so we just set it to 1 and hope it ain't shit. Method for this is
@@ -695,12 +704,13 @@ def reembed_static(
 
             new_embeddings = precomputed_reducer.fit_transform(sp_distance.squareform(stat))
 
-            labels_multi = Clusterer.ensemble_cluster_multiple_embeddings(
-                    [new_embeddings],
+            labels_multi = Clusterer.get_cluster_labels_array(
+                    new_embeddings,
+                    top_n=3,
                     metric="euclidean",
                     cluster_selection_methods=["eom"],
                     solver="hbgf"
-                )
+                )[-1]
 
 
             validity_multi = Clusterer.validity(labels_multi, new_embeddings)
