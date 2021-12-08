@@ -89,6 +89,24 @@ class Rosella(Validator):
     Highest level child class for the Rosella binning pipeline. Enacts calls to lower level
     classes to generate bin set.
     """
+    def quick_filter(
+            self,
+            plots,
+            n=0,
+            n_max=1,
+            x_min=20,
+            x_max=20,
+            y_min=20,
+            y_max=20
+        ):
+        while n <= n_max:
+            plots, n = self.validate_bins(plots, n,
+                                          x_min, x_max,
+                                          y_min, y_max,
+                                          quick_filter=True)
+            self.sort_bins()
+            n += 1
+
 
     def slow_refine(
             self,
@@ -138,6 +156,28 @@ class Rosella(Validator):
 
             n += 1
 
+
+    def perform_embedding(self):
+        # condensed ranked distance matrix for contigs
+        stat = self.get_ranks()
+        # generate umap embeddings
+        self.fit_transform_precomputed(stat)
+        # ensemble clustering against each umap embedding
+        labels, _ = self.ensemble_cluster_multiple_embeddings(
+            [self.precomputed_reducer_low.embedding_,
+             # self.precomputed_reducer_mid.embedding_,
+             self.precomputed_reducer_high.embedding_],
+            top_n=3,
+            metric="euclidean",
+            cluster_selection_methods=["eom"],
+            solver="hbgf",
+            embeddings_for_precomputed=[self.precomputed_reducer_low.embedding_,
+                                        # self.precomputed_reducer_mid.embedding_,
+                                        self.precomputed_reducer_high.embedding_]
+        )
+
+        return labels[-1]
+
     def perform_binning(self, args):
         plots = []
         set_num_threads(int(self.threads))
@@ -151,26 +191,24 @@ class Rosella(Validator):
                     self.filter()
                     self.fit_disconnect()
 
+                    # 1. First pass of embeddings + clustering
                     self.kmer_signature = self.tnfs[~self.disconnected].iloc[:, 2:].values
                     self.coverage_profile = self.large_contigs[~self.disconnected].iloc[:, 3:].values
 
-                    # condensed ranked distance matrix for contigs
-                    stat = self.get_ranks()
-                    # generate umap embeddings
-                    self.fit_transform_precomputed(stat)
+                    self.labels = self.perform_embedding()
+
                     # embedding used for plotting
                     self.embeddings = self.intersection_mapper.embedding_
-                    # self.labels = self.iterative_clustering(sp_distance.squareform(stat), metric="precomputed")
 
-                    # ensemble clustering against each umap embedding
-                    self.labels = self.get_cluster_labels_array(
-                        self.embeddings,
-                        top_n=3,
-                        metric="euclidean",
-                        cluster_selection_methods=["eom"],
-                        solver="hbgf",
-                        embeddings_for_precomputed = self.embeddings
-                    )[-1]
+                    # 2. Recover the unbinned tids, and then perform the same procedure on them
+                    #    The idea here is to pick up any obvious clusters that were missed. We reembed
+                    #    again to try and make the relationships more obvious than the original embedding.
+                    # unbinned = self.labels[self.labels == -1]
+                    # # reset kmer sigs
+                    # self.kmer_signature = self.tnfs[~self.disconnected][unbinned].iloc[:, 2:].values
+                    # self.coverage_profile = self.large_contigs[~self.disconnected][unbinned].iloc[:, 3:].values
+                    # self.labels[unbinned] = self.perform_embedding()
+
                     # self.embeddings = np.random.rand(self.kmer_signature.shape[0], 2)
                     ## Plot limits
                     x_min = min(self.embeddings[:, 0]) - 10
@@ -194,8 +232,10 @@ class Rosella(Validator):
 
                     logging.info("Second embedding.")
                     self.sort_bins()
+                    # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
                     self.slow_refine(plots, 0, 100, x_min, x_max, y_min, y_max)
                     self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
+                    # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
                     # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
                     self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
                 else:

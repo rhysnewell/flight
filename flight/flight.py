@@ -37,7 +37,9 @@ import argparse
 import logging
 import os
 import datetime
-
+# from joblib import parallel_backend
+#
+# parallel_backend("multiprocessing")
 # Function imports
 import random
 import numpy
@@ -423,6 +425,7 @@ def bin(args):
     os.environ["NUMBA_NUM_THREADS"] = str(int(args.threads))  # try and reduce the number of race conditions occurring in numba functions?
     os.environ["MKL_NUM_THREADS"] = str(int(args.threads))
     os.environ["OPENBLAS_NUM_THREADS"] = str(int(args.threads))
+    os.environ["THREADING_LAYER"] = 'tbb'
     from flight.rosella.rosella import Rosella
 
     if args.long_input is None and args.input is None:

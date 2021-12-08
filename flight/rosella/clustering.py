@@ -174,8 +174,8 @@ class Clusterer(Binner):
         best_selection_method = np.array([None for _ in range(top_n)])
         best_validity = np.array([None for _ in range(top_n)])
         index = 0
-        for min_size in range(3, 15):
-            for min_sample in range(5, 20):
+        for min_size in range(2, 10):
+            for min_sample in range(1, 10):
                 for selection_method in cluster_selection_methods:
                     clusterer = hdbscan.HDBSCAN(
                         algorithm='best',
@@ -242,7 +242,7 @@ class Clusterer(Binner):
                         label_array = np.insert(label_array, ind, clusterer.labels_, axis=0)[1:]
 
 
-        return label_array
+        return label_array, best_validity
 
     @staticmethod
     def ensemble_cluster_multiple_embeddings(
@@ -260,6 +260,7 @@ class Clusterer(Binner):
         Uses cluster ensembles to find best results across multiple different embeddings
         and clustering results.
         embeddings_array - an array of n different embeddings of distance matrix
+                         - The length of each array of embeddings must be equal
         """
         if metric == "precomputed":
             if len(embeddings_for_precomputed) != len(embeddings_array):
@@ -267,10 +268,13 @@ class Clusterer(Binner):
         else:
             embeddings_for_precomputed = [None for _ in range(len(embeddings_array))]
 
-        best_clusters = []
+        best_clusters = np.array([np.array([-1 for _ in range(embeddings_array[0].shape[0])]) for _ in range(top_n * len(embeddings_array))])
+        best_validities = np.array([np.nan for _ in range(top_n * len(embeddings_array))])
+
+        stored_index = 0
         for idx, embeddings in enumerate(embeddings_array):
-            #         print(embeddings)
-            results = Clusterer.get_cluster_labels_array(
+
+            label_results, label_validities = Clusterer.get_cluster_labels_array(
                 embeddings,
                 metric,
                 cluster_selection_methods,
@@ -279,11 +283,21 @@ class Clusterer(Binner):
                 threads,
                 embeddings_for_precomputed[idx]
             )
-            for result in range(results.shape[0]):
-                best_clusters.append(results[result, :])
+            for result_index in range(label_results.shape[0]):
+                best_clusters[stored_index] = label_results[result_index]
+                best_validities[stored_index] = label_validities[result_index]
+                stored_index += 1
 
-        label_ensemble = CE.cluster_ensembles(np.array(best_clusters))
-        return label_ensemble
+
+        ranks = np.argsort(best_validities)
+        best_validities = best_validities[ranks]
+        best_clusters = best_clusters[ranks]
+        # best_clusters = np.array(best_clusters)
+        # unclustered = np.all(best_clusters == -1, axis=0)
+        # label_ensemble = CE.cluster_ensembles(best_clusters)
+        # label_ensemble[unclustered] = -1
+
+        return best_clusters, best_validities
 
     def iterative_clustering(self,
                              distances,

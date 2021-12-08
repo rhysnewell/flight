@@ -74,17 +74,17 @@ class ProfileDistanceEngine:
         kmer_ranks = sp_distance.pdist(kmerSigs, metric="euclidean")
         kmer_ranks = kmer_ranks.argsort()
         kmer_ranks = kmer_ranks.argsort()
-        rho_ranks = sp_distance.pdist(kmerSigs, metrics.rho)
-        rho_ranks = rho_ranks.argsort()
-        rho_ranks = rho_ranks.argsort()
+        # rho_ranks = sp_distance.pdist(kmerSigs, metrics.rho)
+        # rho_ranks = rho_ranks.argsort()
+        # rho_ranks = rho_ranks.argsort()
 
-        return (cov_ranks, kmer_ranks, rho_ranks)
+        return (cov_ranks, kmer_ranks)
 
     def makeRankStat(self, covProfiles, kmerSigs, contigLengths, silent=False, fun=lambda a: a):
         """Compute norms in {coverage rank space x kmer rank space}
         """
-        (cov_ranks, kmer_ranks, rho_ranks) = self.makeRanks(covProfiles, kmerSigs, contigLengths, silent=silent)
-        dists = fun(cov_ranks) * fun(kmer_ranks) * fun(rho_ranks)
+        (cov_ranks, kmer_ranks) = self.makeRanks(covProfiles, kmerSigs, contigLengths, silent=silent)
+        dists = fun(cov_ranks) * fun(kmer_ranks) #* fun(rho_ranks)
 
         return dists
 

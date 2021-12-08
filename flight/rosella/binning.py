@@ -210,24 +210,45 @@ class Binner:
         self.binning_method = 'eom'
         self.min_cluster_size = 2
 
-        # n_components = min(max(self.n_samples + self.long_samples, 2), 10)
-        n_components = 2
+        n_components = min(max(self.n_samples + self.long_samples, 2), 10)
+        # n_components = 2
 
-        self.a = 1.5
+        self.a = 1.48
         # self.a = a
         numerator = min(max(np.log10(self.nX(25)[1]), np.log10(50000)), np.log10(100000))
         # set self.b by scaling the based on the n25 of the sample, between 0.3 and 0.4
-        self.b = 0.1 * ((numerator - np.log10(50000)) / (np.log10(100000) - np.log10(50000))) + 0.3
+        self.b = 0.1 * ((numerator - np.log10(50000)) / (np.log10(100000) - np.log10(50000))) + 0.5
 
         self.precomputed_reducer_low = umap.UMAP(
             metric="precomputed",
+            densmap=False,
+            dens_lambda=2.5,
+            # output_dens=True,
             n_neighbors=n_neighbors,
             n_components=n_components,
             min_dist=min_dist,
             set_op_mix_ratio=1,
-            a=self.a,
-            b=self.b,
+            a=1.48,
+            b=0.3,
             init=initialization,
+            n_jobs=self.threads,
+            random_state=random_seed
+        )
+
+        self.precomputed_reducer_mid = umap.UMAP(
+            metric="precomputed",
+            densmap=False,
+            dens_lambda=2.5,
+            # output_dens=True,
+            n_neighbors=n_neighbors,
+            n_components=n_components,
+            min_dist=min_dist,
+            set_op_mix_ratio=1,
+            a=1.58,
+            b=0.4,
+            init=initialization,
+            n_jobs=self.threads,
+            random_state=random_seed
         )
 
         self.precomputed_reducer_high = umap.UMAP(
@@ -236,10 +257,14 @@ class Binner:
             n_components=n_components,
             min_dist=min_dist,
             set_op_mix_ratio=1,
-            a=1.58,
+            a=1.68,
             b=0.5,
             init=initialization,
+            n_jobs=self.threads,
+            random_state=random_seed
         )
+
+
 
         # Embedder options
         self.n_neighbors = n_neighbors

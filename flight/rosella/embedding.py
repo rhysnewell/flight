@@ -342,5 +342,152 @@ class Embedder(Binner):
 
     def fit_transform_precomputed(self, stat):
         self.precomputed_reducer_low.fit(sp_distance.squareform(stat))
-        # self.precomputed_reducer_high.fit(sp_distance.squareform(stat))
+        # self.precomputed_reducer_mid.fit(sp_distance.squareform(stat))
+        self.precomputed_reducer_high.fit(sp_distance.squareform(stat))
         self.intersection_mapper = self.precomputed_reducer_low
+
+def multi_transform_static(
+        contigs, log_lengths, tnfs,
+        depth_reducer, tnf_reducer, euc_reducer,
+        tids, n_neighbors, a=1.5, switch=None, random_seed=42069):
+    """
+    Main function for performing UMAP embeddings and intersections
+    """
+    np.random.seed(random_seed)
+    random.seed(random_seed)
+    # update parameters to artificially high values to avoid disconnected vertices in the final manifold
+    if switch is None:
+        switch = [0, 1, 2]
+    # if len(switch) == 3:
+    #     # self.set_op(0)
+    #     depth_reducer.a = 1.9
+    #     tnf_reducer.a = 1.9
+    #     euc_reducer.a = 1.9
+    # else:
+    # self.set_op(1)
+    depth_reducer.a = a
+    tnf_reducer.a = a
+    euc_reducer.a = a
+
+    depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+    depth_reducer.disconnection_distance = 2
+    tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+    tnf_reducer.disconnection_distance = 2
+    euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
+    euc_reducer.disconnection_distance = 10
+
+    # depth_reducer.n_neighbors = len(tids) - 1
+    # tnf_reducer.n_neighbors = len(tids) - 1
+    # euc_reducer.n_neighbors = len(tids) - 1
+
+    if 0 in switch:
+        depth_reducer.fit(
+                contigs.iloc[:, 3:].values
+            )
+
+    if 1 in switch:
+        tnf_reducer.fit(
+            np.concatenate(
+                (log_lengths.values[:, None],
+                 tnfs.iloc[:, 2:]),
+                    axis=1))
+    if 2 in switch:
+        euc_reducer.fit(
+            np.concatenate(
+                (log_lengths.values[:, None],
+                 tnfs.iloc[:, 2:]),
+                axis=1))
+
+
+def switch_intersector_static(depth_reducer, tnf_reducer, euc_reducer, switch=None):
+    if switch is None:
+        switch = [0, 1, 2]
+    if 0 in switch and 1 in switch and 2 in switch:
+        # All
+        # print("All: Switch", switch)
+        return depth_reducer * tnf_reducer * euc_reducer
+    elif 0 in switch and 1 in switch:
+        # Rho and MD
+        # print("MD and TNF: Switch", switch)
+        return depth_reducer * tnf_reducer
+    elif 0 in switch and 2 in switch:
+        # print("MD and EUC: Switch", switch)
+        return depth_reducer * euc_reducer
+    elif 1 in switch and 2 in switch:
+        # print("EUC and TNF: Switch", switch)
+        return tnf_reducer * euc_reducer
+    elif 0 in switch:
+        # print("MD: Switch", switch)
+        return depth_reducer
+    elif 1 in switch:
+        # print("TNF: Switch", switch)
+        return tnf_reducer
+    elif 2 in switch:
+        # print("EUC: Switch", switch)
+        return euc_reducer
+
+
+def fit_transform_static(
+        contigs, log_lengths, tnfs,
+        n_neighbours, n_samples, sample_distances,
+        a, b, random_seed,
+        switch=0):
+    np.random.seed(random_seed)
+    random.seed(random_seed)
+    if switch == 0:
+        depth_reducer = umap.UMAP(
+            metric=metrics.aggregate_tnf,
+            # disconnection_distance=2,
+            metric_kwds={"n_samples": n_samples,
+                         "sample_distances": sample_distances},
+            n_neighbors=n_neighbours,
+            n_components=2,
+            min_dist=0,
+            set_op_mix_ratio=1,
+            a=a,
+            b=b,
+            random_state=random_seed
+        )
+
+        return depth_reducer.fit(
+            np.concatenate(
+                (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1)
+        )
+    elif switch == 1:
+        tnf_reducer = umap.UMAP(
+            metric=metrics.rho,
+            # disconnection_distance=2,
+            n_neighbors=n_neighbours,
+            n_components=2,
+            min_dist=0,
+            set_op_mix_ratio=1,
+            a=a,
+            b=b,
+            random_state=random_seed
+        )
+
+        return tnf_reducer.fit(
+            np.concatenate(
+                (log_lengths.values[:, None],
+                 tnfs.iloc[:, 2:]),
+                axis=1)
+        )
+    elif switch == 2:
+        euc_reducer = umap.UMAP(
+            metric=metrics.tnf_euclidean,
+            # disconnection_distance=10,
+            n_neighbors=n_neighbours,
+            n_components=2,
+            min_dist=0,
+            set_op_mix_ratio=1,
+            a=a,
+            b=b,
+            random_state=random_seed
+        )
+
+        return euc_reducer.fit(
+            np.concatenate(
+                (log_lengths.values[:, None],
+                 tnfs.iloc[:, 2:]),
+                axis=1)
+        )
