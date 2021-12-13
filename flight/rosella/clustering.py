@@ -44,9 +44,11 @@ import seaborn as sns
 import matplotlib
 import sklearn.cluster as sk_cluster
 import sklearn.metrics as sk_metrics
-import ClusterEnsembles as CE
 from flight.DBCV import DBCV
 from scipy.spatial.distance import euclidean
+import pebble
+import multiprocessing
+import itertools
 
 # self imports
 import flight.metrics as metrics
@@ -151,10 +153,56 @@ class Clusterer(Binner):
             return clusterer.labels_
 
     @staticmethod
+    def generate_cluster(
+            distances,
+            embeddings_for_precomputed=None,
+            selection_method="eom",
+            metric="euclidean",
+            min_size=2,
+            min_sample=2,
+            threads=1
+    ):
+        clusterer = hdbscan.HDBSCAN(
+            algorithm='best',
+            alpha=1.0,
+            cluster_selection_method=selection_method,
+            metric=metric,
+            min_cluster_size=min_size,
+            min_samples=min_sample,
+            core_dist_n_jobs=threads,
+            approx_min_span_tree=False
+        )
+        clusterer.fit(distances)
+
+        try:
+            if metric != "precomputed":
+                cluster_validity = Clusterer.validity(
+                    clusterer.labels_, distances, quick=True
+                )
+            else:
+                cluster_validity = Clusterer.validity(
+                    clusterer.labels_, embeddings_for_precomputed, quick=True
+                )
+        except (ValueError, FloatingPointError):
+            try:
+                if metric != "precomputed":
+                    cluster_validity = Clusterer.validity(
+                        clusterer.labels_, distances, quick=False
+                    )
+                else:
+                    cluster_validity = Clusterer.validity(
+                        clusterer.labels_, embeddings_for_precomputed, quick=False
+                    )
+            except (ValueError, FloatingPointError):
+                cluster_validity = -1
+
+        return (cluster_validity, min_size, min_sample, clusterer.labels_)
+
+    @staticmethod
     def get_cluster_labels_array(
             distances,
             metric="euclidean",
-            cluster_selection_methods=["eom"],
+            selection_method="eom",
             top_n=3,
             # min_sizes = [2, 4, 6, 8, 10],
             # min_samples = [3, 6, 9, 12],
@@ -171,52 +219,33 @@ class Clusterer(Binner):
         label_array = np.array([np.array([-1 for _ in range(distances.shape[0])]) for _ in range(top_n)])
         best_min_size = np.array([None for _ in range(top_n)])
         best_min_sample = np.array([None for _ in range(top_n)])
-        best_selection_method = np.array([None for _ in range(top_n)])
         best_validity = np.array([None for _ in range(top_n)])
         index = 0
-        for min_size in range(2, 10):
-            for min_sample in range(1, 10):
-                for selection_method in cluster_selection_methods:
-                    clusterer = hdbscan.HDBSCAN(
-                        algorithm='best',
-                        alpha=1.0,
-                        cluster_selection_method=selection_method,
-                        metric=metric,
-                        min_cluster_size=min_size,
-                        min_samples=min_sample,
-                        core_dist_n_jobs=threads,
-                        approx_min_span_tree=False
-                    )
-                    clusterer.fit(distances)
 
-                    try:
-                        if metric != "precomputed":
-                            cluster_validity = Clusterer.validity(
-                                clusterer.labels_, distances, quick=True
-                            )
-                        else:
-                            cluster_validity = Clusterer.validity(
-                                clusterer.labels_, embeddings_for_precomputed, quick=True
-                            )
-                    except (ValueError, FloatingPointError):
-                        try:
-                            if metric != "precomputed":
-                                cluster_validity = Clusterer.validity(
-                                    clusterer.labels_, distances, quick=False
-                                )
-                            else:
-                                cluster_validity = Clusterer.validity(
-                                    clusterer.labels_, embeddings_for_precomputed, quick=False
-                                )
-                        except (ValueError, FloatingPointError):
-                            cluster_validity = -1
+        if threads > 1:
+            with pebble.ProcessPool(max_workers=threads) as executor:
+                futures = [
+                    executor.schedule(
+                        Clusterer.generate_cluster,
+                        (
+                            distances,
+                            embeddings_for_precomputed,
+                            selection_method,
+                            metric,
+                            min_size,
+                            min_sample,
+                            threads
+                        )
+                    ) for (min_size, min_sample) in itertools.combinations(range(1, 10), 2) if min_size != 1
+                ]
 
+                for future in futures:
+                    (cluster_validity, min_size, min_sample, labels) = future.result()
                     if np.any(best_validity == None):
                         best_min_size[index] = min_size
                         best_min_sample[index] = min_sample
-                        best_selection_method[index] = selection_method
                         best_validity[index] = cluster_validity
-                        label_array[index] = clusterer.labels_
+                        label_array[index] = labels
                         index += 1
 
                         if index == top_n:
@@ -226,11 +255,7 @@ class Clusterer(Binner):
                             best_validity = best_validity[ranks]
                             best_min_sample = best_min_sample[ranks]
                             best_min_size = best_min_size[ranks]
-                            best_selection_method = best_selection_method[ranks]
                             label_array = label_array[ranks]
-                            # with np.set_printoptions(precision=3, suppress=True, formatter={'float': '{: 0.3f}'.format}):
-                            # print(best_validity)
-                            # print(label_array)
 
                     elif np.any(best_validity < cluster_validity):
                         # insert the new result and remove the worst result
@@ -238,9 +263,45 @@ class Clusterer(Binner):
                         best_validity = np.insert(best_validity, ind, cluster_validity)[1:]
                         best_min_size = np.insert(best_min_size, ind, min_size)[1:]
                         best_min_sample = np.insert(best_min_sample, ind, min_sample)[1:]
-                        best_selection_method = np.insert(best_selection_method, ind, selection_method)[1:]
-                        label_array = np.insert(label_array, ind, clusterer.labels_, axis=0)[1:]
+                        label_array = np.insert(label_array, ind, labels, axis=0)[1:]
+        else:
+            results = [
+                    Clusterer.generate_cluster
+                    (
+                        distances,
+                        embeddings_for_precomputed,
+                        selection_method,
+                        metric,
+                        min_size,
+                        min_sample,
+                        threads
+                ) for (min_size, min_sample) in itertools.combinations(range(1, 5), 2) if min_size != 1
+            ]
 
+            for result in results:
+                (cluster_validity, min_size, min_sample, labels) = result
+                if np.any(best_validity == None):
+                    best_min_size[index] = min_size
+                    best_min_sample[index] = min_sample
+                    best_validity[index] = cluster_validity
+                    label_array[index] = labels
+                    index += 1
+
+                    if index == top_n:
+                        # sort the current top by ascending validity order
+                        ranks = np.argsort(best_validity)
+                        best_validity = best_validity[ranks]
+                        best_min_sample = best_min_sample[ranks]
+                        best_min_size = best_min_size[ranks]
+                        label_array = label_array[ranks]
+
+                elif np.any(best_validity < cluster_validity):
+                    # insert the new result and remove the worst result
+                    ind = np.searchsorted(best_validity, cluster_validity)
+                    best_validity = np.insert(best_validity, ind, cluster_validity)[1:]
+                    best_min_size = np.insert(best_min_size, ind, min_size)[1:]
+                    best_min_sample = np.insert(best_min_sample, ind, min_sample)[1:]
+                    label_array = np.insert(label_array, ind, labels, axis=0)[1:]
 
         return label_array, best_validity
 
@@ -248,7 +309,7 @@ class Clusterer(Binner):
     def ensemble_cluster_multiple_embeddings(
             embeddings_array,
             metric="euclidean",
-            cluster_selection_methods=["eom"],
+            cluster_selection_methods="eom",
             top_n=3,
             # min_sizes = [2, 4, 6, 8, 10],
             # min_samples = [3, 6, 9, 12],
@@ -292,10 +353,6 @@ class Clusterer(Binner):
         ranks = np.argsort(best_validities)
         best_validities = best_validities[ranks]
         best_clusters = best_clusters[ranks]
-        # best_clusters = np.array(best_clusters)
-        # unclustered = np.all(best_clusters == -1, axis=0)
-        # label_ensemble = CE.cluster_ensembles(best_clusters)
-        # label_ensemble[unclustered] = -1
 
         return best_clusters, best_validities
 

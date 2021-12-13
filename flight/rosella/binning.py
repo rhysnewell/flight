@@ -610,7 +610,7 @@ class Binner:
         return mean_tnf, mean_agg, mean_md, per_contig_avg
             
         
-    def plot(self, findem=None, plot_bin_ids=False):
+    def plot(self, findem=None, plot_bin_ids=False, suffix="initial"):
 
         if findem is None:
             findem = []
@@ -662,7 +662,7 @@ class Binner:
 
         plt.gca().set_aspect('equal', 'datalim')
         plt.title(format('UMAP projection of contigs - 0: %d clusters' % (len(label_set))), fontsize=24)
-        plt.savefig(self.path + '/UMAP_projection_with_clusters.png')
+        plt.savefig(self.path + '/UMAP_projection_with_clusters_' + suffix + '.png')
 
     def bin_contigs(self, assembly_file, min_bin_size=200000):
         logging.info("Binning contigs...")

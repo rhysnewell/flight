@@ -41,10 +41,11 @@ import umap
 import scipy.stats as sp_stats
 import scipy.spatial.distance as sp_distance
 from sklearn.mixture import GaussianMixture
-import threadpoolctl
-import concurrent.futures
+import pebble
+import multiprocessing
 import random
 from pynndescent import NNDescent
+import warnings
 
 
 # self imports
@@ -340,64 +341,62 @@ class Embedder(Binner):
 
         self.disconnected_intersected = disconnected_intersected
 
-    def fit_transform_precomputed(self, stat):
-        self.precomputed_reducer_low.fit(sp_distance.squareform(stat))
-        # self.precomputed_reducer_mid.fit(sp_distance.squareform(stat))
-        self.precomputed_reducer_high.fit(sp_distance.squareform(stat))
-        self.intersection_mapper = self.precomputed_reducer_low
+    def fit_transform_precomputed(self, stat, set_embedding=False):
+
+        embedders = [
+            self.precomputed_reducer_low,
+            self.precomputed_reducer_mid,
+            self.precomputed_reducer_high
+        ]
+
+        with pebble.ProcessPool(max_workers=2, context=multiprocessing.get_context('spawn')) as executor:
+            futures = [
+                executor.schedule(
+                    multi_transform_static,
+                    (
+                        stat,
+                        embedder,
+                        self.random_seed
+                    )
+                ) for embedder in embedders
+            ]
+
+            results = []
+            for future in futures:
+                result = future.result()
+                if result is not None:
+                    results.append(result)
+
+            if set_embedding:
+                self.embeddings = results[0]
+                self.embeddings2 = results[1]
+                self.embeddings3 = results[2]
+
+            return results
 
 def multi_transform_static(
-        contigs, log_lengths, tnfs,
-        depth_reducer, tnf_reducer, euc_reducer,
-        tids, n_neighbors, a=1.5, switch=None, random_seed=42069):
+        stat,
+        reducer=None,
+        random_seed=42069
+):
     """
     Main function for performing UMAP embeddings and intersections
     """
     np.random.seed(random_seed)
     random.seed(random_seed)
     # update parameters to artificially high values to avoid disconnected vertices in the final manifold
-    if switch is None:
-        switch = [0, 1, 2]
-    # if len(switch) == 3:
-    #     # self.set_op(0)
-    #     depth_reducer.a = 1.9
-    #     tnf_reducer.a = 1.9
-    #     euc_reducer.a = 1.9
-    # else:
-    # self.set_op(1)
-    depth_reducer.a = a
-    tnf_reducer.a = a
-    euc_reducer.a = a
+    if reducer is None:
+        warnings.warn("No reducers provided")
+        return None
 
-    depth_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-    depth_reducer.disconnection_distance = 2
-    tnf_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-    tnf_reducer.disconnection_distance = 2
-    euc_reducer.n_neighbors = min(n_neighbors, len(tids) - 1)
-    euc_reducer.disconnection_distance = 10
+    reducer.random_state = random_seed
+    try:
+        embedding = reducer.fit_transform(sp_distance.squareform(stat))
 
-    # depth_reducer.n_neighbors = len(tids) - 1
-    # tnf_reducer.n_neighbors = len(tids) - 1
-    # euc_reducer.n_neighbors = len(tids) - 1
+        return embedding
 
-    if 0 in switch:
-        depth_reducer.fit(
-                contigs.iloc[:, 3:].values
-            )
-
-    if 1 in switch:
-        tnf_reducer.fit(
-            np.concatenate(
-                (log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
-                    axis=1))
-    if 2 in switch:
-        euc_reducer.fit(
-            np.concatenate(
-                (log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
-                axis=1))
-
+    except TypeError:
+        return None
 
 def switch_intersector_static(depth_reducer, tnf_reducer, euc_reducer, switch=None):
     if switch is None:
