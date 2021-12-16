@@ -208,7 +208,8 @@ class Clusterer(Binner):
             # min_samples = [3, 6, 9, 12],
             solver="hbgf",
             threads=16,
-            embeddings_for_precomputed=None
+            embeddings_for_precomputed=None,
+            use_multiple_processes=True,
     ):
         """
         Uses cluster ensembling with ClusterEnsembles package to produce partitioned set of
@@ -222,8 +223,10 @@ class Clusterer(Binner):
         best_validity = np.array([None for _ in range(top_n)])
         index = 0
 
-        if threads > 1:
-            with pebble.ProcessPool(max_workers=threads) as executor:
+        if use_multiple_processes:
+            workers = threads // 5
+
+            with pebble.ProcessPool(max_workers=threads // 5, context=multiprocessing.get_context("forkserver")) as executor:
                 futures = [
                     executor.schedule(
                         Clusterer.generate_cluster,
@@ -234,7 +237,7 @@ class Clusterer(Binner):
                             metric,
                             min_size,
                             min_sample,
-                            threads
+                            5
                         )
                     ) for (min_size, min_sample) in itertools.combinations(range(1, 10), 2) if min_size != 1
                 ]
@@ -275,7 +278,7 @@ class Clusterer(Binner):
                         min_size,
                         min_sample,
                         threads
-                ) for (min_size, min_sample) in itertools.combinations(range(1, 5), 2) if min_size != 1
+                ) for (min_size, min_sample) in itertools.combinations(range(1, 10), 2) if min_size != 1
             ]
 
             for result in results:
@@ -315,7 +318,8 @@ class Clusterer(Binner):
             # min_samples = [3, 6, 9, 12],
             solver="hbgf",
             threads=16,
-            embeddings_for_precomputed=None
+            embeddings_for_precomputed=None,
+            use_multiple_processes=True,
     ):
         """
         Uses cluster ensembles to find best results across multiple different embeddings
@@ -342,7 +346,8 @@ class Clusterer(Binner):
                 top_n,
                 solver,
                 threads,
-                embeddings_for_precomputed[idx]
+                embeddings_for_precomputed[idx],
+                use_multiple_processes=use_multiple_processes
             )
             for result_index in range(label_results.shape[0]):
                 best_clusters[stored_index] = label_results[result_index]

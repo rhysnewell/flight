@@ -231,8 +231,8 @@ class Binner:
             a=1.48,
             b=0.3,
             init=initialization,
-            n_jobs=self.threads,
-            random_state=random_seed
+            n_jobs=self.threads // 3,
+            # random_state=random_seed
         )
 
         self.precomputed_reducer_mid = umap.UMAP(
@@ -247,8 +247,8 @@ class Binner:
             a=1.58,
             b=0.4,
             init=initialization,
-            n_jobs=self.threads,
-            random_state=random_seed
+            n_jobs=self.threads // 3,
+            # random_state=random_seed
         )
 
         self.precomputed_reducer_high = umap.UMAP(
@@ -258,10 +258,10 @@ class Binner:
             min_dist=min_dist,
             set_op_mix_ratio=1,
             a=1.68,
-            b=0.5,
+            b=0.4,
             init=initialization,
-            n_jobs=self.threads,
-            random_state=random_seed
+            n_jobs=self.threads // 3,
+            # random_state=random_seed
         )
 
 
@@ -364,7 +364,7 @@ class Binner:
         ## Plot large contig membership
         ax.scatter(unbinned_embeddings[:, 0],
                    unbinned_embeddings[:, 1],
-                   s=7,
+                   s=20,
                    linewidth=0,
                    c=cluster_colors,
                    alpha=0.7)
@@ -377,7 +377,7 @@ class Binner:
 
         total_new_bins = len(set(labels))
 
-        plt.gca().set_aspect('equal', 'datalim')
+        # plt.gca().set_aspect('equal', 'datalim')
         plt.title(format('UMAP projection of unbinned contigs - %d: %d clusters  validity: %f precom: %d thresh: %f' %
                          (n, total_new_bins, max_validity, precomputed, min_validity)), fontsize=16)
         plt.savefig(format('%s/UMAP_projection_of_unbinned.png' % self.path))
@@ -639,7 +639,7 @@ class Binner:
         ## Plot large contig membership
         ax.scatter(self.embeddings[:, 0],
                    self.embeddings[:, 1],
-                   s=7,
+                   s=12,
                    linewidth=0,
                    c=cluster_colors,
                    # c = self.clusterer.labels_,
@@ -660,7 +660,7 @@ class Binner:
                                            self.embeddings[idx, 1]),
                             xycoords='data')
 
-        plt.gca().set_aspect('equal', 'datalim')
+        # plt.gca().set_aspect('equal', 'datalim')
         plt.title(format('UMAP projection of contigs - 0: %d clusters' % (len(label_set))), fontsize=24)
         plt.savefig(self.path + '/UMAP_projection_with_clusters_' + suffix + '.png')
 

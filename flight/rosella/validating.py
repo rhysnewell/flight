@@ -142,7 +142,7 @@ class Validator(Clusterer, Embedder):
 
                             # check for any obviously misplaced contigs
                             for (tid, avgs) in zip(tids, per_contig_avg):
-                                if avgs[0] >= 0.75 or avgs[3] >= 0.7:
+                                if avgs[0] >= 0.75 or avgs[1] >= 0.3 or avgs[2] >= 7 or avgs[3] >= 0.7:
                                     removed.append(tid)
                             remove = False
 
@@ -259,10 +259,10 @@ class Validator(Clusterer, Embedder):
                         print('before check for distant contigs: ', len(tids))
                         _, _, _, _ = self.bin_stats(bin)
 
-                    f_level = 0.35
-                    m_level = 0.3
+                    f_level = 0.3
+                    m_level = 0.2
                     r_level = 0.15
-                    e_level = 5.5
+                    e_level = 5
                     per_contig_avg = np.array(per_contig_avg)
 
                     # detect if a large portion of contigs seem out of place
@@ -272,8 +272,6 @@ class Validator(Clusterer, Embedder):
                         misplaced_contigs = True
 
                     # Always check bins with bad bin stats or if they are large, just for sanity check
-                    # if (((mean_agg >= f_level or mean_md >= m_level) and (mean_tnf >= 0.15 or round(mean_euc, 1) >= 3.5))
-                    #     and bin_size > 1e6) or
                     if (bin_size >= 10e6 or misplaced_contigs
                             or mean_agg >= f_level or mean_md >= m_level
                             or mean_euc >= e_level or mean_tnf >= r_level):
@@ -293,11 +291,11 @@ class Validator(Clusterer, Embedder):
                         reembed_if_no_cluster.append(True)
                         switches.append([0, 1, 2])
                     else:
-                        factor = 1 - max((mean_md + mean_tnf) / 2, 0.05)
+                        factor = 1 - max((mean_md + mean_tnf + mean_agg) / 3, 0.05)
                         if factor < 0.95:
                             reembed_separately.append(bin)
                             force_new_clustering.append(False)  # send it to regular hell
-                            reembed_if_no_cluster.append(True)  # take it easy, okay?
+                            reembed_if_no_cluster.append(True)
                             lower_thresholds.append(factor)
                             switches.append([0, 1, 2])
                         else:
@@ -322,13 +320,13 @@ class Validator(Clusterer, Embedder):
                 n_samples = self.long_samples
                 sample_distances = self.long_sample_distance
 
-            numpy_thread_limit = max(self.threads // max(len(reembed_separately), 1), 10)
+            numpy_thread_limit = max(self.threads // 5, 1)
             if numpy_thread_limit == 1:
                 worker_limit = self.threads
             else:
                 worker_limit = max(self.threads // numpy_thread_limit, 1)
 
-            with pebble.ProcessPool(max_workers=worker_limit, context=multiprocessing.get_context('spawn')) as executor:
+            with pebble.ProcessPool(max_workers=min(self.threads, 5), context=multiprocessing.get_context('forkserver')) as executor:
                 futures = [
                     executor.schedule(
                         reembed_static,
@@ -439,7 +437,7 @@ class Validator(Clusterer, Embedder):
         unbinned_embeddings,
         max_validity,
         min_validity,
-        plots,
+        plots=None,
         n=0,
         x_min=20,
         x_max=20,
@@ -462,8 +460,9 @@ class Validator(Clusterer, Embedder):
             print("Max validity: ", max_validity)
 
         contigs, log_lengths, tnfs = self.extract_contigs(self.bins[original_bin_id])
-        plots = self.add_plot(plots, unbinned_embeddings, contigs, labels,
-                              n, x_min, x_max, y_min, y_max, max_validity, precomputed, min_validity)
+        if plots is not None:
+            plots = self.add_plot(plots, unbinned_embeddings, contigs, labels,
+                                  n, x_min, x_max, y_min, y_max, max_validity, precomputed, min_validity)
 
         original_size = contigs['contigLen'].sum()
 
@@ -656,187 +655,193 @@ def reembed_static(
 
         if len(set(tids)) >= 3:
 
+            labels_multi = Clusterer.get_cluster_labels_array(
+                unbinned_embeddings,
+                top_n=3,
+                metric="euclidean",
+                selection_method = "eom",
+                solver="hbgf",
+                threads=threads,
+                use_multiple_processes=False
+            )[-1]
+
+            # Try out precomputed method, validity metric does not work here
+            # so we just set it to 1 and hope it ain't shit. Method for this is
+            # not accept a clustering result with noise. Not great, but
             try:
-                labels_multi = Clusterer.get_cluster_labels_array(
-                    unbinned_embeddings,
-                    top_n=3,
-                    metric="euclidean",
-                    selection_method = "eom",
-                    solver="hbgf",
-                    threads=1
-                )[-1]
+                de = distance.ProfileDistanceEngine()
+                stat = de.makeRankStat(
+                    contigs.iloc[:, 3:].values,
+                    tnfs.iloc[:, 2:].values,
+                    log_lengths.values,
+                    silent=True,
+                    fun=lambda a: a / max(a),
+                    use_multiple_processes=False
+                )
 
-                # Try out precomputed method, validity metric does not work here
-                # so we just set it to 1 and hope it ain't shit. Method for this is
-                # not accept a clustering result with noise. Not great, but
+                distances = np.nan_to_num(sp_distance.squareform(stat))
+
+                labels_kmeans_embeddings, kmeans_score_embeddings = get_best_kmeans_result(unbinned_embeddings, 5, random_seed)
+                labels_kmeans_precom, kmeans_score_precom = get_best_kmeans_result(distances, 5, random_seed)
+                validity_multi = Clusterer.validity(labels_multi, unbinned_embeddings)
+
+                max_multi = validity_multi
+                max_precom = kmeans_score_precom
+                max_kmeans = kmeans_score_embeddings
+
+                if debug:
+                    print('Allow multi cluster validity: ', max_multi)
+                    print('precom cluster validity: ', max_precom)
+
+                if max_multi == -1 and max_precom == -1 and max_kmeans == -1:
+                    labels = max_precom
+                    max_validity = -1
+                elif max(max_multi, max_precom, max_kmeans) == max_kmeans:
+                    labels = labels_kmeans_embeddings
+                    max_validity = kmeans_score_embeddings
+                elif max(max_multi, max_precom) == max_precom:
+                    labels = labels_kmeans_precom
+                    max_validity = max_precom
+                    precomputed = True
+                else:
+                    labels = labels_multi
+                    max_validity = max_multi
+
+
+                # get original size of bin
+
+                set_labels = set(labels)
+
+                if debug:
+                    print("No. of Clusters:", len(set_labels), set_labels)
+
+            except IndexError:
+                # Index error occurs when doing recluster after adding disconnected TNF
+                # contigs. Since the embedding array does not contain the missing contigs
+                # as such, new embeddings have to be calculated
+                labels = np.array([-1 for i in range(unbinned_embeddings.shape[0])])
+                max_validity = -1
+
+
+            if -1 in labels and len(set(labels)) == 2:
+                # fringe case where only single cluster formed with external
+                # unbinned contigs on external part of bin.
+                if max_validity > min_validity:
+                    # lower binning quality and see if reembedding can do better
+                    max_validity = min_validity
+
+            if (max_validity < 0.95 or min_validity <= 0.5) and reembed and len(tids) >= 5:
+                # Generate new emebddings if clustering seems fractured
+                # contigs, log_lengths, tnfs = self.extract_contigs(tids)
+                # try:
+                precomputed_reducer_low = umap.UMAP(
+                    metric="precomputed",
+                    n_neighbors=max_n_neighbours,
+                    n_components=n_components,
+                    a=1.48,
+                    b=0.4,
+                    n_jobs=threads,
+                )
+
+                precomputed_reducer_mid = umap.UMAP(
+                    metric="precomputed",
+                    n_neighbors=max_n_neighbours,
+                    n_components=n_components,
+                    a=1.9,
+                    b=0.4,
+                    n_jobs=threads,
+                )
+
+                # precomputed_reducer_high = umap.UMAP(
+                #     metric="precomputed",
+                #     n_neighbors=max_n_neighbours,
+                #     n_components=n_components,
+                #     a=1.68,
+                #     b=0.5,
+                #     n_jobs=threads,
+                #     random_state=random_seed
+                # )
+
                 try:
-                    de = distance.ProfileDistanceEngine()
-                    stat = de.makeRankStat(
-                        contigs.iloc[:, 3:].values,
-                        tnfs.iloc[:, 2:].values,
-                        log_lengths.values,
-                        silent=True,
-                        fun=lambda a: a / max(a)
-                    )
+                    new_embeddings_1 = precomputed_reducer_low.fit_transform(sp_distance.squareform(stat))
+                    new_embeddings_2 = precomputed_reducer_mid.fit_transform(sp_distance.squareform(stat))
+                    # new_embeddings_3 = precomputed_reducer_high.fit_transform(sp_distance.squareform(stat))
 
-                    distances = np.nan_to_num(sp_distance.squareform(stat))
+                    labels_multi, validity_multi = Clusterer.ensemble_cluster_multiple_embeddings(
+                            [
+                                new_embeddings_1,
+                                new_embeddings_2,
+                                # new_embeddings_3
+                            ],
+                            top_n=3,
+                            metric="euclidean",
+                            cluster_selection_methods="eom",
+                            solver="hbgf",
+                            threads=threads,
+                            use_multiple_processes=False
+                        )
+                    labels_multi = labels_multi[-1]
+                    validity_multi = validity_multi[-1]
 
-                    labels_precomputed = iterative_clustering_static(
-                        sp_distance.squareform(stat), metric="precomputed", use_multi_processing=False
-                    )
+                    new_embeddings = new_embeddings_1
 
-                    labels_kmeans_embeddings, kmeans_score_embeddings = get_best_kmeans_result(unbinned_embeddings, 5, random_seed)
-                    labels_kmeans_precom, kmeans_score_precom = get_best_kmeans_result(sp_distance.squareform(stat), 5, random_seed)
-                    validity_multi = Clusterer.validity(labels_multi, unbinned_embeddings)
-                    validity_leaf = Clusterer.validity(labels_multi, unbinned_embeddings)
-                    validity_precom = Clusterer.validity(labels_precomputed, unbinned_embeddings)
+                    # validity_multi = Clusterer.validity(labels_multi, new_embeddings)
 
-                    max_multi = validity_multi
-                    max_leaf = validity_leaf
-                    max_precom = validity_precom
+                    # if validity_multi >= validity_leaf:
+                    best_labels = labels_multi
+                    best_val = validity_multi
 
-                    if debug:
-                        print('Allow multi cluster validity: ', max_multi)
-                        print('precom cluster validity: ', max_precom)
 
-                    if max_leaf == -1 and max_multi == -1 and max_precom == -1 and kmeans_score_precom == -1 and kmeans_score_embeddings == -1:
-                        labels = labels_multi
+                    if max_validity <= best_val or (min_validity < 0.1 and max_validity <= 0.5):
+                        if all(label == -1 for label in best_labels):
+                            logging.debug('using non re-embedded...')
+                        else:
+                            unbinned_embeddings = new_embeddings
+                            labels = best_labels
+                            max_validity = best_val
+                            if precomputed:
+                                precomputed = False  # No longer the best results
+
+                    else:
+                        if debug:
+                            print('using non re-embedded... %f' % max_validity)
+                except (FloatingPointError, TypeError):
+                    if max_multi == -1 and max_precom == -1 and max_kmeans == -1:
+                        labels = max_precom
                         max_validity = -1
-                        min_validity = 1
-                    elif max(max_leaf, max_multi, max_precom, kmeans_score_precom, kmeans_score_embeddings) == kmeans_score_embeddings:
+                    elif max(max_multi, max_precom, max_kmeans) == max_kmeans:
                         labels = labels_kmeans_embeddings
                         max_validity = kmeans_score_embeddings
-                    elif max(max_leaf, max_multi, max_precom, kmeans_score_precom) == kmeans_score_precom:
+                    elif max(max_multi, max_precom) == max_precom:
                         labels = labels_kmeans_precom
-                        max_validity = kmeans_score_precom
-                        precomputed = True
-                    elif max(max_leaf, max_multi, max_precom) == max_precom:
-                        labels = labels_precomputed
                         max_validity = max_precom
                         precomputed = True
                     else:
                         labels = labels_multi
                         max_validity = max_multi
 
-
-                    # get original size of bin
-
-                    set_labels = set(labels)
-
-                    if debug:
-                        print("No. of Clusters:", len(set_labels), set_labels)
-
-                except IndexError:
-                    # Index error occurs when doing recluster after adding disconnected TNF
-                    # contigs. Since the embedding array does not contain the missing contigs
-                    # as such, new embeddings have to be calculated
-                    labels = np.array([-1 for i in range(unbinned_embeddings.shape[0])])
-                    max_validity = -1
-
-
-                if -1 in labels and len(set(labels)) == 2:
-                    # fringe case where only single cluster formed with external
-                    # unbinned contigs on external part of bin.
-                    if max_validity > min_validity:
-                        # lower binning quality and see if reembedding can do better
-                        max_validity = min_validity
-
-                if (max_validity < 0.95 or min_validity <= 0.5) and reembed and len(tids) >= 5:
-                    # Generate new emebddings if clustering seems fractured
-                    # contigs, log_lengths, tnfs = self.extract_contigs(tids)
-                    # try:
-                    precomputed_reducer_low = umap.UMAP(
-                        metric="precomputed",
-                        n_neighbors=max_n_neighbours,
-                        n_components=n_components,
-                        min_dist=0,
-                        set_op_mix_ratio=1,
-                        a=1.48,
-                        b=b,
-                        init='spectral',
-                        n_jobs=threads,
-                        random_state=random_seed
-                    )
-
-                    precomputed_reducer_high = umap.UMAP(
-                        metric="precomputed",
-                        n_neighbors=max_n_neighbours,
-                        n_components=n_components,
-                        min_dist=0,
-                        set_op_mix_ratio=1,
-                        a=1.9,
-                        b=b,
-                        init='spectral',
-                        n_jobs=threads,
-                        random_state=random_seed
-                    )
-
+                if unbinned_embeddings.all() == 0 or \
+                        (max_validity <= 0 and max_validity != -1 and min_validity != 0) or \
+                        (-1 in labels and len(set(labels)) == 2) or \
+                        (max_validity < min_validity and min_validity <= 0.6):
+                    # embedding failed, which only happens for smaller bins
+                    # check to see if kmeans clustering splits bins sensibly
                     try:
-                        new_embeddings_1 = precomputed_reducer_low.fit_transform(sp_distance.squareform(stat))
-                        new_embeddings_2 = precomputed_reducer_high.fit_transform(sp_distance.squareform(stat))
+                        labels, score = get_best_kmeans_result(distances, 5, random_seed)
+                    except ValueError:
+                        distances = metrics.distance_matrix(np.concatenate((contigs.iloc[:, 3:].values,
+                                                                            log_lengths.values[:, None],
+                                                                            tnfs.iloc[:, 2:].values), axis=1),
+                                                            n_samples,
+                                                            sample_distances)
 
-                        labels_multi, validity_multi = Clusterer.ensemble_cluster_multiple_embeddings(
-                                [new_embeddings_1, new_embeddings_2],
-                                top_n=3,
-                                metric="euclidean",
-                                cluster_selection_methods="eom",
-                                solver="hbgf",
-                                embeddings_for_precomputed=[new_embeddings_1, new_embeddings_2],
-                                threads=1
-                            )
-                        labels_multi = labels_multi[-1]
-                        validity_multi = validity_multi[-1]
+                        distances = np.nan_to_num(distances)
+                        labels, score = get_best_kmeans_result(distances, 5, random_seed)
 
-                        new_embeddings = new_embeddings_1
-
-                        # validity_multi = Clusterer.validity(labels_multi, new_embeddings)
-
-                        # if validity_multi >= validity_leaf:
-                        best_labels = labels_multi
-                        best_val = validity_multi
-
-
-                        if max_validity <= best_val or (min_validity < 0.1 and max_validity <= 0.8):
-                            if all(label == -1 for label in best_labels):
-                                logging.debug('using non re-embedded...')
-                            else:
-                                unbinned_embeddings = new_embeddings
-                                labels = best_labels
-                                max_validity = best_val
-                                if precomputed:
-                                    precomputed = False  # No longer the best results
-
-                        else:
-                            if debug:
-                                print('using non re-embedded... %f' % max_validity)
-                    except (FloatingPointError, TypeError):
-                        pass
-
-                    if unbinned_embeddings.all() == 0 or \
-                            (max_validity < 0 and max_validity != -1 and min_validity != 0) or \
-                            (-1 in labels and len(set(labels)) == 2):
-                        # embedding failed, which only happens for smaller bins
-                        # check to see if kmeans clustering splits bins sensibly
-                        try:
-                            labels, score = get_best_kmeans_result(distances, 5, random_seed)
-                        except ValueError:
-                            distances = metrics.distance_matrix(np.concatenate((contigs.iloc[:, 3:].values,
-                                                                                log_lengths.values[:, None],
-                                                                                tnfs.iloc[:, 2:].values), axis=1),
-                                                                n_samples,
-                                                                sample_distances)
-
-                            distances = np.nan_to_num(distances)
-                            labels, score = get_best_kmeans_result(distances, 5, random_seed)
-
-                        max_validity = score
-                        min_validity = 0.5
-                        precomputed = True
-                        noise = True
-
-            except (FloatingPointError, TypeError):
-                labels = np.array([-1 for _ in range(unbinned_embeddings.shape[0])])
-                max_validity = -1
+                    max_validity = score
+                    # min_validity = 0.5
+                    precomputed = True
+                    noise = True
 
 
             if noise:

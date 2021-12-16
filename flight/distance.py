@@ -44,34 +44,44 @@ import multiprocessing
 class ProfileDistanceEngine:
     """Simple class for computing profile feature distances"""
 
-    def makeRanks(self, covProfiles, kmerSigs, contigLengths, silent=False):
+    def makeRanks(self, covProfiles, kmerSigs, contigLengths, silent=False, use_multiple_processes=True):
         """Compute pairwise rank distances separately for coverage profiles and
         kmer signatures, and give rank distances as a fraction of the largest rank.
         """
+        if use_multiple_processes:
+            with pebble.ProcessPool(max_workers=2, context=multiprocessing.get_context("forkserver")) as executor:
+                futures = [
+                    executor.schedule(
+                        choose_rank_method,
+                        (
+                            covProfiles,
+                            kmerSigs,
+                            switch
+                        )
+                    ) for switch in range(2)
+                ]
 
-        with pebble.ProcessPool(max_workers=2, context=multiprocessing.get_context('spawn')) as executor:
-            futures = [
-                executor.schedule(
-                    choose_rank_method,
-                    (
-                        covProfiles,
-                        kmerSigs,
-                        switch
-                    )
+                results = []
+                for future in futures:
+                    result = future.result()
+                    results.append(result)
+
+                return results
+        else:
+            results = [
+                choose_rank_method(
+                    covProfiles,
+                    kmerSigs,
+                    switch
                 ) for switch in range(2)
             ]
 
-            results = []
-            for future in futures:
-                result = future.result()
-                results.append(result)
-
             return results
 
-    def makeRankStat(self, covProfiles, kmerSigs, contigLengths, silent=False, fun=lambda a: a):
+    def makeRankStat(self, covProfiles, kmerSigs, contigLengths, silent=False, fun=lambda a: a, use_multiple_processes=True):
         """Compute norms in {coverage rank space x kmer rank space}
         """
-        (cov_ranks, kmer_ranks) = self.makeRanks(covProfiles, kmerSigs, contigLengths, silent=silent)
+        (cov_ranks, kmer_ranks) = self.makeRanks(covProfiles, kmerSigs, contigLengths, silent=silent, use_multiple_processes=use_multiple_processes)
         dists = fun(cov_ranks) * fun(kmer_ranks) #* fun(rho_ranks)
 
         return dists

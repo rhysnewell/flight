@@ -349,7 +349,7 @@ class Embedder(Binner):
             self.precomputed_reducer_high
         ]
 
-        with pebble.ProcessPool(max_workers=2, context=multiprocessing.get_context('spawn')) as executor:
+        with pebble.ProcessPool(max_workers=3) as executor:
             futures = [
                 executor.schedule(
                     multi_transform_static,
@@ -369,8 +369,8 @@ class Embedder(Binner):
 
             if set_embedding:
                 self.embeddings = results[0]
-                self.embeddings2 = results[1]
-                self.embeddings3 = results[2]
+                # self.embeddings2 = results[1]
+                # self.embeddings3 = results[2]
 
             return results
 
@@ -389,7 +389,7 @@ def multi_transform_static(
         warnings.warn("No reducers provided")
         return None
 
-    reducer.random_state = random_seed
+    # reducer.random_state = random_seed
     try:
         embedding = reducer.fit_transform(sp_distance.squareform(stat))
 

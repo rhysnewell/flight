@@ -197,7 +197,7 @@ class Rosella(Validator):
             self.perform_embedding(set_embedding)
 
     def perform_binning(self, args):
-        plots = []
+        plots = None
         set_num_threads(int(self.threads))
         with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
             with warnings.catch_warnings():
@@ -220,35 +220,39 @@ class Rosella(Validator):
                     y_min = min(self.embeddings[:, 1]) - 10
                     y_max = max(self.embeddings[:, 1]) + 10
 
-                    plots.append(
-                        utils.plot_for_offset(self.embeddings, self.labels, x_min, x_max, y_min,
-                                              y_max, 0))
+                    if plots is not None:
+                        plots.append(
+                            utils.plot_for_offset(self.embeddings, self.labels, x_min, x_max, y_min,
+                                                  y_max, 0))
                     self.bin_contigs(args.assembly, int(args.min_bin_size))
 
                     self.findem = [
                         # 'contig_29111_pilon', 'contig_5229_pilon', 'contig_7458_pilon', # Ega
                         'contig_941_pilon', # Ret
-                        'contig_3_pilon'
+                        # 'contig_3_pilon'
                     ]
                     self.plot(
                         self.findem
                     )
 
-                    self.embeddings = self.embeddings2
-                    self.plot(
-                        suffix="second_embedding"
-                    )
-                    self.embeddings = self.embeddings3
-                    self.plot(
-                        suffix="third_embedding"
-                    )
+                    # self.embeddings = self.embeddings2
+                    # self.plot(
+                    #     self.findem,
+                    #     suffix="_second"
+                    # )
+                    #
+                    # self.embeddings = self.embeddings3
+                    # self.plot(
+                    #     self.findem,
+                    #     suffix="_third"
+                    # )
 
                     logging.info("Second embedding.")
                     self.sort_bins()
                     # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
-                    self.slow_refine(plots, 0, 100, x_min, x_max, y_min, y_max)
+                    self.slow_refine(plots, 0, 10, x_min, x_max, y_min, y_max)
                     self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
-                    self.quick_filter(plots, 0, 0, x_min, x_max, y_min, y_max)
+                    self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
                     # 2. Recover the unbinned tids, and then perform the same procedure on them
                     #    The idea here is to pick up any obvious clusters that were missed. We reembed
                     #    again to try and make the relationships more obvious than the original embedding.
