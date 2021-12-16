@@ -43,6 +43,7 @@ import matplotlib.pyplot as plt
 import skbio.stats.composition
 from sklearn.metrics import pairwise_distances
 import umap
+import scipy.spatial.distance as sp_distance
 # import pacmap
 # import phate
 
@@ -210,22 +211,47 @@ class Cluster:
             init="spectral"
         )
 
-        # self.distance_reducer = pacmap.PaCMAP(
-        #     n_neighbors=n_neighbors,
-        #     # min_dist=min_dist,
-        #     n_dims=n_components,
-        #     random_state=random_seed,
-        #     # spread=1,
-        #     # metric=metrics.euclidean_variant,
-        #     # a=a,
-        #     # b=b,
-        # )
+        self.precomputed_reducer_low = umap.UMAP(
+            metric="precomputed",
+            densmap=False,
+            dens_lambda=2.5,
+            # output_dens=True,
+            n_neighbors=n_neighbors,
+            n_components=n_components,
+            min_dist=min_dist,
+            set_op_mix_ratio=1,
+            a=1.48,
+            b=0.3,
+            n_jobs=self.threads,
+            random_state=random_seed
+        )
 
-        # self.distance_reducer = phate.PHATE(
-        #     n_jobs = threads,
-        #     n_components = 2,
-        #     knn = n_neighbors
-        # )
+        self.precomputed_reducer_mid = umap.UMAP(
+            metric="precomputed",
+            densmap=False,
+            dens_lambda=2.5,
+            # output_dens=True,
+            n_neighbors=n_neighbors,
+            n_components=n_components,
+            min_dist=min_dist,
+            set_op_mix_ratio=1,
+            a=1.58,
+            b=0.4,
+            n_jobs=self.threads,
+            random_state=random_seed
+        )
+
+        self.precomputed_reducer_high = umap.UMAP(
+            metric="precomputed",
+            n_neighbors=n_neighbors,
+            n_components=n_components,
+            min_dist=min_dist,
+            set_op_mix_ratio=1,
+            a=1.68,
+            b=0.5,
+            n_jobs=self.threads,
+            random_state=random_seed
+        )
 
         if precomputed:
             self.metric = "precomputed"
@@ -240,24 +266,31 @@ class Cluster:
         # Not sure to include this
         pass
 
-    def fit_transform(self, second_pass=False):
+    def fit_transform(self, stat, second_pass=False):
         ## Calculate the UMAP embeddings
         try:
-            if self.depths.shape[0] >= 10:
-                dist_embeddings = self.distance_reducer.fit(self.clr_depths)
-                rho_embeddings = self.rho_reducer.fit(self.clr_depths)
-                intersect = dist_embeddings * rho_embeddings
-                self.embeddings = intersect.embedding_
+            if self.depths.shape[0] >= 5:
+                # dist_embeddings = self.distance_reducer.fit(self.clr_depths)
+                # rho_embeddings = self.rho_reducer.fit(self.clr_depths)
+                # intersect = dist_embeddings * rho_embeddings
+                self.precomputed_reducer_low.fit(sp_distance.squareform(stat))
+                self.precomputed_reducer_mid.fit(sp_distance.squareform(stat))
+                self.precomputed_reducer_high.fit(sp_distance.squareform(stat))
+                self.embeddings = self.precomputed_reducer_low.embedding_
                 # self.embeddings = self.distance_reducer.fit_transform(self.clr_depths)
             else:
+                self.precomputed_reducer_low.embedding_ = self.clr_depths
+                self.precomputed_reducer_mid.embedding_ = self.clr_depths
+                self.precomputed_reducer_high.embedding_ = self.clr_depths
                 self.embeddings = self.clr_depths
         except TypeError as e:
             if not second_pass:
                 ## TypeError occurs here on sparse input. So need to lower the number of components
                 ## That are trying to be embedded to. Choose minimum of 2
-                self.distance_reducer.n_components = 2
-                self.rho_reducer.n_components = 2
-                self.fit_transform(True)
+                self.precomputed_reducer_low.n_components = 2
+                self.precomputed_reducer_mid.n_components = 2
+                self.precomputed_reducer_high.n_components = 2
+                self.fit_transform(stat, True)
             else:
                 raise e
 
@@ -287,7 +320,7 @@ class Cluster:
                     self.validity, self.cluster_validity = hdbscan.validity.validity_index(embeddings.astype(np.float64),
                                                                                            self.clusterer.labels_,
                                                                                            per_cluster_scores=True)
-                except ValueError:
+                except (ValueError, SystemError):
                     self.validity = None
                     self.cluster_validity = [0.5 for i in range(len(set(self.clusterer.labels_)))]
 
@@ -333,7 +366,7 @@ class Cluster:
                     if recluster_attempt is not None:
                         try:
                             cluster_validity = hdbscan.validity.validity_index(embeddings_for_label.astype(np.float64), np.array(recluster_attempt), per_cluster_scores=False)
-                        except ValueError:
+                        except (ValueError, SystemError):
                             cluster_validity = -1
 
                         if cluster_validity >= 0.9:

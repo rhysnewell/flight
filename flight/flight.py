@@ -370,33 +370,52 @@ def main():
 
 def fit(args):
     prefix = args.input.replace(".npy", "")
-    os.environ["NUMBA_NUM_THREADS"] = str(10)
+    os.environ["NUMBA_NUM_THREADS"] = args.threads
     os.environ["MKL_NUM_THREADS"] = args.threads
     os.environ["OPENBLAS_NUM_THREADS"] = args.threads
     from flight.lorikeet.cluster import Cluster
+    from flight.rosella.clustering import Clusterer
+    import flight.distance as distance
     import threadpoolctl
     import warnings
+    import numpy as np
 
     with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
         with warnings.catch_warnings():
             if not args.precomputed:
-                clusterer = Cluster(args.input,
-                                   prefix,
-                                   n_neighbors=int(args.n_neighbors),
-                                   min_cluster_size=int(args.min_cluster_size),
-                                   min_samples=int(args.min_samples),
-                                   min_dist=float(args.min_dist),
-                                   n_components=int(args.n_components),
-                                   threads=int(args.threads),
-                                   )
-                clusterer.fit_transform()
-                clusterer.labels = clusterer.cluster(clusterer.embeddings)
-                clusterer.recover_unbinned()
-                clusterer.recover_unbinned()
-                clusterer.recluster()
-                # clusterer.cluster_means = clusterer.get_cluster_means()
-                clusterer.combine_bins()
-                clusterer.plot()
+                clusterer = Cluster(
+                    args.input,
+                    prefix,
+                    n_neighbors=int(args.n_neighbors),
+                    min_cluster_size=int(args.min_cluster_size),
+                    min_samples=int(args.min_samples),
+                    min_dist=float(args.min_dist),
+                    n_components=int(args.n_components),
+                    threads=int(args.threads),
+                )
+                try:
+                    de = distance.ProfileDistanceEngine()
+                    stat = de.makeRanksStatVariants(clusterer.clr_depths)
+                    clusterer.fit_transform(stat)
+                    labels, validities = Clusterer.ensemble_cluster_multiple_embeddings(
+                        [clusterer.precomputed_reducer_low.embedding_,
+                         clusterer.precomputed_reducer_mid.embedding_,
+                         clusterer.precomputed_reducer_high.embedding_],
+                        top_n=3,
+                        metric="euclidean",
+                        cluster_selection_methods=["eom"],
+                        solver="hbgf"
+                    )
+
+                    clusterer.labels = labels[-1]
+                    clusterer.recover_unbinned()
+                    clusterer.recover_unbinned()
+                    clusterer.recluster()
+                    # clusterer.cluster_means = clusterer.get_cluster_means()
+                    clusterer.combine_bins()
+                    clusterer.plot()
+                except ZeroDivisionError:
+                    clusterer.labels = np.array([-1 for _ in range(clusterer.clr_depths.shape[0])])
 
                 logging.info("Writing variant labels...")
                 numpy.save(prefix + '_labels.npy', clusterer.labels_for_printing())

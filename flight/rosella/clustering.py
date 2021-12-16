@@ -44,7 +44,6 @@ import seaborn as sns
 import matplotlib
 import sklearn.cluster as sk_cluster
 import sklearn.metrics as sk_metrics
-import ClusterEnsembles as CE
 from flight.DBCV import DBCV
 from scipy.spatial.distance import euclidean
 
