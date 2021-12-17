@@ -686,11 +686,11 @@ def rho_variants(x, y):
 
 @njit(fastmath=True)
 def euclidean_variant(a, b):
-    if a[0] == b[0] and a[1] == b[1]:
-        return 100000000000000000
+    # if a[0] == b[0] and a[1] == b[1]:
+    #     return 100000000000000000
 
-    a = a[2:]
-    b = b[2:]
+    # a = a[2:]
+    # b = b[2:]
 
     result = 0.0
     for i in range(a.shape[0] - 1):

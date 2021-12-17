@@ -108,7 +108,7 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
 
     try:
         cluster_validity = hdbscan.validity.validity_index(df.astype(np.float64), clust_alg.labels_)
-    except ValueError:
+    except (ValueError, SystemError):
         cluster_validity = -1
 
     # Calculate silhouette scores, will fail if only one label

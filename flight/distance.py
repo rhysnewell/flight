@@ -86,6 +86,17 @@ class ProfileDistanceEngine:
 
         return dists
 
+    def makeRanksStatVariants(self, covProfiles, silent=False, fun=lambda a: a):
+        cov_ranks = sp_distance.pdist(covProfiles, metric="euclidean")
+        cov_ranks = cov_ranks.argsort()
+        cov_ranks = cov_ranks.argsort()
+        rho_ranks = sp_distance.pdist(covProfiles, metrics.rho_variants)
+        rho_ranks = rho_ranks.argsort()
+        rho_ranks = rho_ranks.argsort()
+
+        dists = fun(cov_ranks) * fun(rho_ranks)
+
+        return dists
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
