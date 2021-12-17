@@ -37,17 +37,13 @@ import matplotlib
 # Function imports
 import numpy as np
 import seaborn as sns
-import imageio
 from numba import njit, set_num_threads
-import scipy.spatial.distance as sp_distance
 
 # self imports
 import flight.utils as utils
 from flight.rosella.validating import Validator
 import flight.distance as distance
-import flight.hierarchy as hierarchy
 import faulthandler
-import ClusterEnsembles as CE
 
 faulthandler.enable()
 
