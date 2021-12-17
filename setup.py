@@ -43,7 +43,7 @@ setup(
         "scikit-learn >= 0.22",
         "scipy >= 1.0",
         "numba >= 0.49",
-        "pandas >= 1.3"
+        "pandas >= 1.3",
         "pynndescent >= 0.5",
         "hdbscan >= 0.8",
         "pebble",
