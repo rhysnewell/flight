@@ -38,8 +38,23 @@ setup(
     data_files=[(".", ["README.md", "LICENSE"])],
     include_package_data=True,
     install_requires= [
+        "umap-learn >= 0.5",
+        "numpy >= 1.17",
+        "scikit-learn >= 0.22",
+        "scipy >= 1.0",
+        "numba >= 0.49",
+        "pandas >= 1.3"
+        "pynndescent >= 0.5",
+        "hdbscan >= 0.8",
+        "pebble",
+        "threadpoolctl",
+        "imageio",
+        "matplotlib",
+        "seaborn",
+        "tqdm",
+        "tbb",
+        "joblib",
     ],
-    # install via conda: click, pandas, pyyaml, snakemake
     entry_points={
           'console_scripts': [
               'flight = flight.flight:main'
