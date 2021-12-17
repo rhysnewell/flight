@@ -37,13 +37,14 @@ import matplotlib
 # Function imports
 import numpy as np
 import seaborn as sns
-import imageio
-from numba import njit
+from numba import njit, set_num_threads
 
 # self imports
 import flight.utils as utils
 from flight.rosella.validating import Validator
+import flight.distance as distance
 import faulthandler
+
 faulthandler.enable()
 
 # Set plotting style
@@ -102,23 +103,6 @@ class Rosella(Validator):
             self.sort_bins()
             n += 1
 
-    def size_filter(
-            self,
-            plots,
-            n=0,
-            n_max=1,
-            x_min=20,
-            x_max=20,
-            y_min=20,
-            y_max=20
-        ):
-        while n <= n_max:
-            plots, n = self.validate_bins(plots, n,
-                                          x_min, x_max,
-                                          y_min, y_max,
-                                          size_filter=True)
-            self.sort_bins()
-            n += 1
 
     def slow_refine(
             self,
@@ -128,7 +112,8 @@ class Rosella(Validator):
             x_min=20,
             x_max=20,
             y_min=20,
-            y_max=20
+            y_max=20,
+            large_bins_only=False,
     ):
         # Each cluster is checked for internal metrics. If the metrics look bad then
         # Recluster -> re-embed -> recluster. If any of the new clusters look better
@@ -140,12 +125,12 @@ class Rosella(Validator):
             plots, n = self.validate_bins(plots, n,
                                           x_min, x_max,
                                           y_min, y_max,
-                                          reembed=True)
+                                          reembed=True,
+                                          large_bins_only=large_bins_only)
             self.sort_bins()
             n += 1
             if not self.overclustered:
                 break  # no more clusters have broken
-
 
     def big_contig_filter(
             self,
@@ -169,52 +154,47 @@ class Rosella(Validator):
 
             n += 1
 
-    def force_splitting(
-            self,
-            plots,
-            n=0,
-            n_max=5,
-            x_min=20,
-            x_max=20,
-            y_min=20,
-            y_max=20
-    ):
-        while n <= n_max:
-            self.overclustered = False  # large clusters
-            # Clean up leftover stuff
-            self.reembed(self.unbinned_tids,
-                         max(self.bins.keys()), plots,
-                         x_min, x_max, y_min, y_max, n, delete_unbinned=True,
-                         skip_clustering=True, reembed=True, force=True,
-                         update_embeddings=False)
+    def perform_limited_binning(self, unbinned):
+        labels, _ = self.ensemble_cluster_multiple_embeddings(
+            [self.precomputed_reducer_low.embedding_[unbinned],
+             # self.precomputed_reducer_mid.embedding_,
+             self.precomputed_reducer_high.embedding_[unbinned]],
+            top_n=3,
+            metric="euclidean",
+            cluster_selection_methods=["eom"],
+            solver="hbgf",
+            embeddings_for_precomputed=[self.precomputed_reducer_low.embedding_[unbinned],
+                                        # self.precomputed_reducer_mid.embedding_,
+                                        self.precomputed_reducer_high.embedding_[unbinned]]
+        )
 
-            self.sort_bins()
-            plots, n = self.validate_bins(plots, n,
-                                          x_min, x_max,
-                                          y_min, y_max,
-                                          reembed=True)
-            self.sort_bins()
-            plots, n = self.validate_bins(plots, n,
-                                          x_min, x_max,
-                                          y_min, y_max,
-                                          force=True)
-            self.sort_bins()
-            n += 1
-            if not self.overclustered:
-                break  # no more clusters have broken
+        return labels[-1]
 
-    def assign_unbinned(self, n=0, n_max=5, min_bin_size=5e5, debug=False):
-        while n <= n_max:
-            # Clean up leftover stuff
-            if self.check_bad_bins_and_unbinned(min_bin_size=min_bin_size, debug=debug):
-                self.sort_bins()
-                n += 1
-            else:
-                self.sort_bins()
-                break  # no more clusters have broken
+    def perform_embedding(self, set_embedding=False):
+        try:
+            # condensed ranked distance matrix for contigs
+            stat = self.get_ranks()
+            # generate umap embeddings
+            embeddings = self.fit_transform_precomputed(stat, set_embedding)
+            # ensemble clustering against each umap embedding
+            labels, _ = self.ensemble_cluster_multiple_embeddings(
+                embeddings,
+                top_n=3,
+                metric="euclidean",
+                cluster_selection_methods="eom",
+                solver="hbgf",
+                embeddings_for_precomputed=embeddings,
+                threads=self.threads
+            )
+
+            return labels[-1]
+        except IndexError:
+            self.random_seed = np.random.randint(0, 1000000)
+            self.perform_embedding(set_embedding)
 
     def perform_binning(self, args):
-        plots = []
+        plots = None
+        set_num_threads(int(self.threads))
         with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -223,83 +203,102 @@ class Rosella(Validator):
                     # First pass quick TNF filter to speed up next steps and remove large contigs that
                     # are too distant from other contigs. These contigs tend to break UMAP results
                     self.filter()
-                    if self.tnfs[~self.disconnected].values.shape[0] > int(args.n_neighbors) * 5:
-                        # Second pass intersection filtering
-                        self.update_parameters()
-                        self.fit_disconnect()
-                        if self.tnfs[~self.disconnected][~self.disconnected_intersected].values.shape[
-                            0] > int(args.n_neighbors) * 2:
-                            # Final fully filtered embedding to cluster on
-                            self.fit_transform(
-                                self.large_contigs[~self.disconnected][~self.disconnected_intersected]['tid'],
-                                int(args.n_neighbors))
-                            self.embeddings = self.intersection_mapper.embedding_
+                    self.fit_disconnect()
 
-                            logging.info("HDBSCAN - Performing initial clustering.")
-                            self.labels = self.iterative_clustering(self.embeddings,
-                                                                      prediction_data=False,
-                                                                      allow_single_cluster=False,
-                                                                      double=False)
+                    # 1. First pass of embeddings + clustering
+                    self.kmer_signature = self.tnfs[~self.disconnected].iloc[:, 2:].values
+                    self.coverage_profile = self.large_contigs[~self.disconnected].iloc[:, 3:].values
+                    self.labels = self.perform_embedding(set_embedding=True)
 
-                            ## Plot limits
-                            x_min = min(self.embeddings[:, 0]) - 10
-                            x_max = max(self.embeddings[:, 0]) + 10
-                            y_min = min(self.embeddings[:, 1]) - 10
-                            y_max = max(self.embeddings[:, 1]) + 10
+                    ## Plot limits
+                    x_min = min(self.embeddings[:, 0]) - 10
+                    x_max = max(self.embeddings[:, 0]) + 10
+                    y_min = min(self.embeddings[:, 1]) - 10
+                    y_max = max(self.embeddings[:, 1]) + 10
 
-                            plots.append(
-                                utils.plot_for_offset(self.embeddings, self.labels, x_min, x_max, y_min,
-                                                      y_max, 0))
-                            self.bin_contigs(args.assembly, int(args.min_bin_size))
+                    if plots is not None:
+                        plots.append(
+                            utils.plot_for_offset(self.embeddings, self.labels, x_min, x_max, y_min,
+                                                  y_max, 0))
+                    self.bin_contigs(args.assembly, int(args.min_bin_size))
 
-                            self.findem = [
-                                # 'contig_29111_pilon', 'contig_5229_pilon', 'contig_7458_pilon', # Ega
-                                # 'contig_124_pilon' # Ret
-                                'contig_1298_pilon', 'contig_1033_pilon', 'contig_10125_pilon'
-                            ]
-                            self.plot(
-                                self.findem
-                            )
+                    self.findem = [
+                        # 'contig_29111_pilon', 'contig_5229_pilon', 'contig_7458_pilon', # Ega
+                        'contig_941_pilon', # Ret
+                        # 'contig_3_pilon'
+                    ]
+                    self.plot(
+                        self.findem
+                    )
 
-                            logging.info("Second embedding.")
-                            self.sort_bins()
+                    # self.embeddings = self.embeddings2
+                    # self.plot(
+                    #     self.findem,
+                    #     suffix="_second"
+                    # )
+                    #
+                    # self.embeddings = self.embeddings3
+                    # self.plot(
+                    #     self.findem,
+                    #     suffix="_third"
+                    # )
 
-                            # Clean up leftover stuff
-                            self.reembed(self.unbinned_tids,
-                                              max(self.bins.keys()) + 1, plots,
-                                              x_min, x_max, y_min, y_max, 0, delete_unbinned=True,
-                                              skip_clustering=True, reembed=True, force=True,
-                                              update_embeddings=False)
-                            logging.info("Reclustering individual bins.")
-                            self.sort_bins()
+                    logging.info("Second embedding.")
+                    self.sort_bins()
+                    # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
+                    self.slow_refine(plots, 0, 10, x_min, x_max, y_min, y_max)
+                    self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
+                    self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
+                    # 2. Recover the unbinned tids, and then perform the same procedure on them
+                    #    The idea here is to pick up any obvious clusters that were missed. We reembed
+                    #    again to try and make the relationships more obvious than the original embedding.
+                    self.get_labels_from_bins()
+                    unbinned = self.labels == -1
+                    unbinned += self.large_contigs[~self.disconnected]['tid'].isin(self.unbinned_tids).values
+                    max_bin_key = max(self.labels)
+                    # reset kmer sigs
+                    self.kmer_signature = self.tnfs[~self.disconnected][unbinned].iloc[:, 2:].values
+                    self.coverage_profile = self.large_contigs[~self.disconnected][unbinned].iloc[:, 3:].values
 
-                            self.slow_refine(plots, 0, 100, x_min, x_max, y_min, y_max)
-                            self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
-                            self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
-                            # Final clean of unbinned
-                            self.reembed(self.unbinned_tids,
-                                         max(self.bins.keys()) + 1, plots,
-                                         x_min, x_max, y_min, y_max, 0, delete_unbinned=True,
-                                         skip_clustering=True, reembed=True, force=True,
-                                         update_embeddings=False)
+                    unbinned_labels = self.perform_embedding()
+                    unbinned_labels[unbinned_labels != -1] += max_bin_key
+                    self.labels[unbinned] = unbinned_labels
 
-                            self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
-
-                        else:
-                            self.rescue_contigs(int(args.min_bin_size))
-                    else:
-                        self.rescue_contigs(int(args.min_bin_size))
+                    self.bins = {}
+                    self.bin_contigs(args.assembly, int(args.min_bin_size))
+                    self.slow_refine(plots, 0, 1, x_min, x_max, y_min, y_max, large_bins_only=True)
+                    self.quick_filter(plots, 0, 0, x_min, x_max, y_min, y_max)
+                    self.get_labels_from_bins()
+                    self.plot(
+                        self.findem,
+                        suffix="final"
+                    )
+                    self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
                 else:
                     self.rescue_contigs(int(args.min_bin_size))
             logging.debug("Writing bins...", len(self.bins.keys()))
             self.write_bins(int(args.min_bin_size))
-            try:
-                imageio.mimsave(self.path + '/UMAP_projections.gif', plots, fps=1)
-            except RuntimeError:  # no plotting has occurred due to no embedding
-                pass
+            # try:
+            #     imageio.mimsave(self.path + '/UMAP_projections.gif', plots, fps=1)
+            # except RuntimeError:  # no plotting has occurred due to no embedding
+            #     pass
 
     def do_nothing(self):
         pass
+
+    def get_ranks(self):
+        logging.info("Getting distance info...")
+        contig_lengths = self.tnfs[~self.disconnected]["contigLen"].values
+        de = distance.ProfileDistanceEngine()
+        stat = de.makeRankStat(
+            self.coverage_profile,
+            self.kmer_signature,
+            contig_lengths,
+            silent=False,
+            fun=lambda a: a / max(a)
+        )
+
+        return stat
 
 def do_nothing():
     pass

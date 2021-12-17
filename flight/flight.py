@@ -37,7 +37,9 @@ import argparse
 import logging
 import os
 import datetime
-
+# from joblib import parallel_backend
+#
+# parallel_backend("multiprocessing")
 # Function imports
 import random
 import numpy
@@ -368,56 +370,86 @@ def main():
 
 def fit(args):
     prefix = args.input.replace(".npy", "")
-    # os.environ["NUMBA_NUM_THREADS"] = args.threads
+    os.environ["NUMBA_NUM_THREADS"] = args.threads
     os.environ["MKL_NUM_THREADS"] = args.threads
     os.environ["OPENBLAS_NUM_THREADS"] = args.threads
     from flight.lorikeet.cluster import Cluster
+    from flight.rosella.clustering import Clusterer
+    import flight.distance as distance
+    import threadpoolctl
+    import warnings
     import numpy as np
 
-    if not args.precomputed:
-        clusterer = Cluster(args.input,
-                           prefix,
-                           n_neighbors=int(args.n_neighbors),
-                           min_cluster_size=int(args.min_cluster_size),
-                           min_samples=int(args.min_samples),
-                           min_dist=float(args.min_dist),
-                           n_components=int(args.n_components),
-                           threads=int(args.threads),
-                           )
-        clusterer.fit_transform()
-        clusterer.labels = clusterer.cluster(clusterer.embeddings)
-        clusterer.recover_unbinned()
-        clusterer.recluster()
-        clusterer.cluster_means = clusterer.get_cluster_means()
-        clusterer.plot()
+    with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
+        with warnings.catch_warnings():
+            if not args.precomputed:
+                clusterer = Cluster(
+                    args.input,
+                    prefix,
+                    n_neighbors=int(args.n_neighbors),
+                    min_cluster_size=int(args.min_cluster_size),
+                    min_samples=int(args.min_samples),
+                    min_dist=float(args.min_dist),
+                    n_components=int(args.n_components),
+                    threads=int(args.threads),
+                )
+                try:
+                    de = distance.ProfileDistanceEngine()
+                    stat = de.makeRanksStatVariants(clusterer.clr_depths)
+                    clusterer.fit_transform(stat)
+                    labels, validities = Clusterer.ensemble_cluster_multiple_embeddings(
+                        [clusterer.precomputed_reducer_low.embedding_,
+                         clusterer.precomputed_reducer_mid.embedding_,
+                         clusterer.precomputed_reducer_high.embedding_],
+                        top_n=3,
+                        metric="euclidean",
+                        cluster_selection_methods=["eom"],
+                        solver="hbgf"
+                    )
 
-        logging.info("Writing variant labels...")
-        np.save(prefix + '_labels.npy', clusterer.labels_for_printing())
-        logging.info("Calculating cluster separation values...")
-        np.save(prefix + '_separation.npy', clusterer.cluster_separation())
-    else:
-        clusterer = Cluster(args.input,
-                           prefix,
-                           n_neighbors=int(args.n_neighbors),
-                           min_cluster_size=int(args.min_cluster_size),
-                           min_samples=int(args.min_samples),
-                           scaler="none",
-                           precomputed=args.precomputed,
-                           threads=int(args.threads),
-                           )
-        clusterer.cluster_distances()
-        clusterer.plot_distances()
-        np.save(prefix + '_labels.npy', clusterer.labels())
+                    clusterer.labels = labels[-1]
+                    clusterer.recover_unbinned()
+                    clusterer.recover_unbinned()
+                    clusterer.recluster()
+                    # clusterer.cluster_means = clusterer.get_cluster_means()
+                    clusterer.combine_bins()
+                    clusterer.plot()
+                except ZeroDivisionError:
+                    clusterer.labels = np.array([-1 for _ in range(clusterer.clr_depths.shape[0])])
+
+                logging.info("Writing variant labels...")
+                numpy.save(prefix + '_labels.npy', clusterer.labels_for_printing())
+                logging.info("Calculating cluster separation values...")
+                numpy.save(prefix + '_separation.npy', clusterer.separation)
+            else:
+                clusterer = Cluster(args.input,
+                                   prefix,
+                                   n_neighbors=int(args.n_neighbors),
+                                   min_cluster_size=int(args.min_cluster_size),
+                                   min_samples=int(args.min_samples),
+                                   scaler="none",
+                                   precomputed=args.precomputed,
+                                   threads=int(args.threads),
+                                   )
+                clusterer.cluster_distances()
+                clusterer.plot_distances()
+                numpy.save(prefix + '_labels.npy', clusterer.labels())
 
 
 
 def bin(args):
     prefix = args.output
     # os.environ["NUMEXPR_MAX_THREADS"] = str(max((int(args.threads) // 2 + 1), 1))
-    # os.environ["NUMBA_NUM_THREADS"] = str(min(1, max((int(args.threads) // 2 + 1), 1))) # try and reduce the number of race conditions occurring in numba functions?
-    os.environ["NUMBA_NUM_THREADS"] = str(10) # try and reduce the number of race conditions occurring in numba functions?
-    os.environ["MKL_NUM_THREADS"] = str(max((int(args.threads) // 2 + 1), 1))
-    os.environ["OPENBLAS_NUM_THREADS"] = str(((int(args.threads) // 2 + 1), 1))
+    # # os.environ["NUMBA_NUM_THREADS"] = str(min(1, max((int(args.threads) // 2 + 1), 1))) # try and reduce the number of race conditions occurring in numba functions?
+    # os.environ["NUMBA_NUM_THREADS"] = str(max((int(args.threads) // 2 + 1), 1)) # try and reduce the number of race conditions occurring in numba functions?
+    # os.environ["MKL_NUM_THREADS"] = str(max((int(args.threads) // 2 + 1), 1))
+    # os.environ["OPENBLAS_NUM_THREADS"] = str(max((int(args.threads) // 2 + 1), 1))
+    os.environ["NUMEXPR_MAX_THREADS"] = str(int(args.threads))
+    os.environ["NUMBA_NUM_THREADS"] = str(int(args.threads))  # try and reduce the number of race conditions occurring in numba functions?
+    os.environ["MKL_NUM_THREADS"] = str(int(args.threads))
+    os.environ["OPENBLAS_NUM_THREADS"] = str(int(args.threads))
+    os.environ["OMP_NUM_THREADS"] = str(int(args.threads))
+    os.environ["THREADING_LAYER"] = 'tbb'
     from flight.rosella.rosella import Rosella
 
     if args.long_input is None and args.input is None:

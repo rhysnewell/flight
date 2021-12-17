@@ -108,7 +108,7 @@ def mp_cluster(df, n, gamma, ms, method='eom', metric='euclidean', allow_single_
 
     try:
         cluster_validity = hdbscan.validity.validity_index(df.astype(np.float64), clust_alg.labels_)
-    except ValueError:
+    except (ValueError, SystemError):
         cluster_validity = -1
 
     # Calculate silhouette scores, will fail if only one label
@@ -131,14 +131,15 @@ def precomputed_cluster(df, n, gamma, ms, allow_single_cluster=False, threads=1)
                                     min_cluster_size=int(gamma),
                                     min_samples=ms,
                                     allow_single_cluster=allow_single_cluster,
-                                    core_dist_n_jobs=threads).fit(df)
+                                    core_dist_n_jobs=threads,
+                                    approx_min_span_tree=False,).fit(df)
 
         min_cluster_size = clust_alg.min_cluster_size
         min_samples = clust_alg.min_samples
 
         try:
             cluster_validity = hdbscan.validity.validity_index(df.astype(np.float64), clust_alg.labels_)
-        except ValueError:
+        except (ValueError, FloatingPointError):
             cluster_validity = -1
 
         # Calculate silhouette scores, will fail if only one label
@@ -229,7 +230,7 @@ def hyperparameter_selection(df, cores=10,
                         results.append(f.result())
     else:
         for gamma in range(starting_size, int(end_size)):
-            for ms in range(starting_size, int(end_size)):
+            for ms in range(1, int(15)):
                 if metric == 'precomputed':
                     mp_results = precomputed_cluster(df, n, gamma, ms, allow_single_cluster, cores)
                 else:
