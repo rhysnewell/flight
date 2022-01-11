@@ -28,7 +28,6 @@ __email__ = "rhys.newell near hdr.qut.edu.au"
 __status__ = "Development"
 
 import json
-import logging
 ###############################################################################
 # System imports
 import sys
@@ -55,15 +54,6 @@ import flight.utils as utils
 # Set plotting style
 sns.set(style='white', context='notebook', rc={'figure.figsize': (14, 10)})
 matplotlib.use('pdf')
-
-# Debug
-debug = {
-    1: logging.CRITICAL,
-    2: logging.ERROR,
-    3: logging.WARNING,
-    4: logging.INFO,
-    5: logging.DEBUG
-}
 
 ###############################################################################
 ############################### - Exceptions - ################################
@@ -100,14 +90,14 @@ class Binner:
             b=0.4,
             min_bin_size=200000,
             initialization='spectral',
-            random_seed=42069
+            random_seed=42
     ):
-        self.max_time_to_recluster_bin = 1800 # 30 mins
+        self.max_time_to_recluster_bin = 600 # 10 mins
         self.findem = []
         self.min_contig_size = min_contig_size
         self.min_bin_size = min_bin_size
         self.threads = threads
-        self.checked_bins = [] # Used in the pdist function
+        self.checked_bins = []
         self.survived = []
         # Open up assembly
         self.assembly = {} 
@@ -217,12 +207,10 @@ class Binner:
         # self.a = a
         numerator = min(max(np.log10(self.nX(25)[1]), np.log10(50000)), np.log10(100000))
         # set self.b by scaling the based on the n25 of the sample, between 0.3 and 0.4
-        self.b = 0.1 * ((numerator - np.log10(50000)) / (np.log10(100000) - np.log10(50000))) + 0.5
+        self.b = 0.1 * ((numerator - np.log10(50000)) / (np.log10(100000) - np.log10(50000))) + 0.4
 
         self.precomputed_reducer_low = umap.UMAP(
             metric="precomputed",
-            densmap=False,
-            dens_lambda=2.5,
             # output_dens=True,
             n_neighbors=n_neighbors,
             n_components=n_components,
@@ -232,23 +220,21 @@ class Binner:
             b=0.3,
             init=initialization,
             n_jobs=self.threads // 3,
-            # random_state=random_seed
+            random_state=random_seed << 1
         )
 
         self.precomputed_reducer_mid = umap.UMAP(
             metric="precomputed",
-            densmap=False,
-            dens_lambda=2.5,
             # output_dens=True,
             n_neighbors=n_neighbors,
             n_components=n_components,
             min_dist=min_dist,
             set_op_mix_ratio=1,
-            a=1.58,
+            a=1.48,
             b=0.4,
             init=initialization,
             n_jobs=self.threads // 3,
-            # random_state=random_seed
+            random_state=random_seed << 2
         )
 
         self.precomputed_reducer_high = umap.UMAP(
@@ -257,14 +243,12 @@ class Binner:
             n_components=n_components,
             min_dist=min_dist,
             set_op_mix_ratio=1,
-            a=1.68,
-            b=0.4,
+            a=1.48,
+            b=0.5,
             init=initialization,
             n_jobs=self.threads // 3,
-            # random_state=random_seed
+            random_state=random_seed << 3
         )
-
-
 
         # Embedder options
         self.n_neighbors = n_neighbors
@@ -314,8 +298,12 @@ class Binner:
             tids = self.bins[bin_id]
             self.bins[bin_id] = list(np.sort(tids))
 
-    def extract_contigs(self, tids):
-        contigs = self.large_contigs[self.large_contigs['tid'].isin(tids)]
+    def extract_contigs(self, tids, by_name=False):
+        if by_name:
+            contigs = self.large_contigs[self.large_contigs['contigName'].isin(tids)]
+        else:
+            contigs = self.large_contigs[self.large_contigs['tid'].isin(tids)]
+
         contigs = contigs.drop(['tid'], axis=1)
         # log_lengths = np.log(contigs['contigLen']) / np.log(max(sp_stats.mstats.gmean(self.large_contigs['contigLen']), 10000))
         tnfs = self.tnfs[self.tnfs['contigName'].isin(contigs['contigName'])]
@@ -394,23 +382,20 @@ class Binner:
             self.bins = {int(k):v for k, v in self.bins.items()}
 
 
-    def compare_contigs(self, tid1, tid2, n_samples, sample_distances, debug=False):
-        depth1, log_length1, tnfs1 = self.extract_contigs([tid1])
-        depth2, log_length2, tnfs2 = self.extract_contigs([tid2])
+    def compare_contigs(self, tid1, tid2, n_samples, by_name=False, debug=False):
+        depth1, log_length1, tnfs1 = self.extract_contigs([tid1], by_name)
+        depth2, log_length2, tnfs2 = self.extract_contigs([tid2], by_name)
         w = (n_samples) / (n_samples + 1)  # weighting by number of samples same as in metabat2
 
         contig1 = np.concatenate((depth1.iloc[:, 3:].values,
-                                     log_length1.values[:, None],
                                      tnfs1.iloc[:, 2:].values), axis=1)
 
         contig2 = np.concatenate((depth2.iloc[:, 3:].values,
-                                  log_length2.values[:, None],
                                   tnfs2.iloc[:, 2:].values), axis=1)
 
-        md = metrics.metabat_distance(
+        md = metrics.metabat_distance_nn(
             contig1[0, :n_samples * 2],
-            contig2[0, :n_samples * 2],
-            n_samples, sample_distances
+            contig2[0, :n_samples * 2]
         )
 
         rho = metrics.rho(
@@ -438,7 +423,6 @@ class Binner:
 
         :returns: distances to bin or None
         """
-        logging.debug("Beginning check on bin: ", bin_id)
         tids = self.bins[bin_id]
         if tid not in tids:
             if len(tids) == 1:
@@ -614,7 +598,6 @@ class Binner:
 
         if findem is None:
             findem = []
-        logging.info("Generating UMAP plot with labels")
 
         names = list(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigName'])
         indices = []
@@ -661,11 +644,12 @@ class Binner:
                             xycoords='data')
 
         # plt.gca().set_aspect('equal', 'datalim')
-        plt.title(format('UMAP projection of contigs - 0: %d clusters' % (len(label_set))), fontsize=24)
+        count_unbinned = len(self.labels[self.labels == -1])
+
+        plt.title(format('UMAP projection of contigs: %d clusters, %d contigs, %d unbinned' % (len(label_set), len(self.labels), count_unbinned)), fontsize=24)
         plt.savefig(self.path + '/UMAP_projection_with_clusters_' + suffix + '.png')
 
     def bin_contigs(self, assembly_file, min_bin_size=200000):
-        logging.info("Binning contigs...")
         try:
             max_bin_label = max(self.bins.keys())
         except ValueError:
@@ -766,7 +750,6 @@ class Binner:
 
 
     def write_bins(self, min_bin_size=200000):
-        logging.info("Writing bin JSON...")
         # self.bins = {k.item():v if isinstance(k, np.int64) else k:v for k,v in self.bins.items()}
         writing_bins = {}
         for key, value in self.bins.items():

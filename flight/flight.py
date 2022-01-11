@@ -397,7 +397,7 @@ def fit(args):
                     de = distance.ProfileDistanceEngine()
                     stat = de.makeRanksStatVariants(clusterer.clr_depths)
                     clusterer.fit_transform(stat)
-                    labels, validities = Clusterer.ensemble_cluster_multiple_embeddings(
+                    labels, validities, _, _ = Clusterer.ensemble_cluster_multiple_embeddings(
                         [clusterer.precomputed_reducer_low.embedding_,
                          clusterer.precomputed_reducer_mid.embedding_,
                          clusterer.precomputed_reducer_high.embedding_],
@@ -407,7 +407,7 @@ def fit(args):
                         solver="hbgf"
                     )
 
-                    clusterer.labels = labels[-1]
+                    clusterer.labels = labels[0]
                     clusterer.recover_unbinned()
                     clusterer.recover_unbinned()
                     clusterer.recluster()

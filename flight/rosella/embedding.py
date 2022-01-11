@@ -157,8 +157,7 @@ class Embedder(Binner):
 
         contigs, ll, tnfs = \
             self.extract_contigs(self.large_contigs['tid'])
-        current_tnfs = np.concatenate((ll.values[:, None],
-                                     tnfs.iloc[:, 2:].values), axis=1)
+        current_tnfs = tnfs.iloc[:, 2:].values
 
         index_rho = NNDescent(current_tnfs, metric=metrics.rho, n_neighbors=30)
         index_euc = NNDescent(current_tnfs, metric=metrics.tnf_euclidean, n_neighbors=30)
@@ -362,6 +361,7 @@ class Embedder(Binner):
             ]
 
             results = []
+            executor.close()
             for future in futures:
                 result = future.result()
                 if result is not None:

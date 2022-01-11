@@ -65,14 +65,14 @@ def tnf_euclidean(a, b):
 
     # l = length_weighting(a[0], b[0])
     # rp = max(a[0], b[0], 1)
-    rp = 1
+
     result = 0.0
-    for i in range(a.shape[0] - 1):
-        result += (a[i + 1] - b[i + 1]) ** 2
+    for i in range(a.shape[0]):
+        result += (a[i] - b[i]) ** 2
         
     d = result ** (1/2)
     # if rp > 1:
-    d = d * rp
+    d = d
     
     return d
 
@@ -592,7 +592,7 @@ def combinations(pool, r):
 
 
 @njit(fastmath=True)
-def rho(a, b):
+def rho(x, y):
     """
     a - CLR transformed coverage distribution vector a
     b - CLR transformed coverage distribution vector b
@@ -602,10 +602,10 @@ def rho(a, b):
     """
 
     # rp = max(a[0], b[0], 1)
-    rp = 1
-    # l = 0
-    x = a[1:]
-    y = b[1:]
+    # rp = 1
+    # # l = 0
+    # x = a[1:]
+    # y = b[1:]
     mu_x = 0.0
     mu_y = 0.0
     norm_x = 0.0
@@ -635,7 +635,7 @@ def rho(a, b):
     rho += 1
     rho = 2 - rho
     
-    return rho * rp
+    return rho
 
 @njit(fastmath=True)
 def rho_variants(x, y):
@@ -801,21 +801,21 @@ def check_connections(current, others, n_samples, sample_distances, rho_threshol
     rho_connected = False
     euc_connected = False
     dep_connected = False
-
+    columns = n_samples * 2
     for contig_idx in prange(others.shape[0]):
         other = others[contig_idx]
         if not rho_connected:
-            rho_value = rho(current[n_samples * 2:], other[n_samples * 2:])
+            rho_value = rho(current[columns + 1:], other[columns + 1:])
             if rho_value <= rho_threshold:
                 rho_connected = True
 
         if not euc_connected:
-            euc_value = tnf_euclidean(current[n_samples * 2:], other[n_samples * 2:])
+            euc_value = tnf_euclidean(current[columns + 1:], other[columns + 1:])
             if euc_value <= euc_threshold:
                 euc_connected = True
 
         if not dep_connected:
-            dep_value = metabat_distance(current[:n_samples * 2],
+            dep_value = metabat_distance_nn(current[:n_samples * 2],
                                          other[:n_samples * 2])
             if dep_value <= dep_threshold:
                 dep_connected = True
@@ -928,9 +928,11 @@ def get_averages(depths, n_samples, sample_distances):
     mean_tnf = 0
     mean_euc = 0
     mean_agg = 0
+
+    col_start = n_samples * 2
     
     for i in pairs:
-        mb_vec = metabat_distance(depths[i[0], :n_samples*2], depths[i[1], :n_samples*2])
+        mb_vec = metabat_distance(depths[i[0], :col_start], depths[i[1], :col_start])
         if len(mb_vec) >= 1:
             # convert to log space to avoid overflow errors
             md = np.log(np.array(mb_vec))
@@ -938,8 +940,8 @@ def get_averages(depths, n_samples, sample_distances):
             md = np.exp(md.sum() / len(mb_vec))
         else:
             md = 1
-        tnf_dist = rho(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
-        tnf_euc = tnf_euclidean(depths[i[0], n_samples*2:], depths[i[1], n_samples*2:])
+        tnf_dist = rho(depths[i[0], col_start + 1:], depths[i[1], col_start + 1:])
+        tnf_euc = tnf_euclidean(depths[i[0], col_start + 1:], depths[i[1], col_start + 1:])
 
         agg = np.sqrt((md**w) * (tnf_dist**(1-w)))
 
