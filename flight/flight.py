@@ -403,8 +403,9 @@ def fit(args):
                          clusterer.precomputed_reducer_high.embedding_],
                         top_n=3,
                         metric="euclidean",
-                        cluster_selection_methods=["eom"],
-                        solver="hbgf"
+                        cluster_selection_methods="eom",
+                        solver="hbgf",
+                        use_multiple_processes=False
                     )
 
                     clusterer.labels = labels[0]
