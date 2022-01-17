@@ -48,19 +48,29 @@ class ProfileDistanceEngine:
         """Compute pairwise rank distances separately for coverage profiles and
         kmer signatures, and give rank distances as a fraction of the largest rank.
         """
+
+        n = len(contigLengths)
+        weights = np.empty(n * (n - 1) // 2, dtype=np.double)
+        k = 0
+        for i in range(n - 1):
+            weights[k:(k + n - 1 - i)] = contigLengths[i] * contigLengths[(i + 1):n]
+            k = k + n - 1 - i
+        weight_fun = lambda i: weights[i]
+
         if use_multiple_processes:
-            with pebble.ProcessPool(max_workers=2, context=multiprocessing.get_context("forkserver")) as executor:
+            with pebble.ProcessPool(max_workers=2, context=multiprocessing.get_context('forkserver')) as executor:
                 futures = [
                     executor.schedule(
                         choose_rank_method,
                         (
                             covProfiles,
                             kmerSigs,
+                            weight_fun,
                             switch
                         )
                     ) for switch in range(2)
                 ]
-
+                executor.close()
                 results = []
                 for future in futures:
                     result = future.result()
@@ -72,6 +82,7 @@ class ProfileDistanceEngine:
                 choose_rank_method(
                     covProfiles,
                     kmerSigs,
+                    weight_fun,
                     switch
                 ) for switch in range(2)
             ]
@@ -81,8 +92,17 @@ class ProfileDistanceEngine:
     def makeRankStat(self, covProfiles, kmerSigs, contigLengths, silent=False, fun=lambda a: a, use_multiple_processes=True):
         """Compute norms in {coverage rank space x kmer rank space}
         """
+        n_samples = covProfiles.shape[1] // 2
+        w = n_samples / (n_samples + 1) # approaches 1 as more samples are included
+
+        # we weight the ranks by w. Cov ranks are more important with more samples, thus they
+        # are raised to the power of w. This will never increase the value of cov ranks, only bring them
+        # closer to their original values as n_samples increases.
+        # Conversely, kmer_ranks are raised to 1 - w. This decreases their importance as more samples are
+        # included.
+        # This mimics how metabat2 adaptively calculates their ADP value.
         (cov_ranks, kmer_ranks) = self.makeRanks(covProfiles, kmerSigs, contigLengths, silent=silent, use_multiple_processes=use_multiple_processes)
-        dists = fun(cov_ranks) * fun(kmer_ranks) #* fun(rho_ranks)
+        dists = np.sqrt(fun(cov_ranks)) * (fun(kmer_ranks)) #* fun(rho_ranks)
 
         return dists
 
@@ -100,11 +120,16 @@ class ProfileDistanceEngine:
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
-def choose_rank_method(covProfiles, kmerSigs, switch=0):
+def choose_rank_method(covProfiles, kmerSigs, weight_fun=None, switch=0):
     if switch == 0:
-        return coverage_ranks(covProfiles)
+        # return coverage_ranks(covProfiles)
+        return argrank(sp_distance.pdist(covProfiles, metrics.coverage_distance), weight_fun=None)
+    elif switch == 1:
+        # return kmer_ranks(kmerSigs)
+        return argrank(sp_distance.pdist(kmerSigs, metric='euclidean'), weight_fun=weight_fun)
     else:
-        return kmer_ranks(kmerSigs)
+        # return rho_ranks(kmerSigs)
+        return argrank(sp_distance.pdist(kmerSigs, metric=metrics.rho), weight_fun=weight_fun)
 
 def coverage_ranks(covProfiles):
     cov_ranks = sp_distance.pdist(covProfiles, metrics.coverage_distance)
@@ -115,6 +140,13 @@ def coverage_ranks(covProfiles):
 
 def kmer_ranks(kmerSigs):
     kmer_ranks = sp_distance.pdist(kmerSigs, metric="euclidean")
+    kmer_ranks = kmer_ranks.argsort()
+    kmer_ranks = kmer_ranks.argsort()
+
+    return kmer_ranks
+
+def rho_ranks(kmerSigs):
+    kmer_ranks = sp_distance.pdist(kmerSigs, metrics.rho)
     kmer_ranks = kmer_ranks.argsort()
     kmer_ranks = kmer_ranks.argsort()
 

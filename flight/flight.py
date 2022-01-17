@@ -397,17 +397,18 @@ def fit(args):
                     de = distance.ProfileDistanceEngine()
                     stat = de.makeRanksStatVariants(clusterer.clr_depths)
                     clusterer.fit_transform(stat)
-                    labels, validities = Clusterer.ensemble_cluster_multiple_embeddings(
+                    labels, validities, _, _ = Clusterer.ensemble_cluster_multiple_embeddings(
                         [clusterer.precomputed_reducer_low.embedding_,
                          clusterer.precomputed_reducer_mid.embedding_,
                          clusterer.precomputed_reducer_high.embedding_],
                         top_n=3,
                         metric="euclidean",
-                        cluster_selection_methods=["eom"],
-                        solver="hbgf"
+                        cluster_selection_methods="eom",
+                        solver="hbgf",
+                        use_multiple_processes=False
                     )
 
-                    clusterer.labels = labels[-1]
+                    clusterer.labels = labels[0]
                     clusterer.recover_unbinned()
                     clusterer.recover_unbinned()
                     clusterer.recluster()
@@ -449,7 +450,7 @@ def bin(args):
     os.environ["MKL_NUM_THREADS"] = str(int(args.threads))
     os.environ["OPENBLAS_NUM_THREADS"] = str(int(args.threads))
     os.environ["OMP_NUM_THREADS"] = str(int(args.threads))
-    os.environ["THREADING_LAYER"] = 'tbb'
+    # os.environ["THREADING_LAYER"] = 'tbb'
     from flight.rosella.rosella import Rosella
 
     if args.long_input is None and args.input is None:
