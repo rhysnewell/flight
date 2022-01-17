@@ -48,14 +48,24 @@ class ProfileDistanceEngine:
         """Compute pairwise rank distances separately for coverage profiles and
         kmer signatures, and give rank distances as a fraction of the largest rank.
         """
+
+        n = len(contigLengths)
+        weights = np.empty(n * (n - 1) // 2, dtype=np.double)
+        k = 0
+        for i in range(n - 1):
+            weights[k:(k + n - 1 - i)] = contigLengths[i] * contigLengths[(i + 1):n]
+            k = k + n - 1 - i
+        weight_fun = lambda i: weights[i]
+
         if use_multiple_processes:
-            with pebble.ProcessPool(max_workers=2, context=multiprocessing.get_context("forkserver")) as executor:
+            with pebble.ProcessPool(max_workers=2, context=multiprocessing.get_context('forkserver')) as executor:
                 futures = [
                     executor.schedule(
                         choose_rank_method,
                         (
                             covProfiles,
                             kmerSigs,
+                            weight_fun,
                             switch
                         )
                     ) for switch in range(2)
@@ -72,6 +82,7 @@ class ProfileDistanceEngine:
                 choose_rank_method(
                     covProfiles,
                     kmerSigs,
+                    weight_fun,
                     switch
                 ) for switch in range(2)
             ]
@@ -91,7 +102,7 @@ class ProfileDistanceEngine:
         # included.
         # This mimics how metabat2 adaptively calculates their ADP value.
         (cov_ranks, kmer_ranks) = self.makeRanks(covProfiles, kmerSigs, contigLengths, silent=silent, use_multiple_processes=use_multiple_processes)
-        dists = np.sqrt((fun(cov_ranks)) * (fun(kmer_ranks))) #* fun(rho_ranks)
+        dists = np.sqrt(fun(cov_ranks)) * (fun(kmer_ranks)) #* fun(rho_ranks)
 
         return dists
 
@@ -109,13 +120,16 @@ class ProfileDistanceEngine:
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
-def choose_rank_method(covProfiles, kmerSigs, switch=0):
+def choose_rank_method(covProfiles, kmerSigs, weight_fun=None, switch=0):
     if switch == 0:
-        return coverage_ranks(covProfiles)
+        # return coverage_ranks(covProfiles)
+        return argrank(sp_distance.pdist(covProfiles, metrics.coverage_distance), weight_fun=None)
     elif switch == 1:
-        return kmer_ranks(kmerSigs)
+        # return kmer_ranks(kmerSigs)
+        return argrank(sp_distance.pdist(kmerSigs, metric='euclidean'), weight_fun=weight_fun)
     else:
-        return rho_ranks(kmerSigs)
+        # return rho_ranks(kmerSigs)
+        return argrank(sp_distance.pdist(kmerSigs, metric=metrics.rho), weight_fun=weight_fun)
 
 def coverage_ranks(covProfiles):
     cov_ranks = sp_distance.pdist(covProfiles, metrics.coverage_distance)

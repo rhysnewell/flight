@@ -485,7 +485,7 @@ def metabat_distance_nn(a, b):
             if b_var < 1:
                 b_var = 1
 
-            if abs(a_var - b_var) < 1e-4:
+            if abs(b_var - a_var) < 1e-4:
                 k1 = k2 = (a_mean + b_mean) / 2
             else:
                 tmp = np.sqrt(a_var * b_var * ((a_mean - b_mean) * (a_mean - b_mean) - 2 * (a_var - b_var) * np.log(
@@ -548,7 +548,14 @@ def cdf(dist, x):
 
     @ return: cdf value f64
     """
-    return (math.erfc(-(x - dist[0]) / (dist[1] * np.sqrt(2.0)))) / 2.0
+    t = x - dist[0]
+    sigma = dist[1]
+
+    y = 0.5 * (1.0 + math.erf(t / (sigma * np.sqrt(2.0))))
+    if y > 1.0:
+        y = 1.0
+
+    return y
 
 @njit(fastmath=True)
 def geom_sim_calc(both_present, sample_distances):

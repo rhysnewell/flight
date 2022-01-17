@@ -348,7 +348,7 @@ class Embedder(Binner):
             self.precomputed_reducer_high
         ]
 
-        with pebble.ProcessPool(max_workers=3) as executor:
+        with pebble.ProcessPool(max_workers=3, context=multiprocessing.get_context('forkserver')) as executor:
             futures = [
                 executor.schedule(
                     multi_transform_static,
@@ -361,7 +361,7 @@ class Embedder(Binner):
             ]
 
             results = []
-            executor.close()
+            # executor.close()
             for future in futures:
                 result = future.result()
                 if result is not None:
@@ -382,21 +382,23 @@ def multi_transform_static(
     """
     Main function for performing UMAP embeddings and intersections
     """
-    np.random.seed(random_seed)
-    random.seed(random_seed)
-    # update parameters to artificially high values to avoid disconnected vertices in the final manifold
-    if reducer is None:
-        warnings.warn("No reducers provided")
-        return None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        np.random.seed(random_seed)
+        random.seed(random_seed)
+        # update parameters to artificially high values to avoid disconnected vertices in the final manifold
+        if reducer is None:
+            warnings.warn("No reducers provided")
+            return None
 
-    # reducer.random_state = random_seed
-    try:
-        embedding = reducer.fit_transform(sp_distance.squareform(stat))
+        # reducer.random_state = random_seed
+        try:
+            embedding = reducer.fit_transform(sp_distance.squareform(stat))
 
-        return embedding
+            return embedding
 
-    except TypeError:
-        return None
+        except TypeError:
+            return None
 
 def switch_intersector_static(depth_reducer, tnf_reducer, euc_reducer, switch=None):
     if switch is None:

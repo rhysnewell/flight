@@ -219,58 +219,60 @@ class Clusterer(Binner):
 
         if use_multiple_processes:
 
-            with threadpoolctl.threadpool_limits(limits=max(threads // 5, 1), user_api='blas'):
-                with pebble.ProcessPool(max_workers=threads // 5, context=multiprocessing.get_context("forkserver")) as executor:
-                    futures = [
-                        executor.schedule(
-                            Clusterer.generate_cluster,
-                            (
-                                distances,
-                                embeddings_for_precomputed,
-                                selection_method,
-                                metric,
-                                min_size,
-                                min_sample,
-                                1
-                            ),
-                            timeout=1800,
-                        ) for (min_size, min_sample) in itertools.combinations(range(2, 10), 2) if min_size != 1
-                    ]
-                    executor.close()
-                    for future in futures:
-                        try:
-                            (cluster_validity, min_size, min_sample, labels) = future.result()
-                            if np.any(best_validity == None):
-                                best_min_size[index] = min_size
-                                best_min_sample[index] = min_sample
-                                best_validity[index] = cluster_validity
-                                label_array[index] = labels
-                                best_n_bins[index] = np.unique(labels).shape[0]
-                                best_unbinned[index] = (labels == -1).sum()
-                                index += 1
+            worker_limit = threads // 5
+            # thread_limit = worker_limit // 5
+            # with threadpoolctl.threadpool_limits(limits=max(threads // 5, 1), user_api='blas'):
+            with pebble.ProcessPool(max_workers=threads // 5, context=multiprocessing.get_context('forkserver')) as executor:
+                futures = [
+                    executor.schedule(
+                        Clusterer.generate_cluster,
+                        (
+                            distances,
+                            embeddings_for_precomputed,
+                            selection_method,
+                            metric,
+                            min_size,
+                            min_sample,
+                            threads
+                        ),
+                        timeout=1800,
+                    ) for (min_size, min_sample) in itertools.combinations(range(1, 10), 2) if min_size != 1
+                ]
+                # executor.close()
+                for future in futures:
+                    try:
+                        (cluster_validity, min_size, min_sample, labels) = future.result()
+                        if np.any(best_validity == None):
+                            best_min_size[index] = min_size
+                            best_min_sample[index] = min_sample
+                            best_validity[index] = cluster_validity
+                            label_array[index] = labels
+                            best_n_bins[index] = np.unique(labels).shape[0]
+                            best_unbinned[index] = (labels == -1).sum()
+                            index += 1
 
-                                if index == top_n:
+                            if index == top_n:
 
-                                    # sort the current top by ascending validity order
-                                    ranks = np.argsort(best_validity)
-                                    best_validity = best_validity[ranks]
-                                    best_min_sample = best_min_sample[ranks]
-                                    best_min_size = best_min_size[ranks]
-                                    label_array = label_array[ranks]
-                                    best_n_bins = best_n_bins[ranks]
-                                    best_unbinned = best_unbinned[ranks]
+                                # sort the current top by ascending validity order
+                                ranks = np.argsort(best_validity)
+                                best_validity = best_validity[ranks]
+                                best_min_sample = best_min_sample[ranks]
+                                best_min_size = best_min_size[ranks]
+                                label_array = label_array[ranks]
+                                best_n_bins = best_n_bins[ranks]
+                                best_unbinned = best_unbinned[ranks]
 
-                            elif np.any(best_validity < cluster_validity):
-                                # insert the new result and remove the worst result
-                                ind = np.searchsorted(best_validity, cluster_validity)
-                                best_validity = np.insert(best_validity, ind, cluster_validity)[1:]
-                                best_min_size = np.insert(best_min_size, ind, min_size)[1:]
-                                best_min_sample = np.insert(best_min_sample, ind, min_sample)[1:]
-                                label_array = np.insert(label_array, ind, labels, axis=0)[1:]
-                                best_n_bins = np.insert(best_n_bins, ind, np.unique(labels).shape[0])[1:]
-                                best_unbinned = np.insert(best_unbinned, ind, (labels == -1).sum())[1:]
-                        except TimeoutError:
-                            continue
+                        elif np.any(best_validity < cluster_validity):
+                            # insert the new result and remove the worst result
+                            ind = np.searchsorted(best_validity, cluster_validity)
+                            best_validity = np.insert(best_validity, ind, cluster_validity)[1:]
+                            best_min_size = np.insert(best_min_size, ind, min_size)[1:]
+                            best_min_sample = np.insert(best_min_sample, ind, min_sample)[1:]
+                            label_array = np.insert(label_array, ind, labels, axis=0)[1:]
+                            best_n_bins = np.insert(best_n_bins, ind, np.unique(labels).shape[0])[1:]
+                            best_unbinned = np.insert(best_unbinned, ind, (labels == -1).sum())[1:]
+                    except TimeoutError:
+                        continue
 
         else:
             results = [
@@ -283,7 +285,7 @@ class Clusterer(Binner):
                         min_size,
                         min_sample,
                         threads
-                ) for (min_size, min_sample) in itertools.combinations(range(2, 10), 2) if min_size != 1
+                ) for (min_size, min_sample) in itertools.combinations(range(1, 10), 2) if min_size != 1
             ]
 
             for result in results:

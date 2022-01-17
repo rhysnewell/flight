@@ -449,7 +449,7 @@ def bin(args):
     os.environ["MKL_NUM_THREADS"] = str(int(args.threads))
     os.environ["OPENBLAS_NUM_THREADS"] = str(int(args.threads))
     os.environ["OMP_NUM_THREADS"] = str(int(args.threads))
-    os.environ["THREADING_LAYER"] = 'tbb'
+    # os.environ["THREADING_LAYER"] = 'tbb'
     from flight.rosella.rosella import Rosella
 
     if args.long_input is None and args.input is None:

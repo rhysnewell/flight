@@ -103,7 +103,6 @@ class Rosella(Validator):
             self.sort_bins()
             n += 1
 
-
     def slow_refine(
             self,
             plots,
@@ -204,7 +203,7 @@ class Rosella(Validator):
             raise IndexError
 
     def perform_binning(self, args):
-        plots = None
+        plots = []
         set_num_threads(int(self.threads))
         with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
             with warnings.catch_warnings():
@@ -236,8 +235,9 @@ class Rosella(Validator):
 
                     self.findem = [
                         # 'contig_29111_pilon', 'contig_5229_pilon', 'contig_7458_pilon', # Ega
-                        'contig_1570_pilon', 'scaffold_1358_pilon' # Ret
+                        'contig_1570_pilon', 'scaffold_1358_pilon', 'contig_104_pilon', # Ret
                         # 'contig_3_pilon'
+                        'contig_17512_pilon' # AalE
                     ]
                     self.plot(
                         self.findem
@@ -263,7 +263,7 @@ class Rosella(Validator):
                     self.embed_unbinned("unbinned_1")
                     logging.info("Refining bins...")
                     # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
-                    self.slow_refine(plots, 0, 10, x_min, x_max, y_min, y_max)
+                    self.slow_refine(plots, 0, 5, x_min, x_max, y_min, y_max)
                     self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
                     # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
 
@@ -273,7 +273,7 @@ class Rosella(Validator):
                     #    again to try and make the relationships more obvious than the original embedding.
                     self.embed_unbinned("unbinned_2")
 
-                    self.slow_refine(plots, 0, 2, x_min, x_max, y_min, y_max)
+                    self.slow_refine(plots, 0, 1, x_min, x_max, y_min, y_max)
                     self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
                     # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
                     self.get_labels_from_bins()
@@ -284,7 +284,7 @@ class Rosella(Validator):
                     self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
                 else:
                     self.rescue_contigs(int(args.min_bin_size))
-            logging.debug("Writing bins...", len(self.bins.keys()))
+            logging.info(f"Writing bins... {len(self.bins.keys())}")
             self.write_bins(int(args.min_bin_size))
             # try:
             #     imageio.mimsave(self.path + '/UMAP_projections.gif', plots, fps=1)
@@ -332,7 +332,8 @@ class Rosella(Validator):
             self.kmer_signature,
             contig_lengths,
             silent=False,
-            fun=lambda a: a / max(a)
+            fun=lambda a: a / max(a),
+            use_multiple_processes=False
         )
 
         return stat
