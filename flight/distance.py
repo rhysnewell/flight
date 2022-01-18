@@ -102,7 +102,7 @@ class ProfileDistanceEngine:
         # included.
         # This mimics how metabat2 adaptively calculates their ADP value.
         (cov_ranks, kmer_ranks) = self.makeRanks(covProfiles, kmerSigs, contigLengths, silent=silent, use_multiple_processes=use_multiple_processes)
-        dists = np.sqrt(fun(cov_ranks)) * (fun(kmer_ranks)) #* fun(rho_ranks)
+        dists = np.cbrt(fun(cov_ranks)) * (fun(kmer_ranks)) #* fun(rho_ranks)
 
         return dists
 

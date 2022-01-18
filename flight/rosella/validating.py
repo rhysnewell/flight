@@ -323,7 +323,7 @@ class Validator(Clusterer, Embedder):
                     print(f'before check for distant contigs: {len(tids)}')
                     _, _, _, _ = self.bin_stats(bin_id)
 
-                a_level = max(0.3, agg_thresh * 1.5)
+                a_level = max(0.35, agg_thresh * 1.5)
                 m_level = max(0.3, md_thresh * 1.5)
                 r_level = max(0.15, tnf_thresh * 1.5)
                 e_level = max(5, euc_thresh * 1.25)
@@ -449,7 +449,7 @@ class Validator(Clusterer, Embedder):
 
                             else:
                                 if result[5]:
-                                    max_contig_size_to_remove = 1e5
+                                    max_contig_size_to_remove = 2e5
                                 else:
                                     max_contig_size_to_remove = 1e4
 

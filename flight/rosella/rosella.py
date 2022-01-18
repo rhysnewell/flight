@@ -235,7 +235,7 @@ class Rosella(Validator):
 
                     self.findem = [
                         # 'contig_29111_pilon', 'contig_5229_pilon', 'contig_7458_pilon', # Ega
-                        'contig_1570_pilon', 'scaffold_1358_pilon', 'contig_104_pilon', # Ret
+                        'contig_1088_pilon', 'contig_1089_pilon', # Ret
                         # 'contig_3_pilon'
                         'contig_17512_pilon' # AalE
                     ]
