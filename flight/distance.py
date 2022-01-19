@@ -93,16 +93,17 @@ class ProfileDistanceEngine:
         """Compute norms in {coverage rank space x kmer rank space}
         """
         n_samples = covProfiles.shape[1] // 2
-        w = n_samples / (n_samples + 1) # approaches 1 as more samples are included
+        w = max(1/3, n_samples / (n_samples + 4)) # approaches 1 as more samples are included
+
+        if n_samples == 1: w = 1 / 2 # at n == 1, the w ratio goes too hard so manually set it
 
         # we weight the ranks by w. Cov ranks are more important with more samples, thus they
         # are raised to the power of w. This will never increase the value of cov ranks, only bring them
         # closer to their original values as n_samples increases.
-        # Conversely, kmer_ranks are raised to 1 - w. This decreases their importance as more samples are
-        # included.
+
         # This mimics how metabat2 adaptively calculates their ADP value.
         (cov_ranks, kmer_ranks) = self.makeRanks(covProfiles, kmerSigs, contigLengths, silent=silent, use_multiple_processes=use_multiple_processes)
-        dists = np.cbrt(fun(cov_ranks)) * (fun(kmer_ranks)) #* fun(rho_ranks)
+        dists = (fun(cov_ranks) ** w) * (fun(kmer_ranks)) #* fun(rho_ranks)
 
         return dists
 

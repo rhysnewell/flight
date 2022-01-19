@@ -40,6 +40,7 @@ from concurrent.futures import TimeoutError
 import scipy.spatial.distance as sp_distance
 import threadpoolctl
 import warnings
+import signal
 
 # self imports
 import flight.metrics as metrics
@@ -52,7 +53,12 @@ matplotlib.use('pdf')
 
 ###############################################################################
 ############################### - Exceptions - ################################
-
+"""
+Function to handle signal IOErrors after missing input
+"""
+def handler(signum, frame):
+     raise TimeoutError
+signal.signal(signal.SIGALRM, handler)
 
 class BadTreeFileException(Exception):
     pass
@@ -141,8 +147,8 @@ class Validator(Clusterer, Embedder):
 
         removed = []
 
-        a_level = max(0.3, mean_agg * 2)
-        m_level = max(0.2, mean_md * 2)
+        a_level = max(0.35, mean_agg * 2)
+        m_level = max(0.3, mean_md * 2)
         r_level = max(0.15, mean_tnf * 2)
         e_level = max(6, mean_euc * 2)
         # check for any obviously misplaced contigs
@@ -326,32 +332,42 @@ class Validator(Clusterer, Embedder):
                 a_level = max(0.35, agg_thresh * 1.5)
                 m_level = max(0.3, md_thresh * 1.5)
                 r_level = max(0.15, tnf_thresh * 1.5)
-                e_level = max(5, euc_thresh * 1.25)
+                e_level = max(6, euc_thresh * 1.25)
+
+                a_lower = max(0.25, mean_agg)
+                m_lower = max(0.15, mean_md)
+                r_lower = max(0.1, mean_tnf)
+                e_lower = max(3.5, mean_euc)
+
                 per_contig_avg = np.array(per_contig_avg)
 
                 # detect if a large portion of contigs seem out of place
+                slightly_misplaced_contigs = False
                 misplaced_contigs = False
                 very_misplaced_contigs = False
+
+                slightly_misplaced_array = np.array(per_contig_avg[:, 0] > m_lower) + np.array(per_contig_avg[:, 1] > r_lower) + np.array(per_contig_avg[:, 2] > e_lower)
                 misplaced_array = np.array(per_contig_avg[:, 0] > m_level) + np.array(per_contig_avg[:, 1] > r_level) + np.array(per_contig_avg[:, 2] > e_level)
                 very_misplaced_array = np.array(per_contig_avg[:, 0] > m_level + 0.1) + np.array(per_contig_avg[:, 1] > r_level + 0.1) + np.array(per_contig_avg[:, 2] > e_level + 1)
                 if contigs['contigLen'][misplaced_array].sum() >= 1.0e6:
                     misplaced_contigs = True
                 if contigs['contigLen'][very_misplaced_array].sum() >= 1.5e6:
                     very_misplaced_contigs = True
+                if contigs['contigLen'][slightly_misplaced_array].sum() >= 3e6:
+                    slightly_misplaced_contigs = True
 
                 # Always check bins with bad bin stats or if they are large, just for sanity check
-                if (bin_size >= 10e6 or misplaced_contigs or very_misplaced_contigs
+                if (
+                    bin_size >= 10e6 or misplaced_contigs or very_misplaced_contigs or slightly_misplaced_contigs
                     or mean_agg >= a_level or mean_md >= m_level
                     or mean_euc >= e_level or mean_tnf >= r_level
-                    # or mean_agg >= agg_thresh or mean_md >= md_thresh
-                    # or mean_tnf >= tnf_thresh or mean_euc >= euc_thresh
                 ):
 
                     if debug:
                         print("Reclustering bin %d" % bin_id)
                     if bin_size >= 14e6 or very_misplaced_contigs:
                         factor = min(max(mean_md, mean_agg) * 2, 1.0)
-                    elif misplaced_contigs or bin_size >= 10e6:
+                    elif misplaced_contigs or bin_size >= 12e6:
                         factor = min(max(mean_md, mean_agg) * 1.5, 1.0)
                     # elif bin_size >= 10e6:
                     #     factor = min(max(mean_md, mean_agg) * 1.25, 1.0)
@@ -390,92 +406,81 @@ class Validator(Clusterer, Embedder):
                 n_samples = self.long_samples
                 sample_distances = self.long_sample_distance
 
-            worker_limit = max(self.threads // 2, 1)
-            numpy_thread_limit = max(self.threads // worker_limit, 2)
-            # if numpy_thread_limit == 1:
-            #     worker_limit = self.threads
-            # else:
-            #     worker_limit = max(self.threads // numpy_thread_limit, 1)
-            with threadpoolctl.threadpool_limits(limits=numpy_thread_limit, user_api='blas'):
-                with pebble.ProcessPool(max_workers=worker_limit, context=multiprocessing.get_context('forkserver')) as executor:
-                    futures = [
-                        executor.schedule(
-                            reembed_static, (
-                                    bin_id,
-                                    self.bins[bin_id],
-                                    self.extract_contigs(self.bins[bin_id]),
-                                    self.embeddings[
-                                        self.large_contigs[
-                                            ~self.disconnected][
-                                            ~self.disconnected_intersected
-                                        ]['tid'].isin(self.bins[bin_id])
-                                    ],
-                                    n_samples,
-                                    sample_distances,
-                                    self.n_neighbors,
-                                    self.n_components,
-                                    min_validity,
-                                    reembed_cluster,
-                                    False,
-                                    False,
-                                    2022,
-                                    numpy_thread_limit
-                                ),
-                                timeout = self.max_time_to_recluster_bin
-                        )
-                        for (bin_id, force_new, min_validity, reembed_cluster, switch) in zip(
-                            reembed_separately,
-                            force_new_clustering,
-                            lower_thresholds,
-                            reembed_if_no_cluster,
-                            switches
-                        )]
+            for (bin_id, force_new, min_validity, reembed_cluster, switch) in zip(
+                    reembed_separately,
+                    force_new_clustering,
+                    lower_thresholds,
+                    reembed_if_no_cluster,
+                    switches
+            ):
 
-                    # executor.close()
-                    for future in futures:
+                try:
+                    signal.alarm(300)
+                    result = reembed_static(
+                        bin_id,
+                        self.bins[bin_id],
+                        self.extract_contigs(self.bins[bin_id]),
+                        self.embeddings[
+                            self.large_contigs[
+                                ~self.disconnected][
+                                ~self.disconnected_intersected
+                            ]['tid'].isin(self.bins[bin_id])
+                        ],
+                        n_samples,
+                        sample_distances,
+                        self.n_neighbors,
+                        self.n_components,
+                        min_validity,
+                        reembed_cluster,
+                        False,
+                        False,
+                        2022,
+                        self.threads,
+                    )
+                    signal.alarm(0)
+                    plots, remove = self.handle_new_embedding(
+                        result[0], result[1], result[2], result[3], result[4],
+                        plots, n, x_min, x_max, y_min, y_max, False, result[6], debug=False
+                    )
+
+                    if remove:
+                        if debug:
+                            print("Removing bin %d..." % result[0])
+                        bins_to_remove.append(result[0])
+                        self.overclustered = True
+
+                    else:
                         try:
-                            result = future.result()
-                            # result = future
-                            plots, remove = self.handle_new_embedding(
-                                result[0], result[1], result[2], result[3], result[4],
-                                plots, n, x_min, x_max, y_min, y_max, False, result[6], debug=False
-                            )
-
-                            if remove:
-                                if debug:
-                                    print("Removing bin %d..." % result[0])
-                                bins_to_remove.append(result[0])
-                                self.overclustered = True
-
+                            contigs, log_lengths, tnfs = self.extract_contigs(self.bins[result[0]])
+                            bin_size = contigs['contigLen'].sum()
+                            # if result[4] <= 0.5 or bin_size >= 14e6:
+                            #     max_contig_size_to_remove = 1e9 # essentially unlimited
+                            if result[5]:
+                                max_contig_size_to_remove = 1e5
                             else:
-                                if result[5]:
-                                    max_contig_size_to_remove = 2e5
-                                else:
-                                    max_contig_size_to_remove = 1e4
+                                max_contig_size_to_remove = 1e4
 
-                                if debug:
-                                    print(f"max contig size to remove {max_contig_size_to_remove} for {result[0]}")
-                                try:
-                                    contigs, log_lengths, tnfs = self.extract_contigs(self.bins[result[0]])
-                                    self.prune_bin(
-                                        result[0],
-                                        self.bins[result[0]],
-                                        contigs,
-                                        log_lengths,
-                                        tnfs,
-                                        n_samples,
-                                        sample_distances,
-                                        max_contig_size_to_remove,
-                                        bins_to_remove,
-                                        something_changed
-                                    )
-                                except (ZeroDivisionError) as e:
-                                    # Only one contig left, break out
-                                    continue
-
-                        except TimeoutError:
-                            # future.cancel()
+                            if debug:
+                                print(f"max contig size to remove {max_contig_size_to_remove} for {result[0]}")
+                            self.prune_bin(
+                                result[0],
+                                self.bins[result[0]],
+                                contigs,
+                                log_lengths,
+                                tnfs,
+                                n_samples,
+                                sample_distances,
+                                max_contig_size_to_remove,
+                                bins_to_remove,
+                                something_changed
+                            )
+                        except ZeroDivisionError:
+                            # Only one contig left, break out
                             continue
+
+                except TimeoutError:
+
+                    continue
 
         # find any bins that potentially timedout
         [self.survived.append(bin_id) for bin_id in reembed_separately if bin_id not in bins_to_remove or bin not in something_changed]
@@ -732,7 +737,7 @@ def reembed_static(
                 metric="euclidean",
                 selection_method = "eom",
                 solver="hbgf",
-                threads=1,
+                threads=threads,
                 use_multiple_processes=False
             )[-1]
 
@@ -858,7 +863,7 @@ def reembed_static(
                             metric="euclidean",
                             cluster_selection_methods="eom",
                             solver="hbgf",
-                            threads=1,
+                            threads=threads,
                             use_multiple_processes=False
                         )
                     labels_multi = labels_multi[0]

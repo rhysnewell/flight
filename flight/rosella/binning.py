@@ -219,7 +219,7 @@ class Binner:
             a=1.4,
             b=0.3,
             init=initialization,
-            n_jobs=self.threads // 3,
+            n_jobs=self.threads,
             random_state=random_seed << 1
         )
 
@@ -233,7 +233,7 @@ class Binner:
             a=1.45,
             b=0.35,
             init=initialization,
-            n_jobs=self.threads // 3,
+            n_jobs=self.threads,
             random_state=random_seed << 2
         )
 
@@ -246,7 +246,7 @@ class Binner:
             a=1.5,
             b=0.4,
             init=initialization,
-            n_jobs=self.threads // 3,
+            n_jobs=self.threads,
             random_state=random_seed << 3
         )
 

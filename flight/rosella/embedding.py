@@ -348,31 +348,30 @@ class Embedder(Binner):
             self.precomputed_reducer_high
         ]
 
-        with pebble.ProcessPool(max_workers=3, context=multiprocessing.get_context('forkserver')) as executor:
-            futures = [
-                executor.schedule(
-                    multi_transform_static,
-                    (
-                        stat,
-                        embedder,
-                        self.random_seed
-                    )
+        # with pebble.ProcessPool(max_workers=3, context=multiprocessing.get_context('spawn')) as executor:
+        futures = [
+            # executor.schedule(
+                multi_transform_static(
+                    stat,
+                    embedder,
+                    self.random_seed
                 ) for embedder in embedders
-            ]
+        ]
 
-            results = []
-            # executor.close()
-            for future in futures:
-                result = future.result()
-                if result is not None:
-                    results.append(result)
+        results = []
+        # executor.close()
+        for future in futures:
+            # result = future.result()
+            result = future
+            if result is not None:
+                results.append(result)
 
-            if set_embedding:
-                self.embeddings = results[0]
-                # self.embeddings2 = results[1]
-                # self.embeddings3 = results[2]
+        if set_embedding:
+            self.embeddings = results[0]
+            # self.embeddings2 = results[1]
+            # self.embeddings3 = results[2]
 
-            return results
+        return results
 
 def multi_transform_static(
         stat,
