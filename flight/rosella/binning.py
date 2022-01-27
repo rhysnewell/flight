@@ -80,7 +80,7 @@ class Binner:
             count_path,
             kmer_frequencies,
             output_prefix,
-            assembly,
+            assembly = None,
             long_count_path=None,
             n_neighbors=100,
             min_dist=0.1,
@@ -192,10 +192,6 @@ class Binner:
         self.tnfs.iloc[:, 2:] = skbio.stats.composition.clr(self.tnfs.iloc[:, 2:].astype(np.float64) + 1)
         ## Set custom log base change for lengths
         self.log_lengths = np.log(self.tnfs['contigLen']) / np.log(max(sp_stats.mstats.gmean(self.tnfs['contigLen']), 10000))
-        
-        ## Check the ordering of the contig names for sanity check
-        if list(self.large_contigs['contigName']) != list(self.tnfs['contigName']):
-            sys.exit("Contig ordering incorrect for kmer table or coverage table")
 
         self.binning_method = 'eom'
         self.min_cluster_size = 2
@@ -272,6 +268,10 @@ class Binner:
 
         # Validator options
         self.overclustered = False  # large cluster
+
+        # Refining options
+        self.checkm_file = None
+        self.input_bin_stats = None
 
 
     def nX(self, x = 50):
@@ -723,7 +723,10 @@ class Binner:
                 pass
 
         if not keep_unbinned:
-            self.bins[0] = list(set(self.bins[0]))
+            try:
+                self.bins[0] = list(set(self.bins[0]))
+            except KeyError:
+                pass
         else:
             self.unbinned_tids = list(np.sort(self.unbinned_tids))
 

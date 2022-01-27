@@ -164,50 +164,34 @@ def main():
 
     fit_options.set_defaults(func=fit)
 
-    bin_options = subparsers.add_parser(
-        'bin',
-        description='Perform UMAP and then HDBSCAN on array of variant depths',
-        formatter_class=CustomHelpFormatter,
-        epilog='''
-                                ~ bin ~
-    How to use bin:
-
-    flight bin --input coverm_output.tsv --assembly scaffolds.fasta
-
-    ''')
-    ## Main input array. Coverages from CoverM contig
-    bin_options.add_argument(
+    ################# ~ ROSELLA ~ #################
+    # options common to both rosella pipelines
+    rosella_group = argparse.ArgumentParser(formatter_class=CustomHelpFormatter, add_help=False)
+    rosella_group.add_argument(
         '--input',
         help='CoverM coverage results',
         dest="input")
 
-    bin_options.add_argument(
+    rosella_group.add_argument(
         '--long_input',
         help='CoverM coverage results',
         dest="long_input")
 
-    bin_options.add_argument(
-        '--assembly',
-        help='FASTA file containing scaffolded contigs of the metagenome assembly',
-        dest="assembly",
-        required=True,
-    )
-
-    bin_options.add_argument(
-        '--variant_rates',
-        help='Per contig SNV and SV rates over a given sliding window size',
-        dest='variant_rates',
-        required=False
-    )
-
-    bin_options.add_argument(
+    rosella_group.add_argument(
         '--kmer_frequencies',
         help='Per contig kmer frequencies. Can be calculated using rosella kmer mode',
         dest='kmer_frequencies',
         required=True,
     )
 
-    bin_options.add_argument(
+    rosella_group.add_argument(
+        '--assembly',
+        help='FASTA file containing scaffolded contigs of the metagenome assembly',
+        dest="assembly",
+        required=False,
+    )
+
+    rosella_group.add_argument(
         '--min_bin_size',
         help='The minimum size of a returned MAG in base pairs',
         dest="min_bin_size",
@@ -215,7 +199,7 @@ def main():
         required=False,
     )
 
-    bin_options.add_argument(
+    rosella_group.add_argument(
         '--scaler',
         help='The method used to scale the input data',
         dest="scaler",
@@ -224,7 +208,7 @@ def main():
         required=False,
     )
 
-    bin_options.add_argument(
+    rosella_group.add_argument(
         '--min_contig_size',
         help='The minimum contig size to be considered for binning',
         dest="min_contig_size",
@@ -232,7 +216,7 @@ def main():
         required=False,
     )
 
-    bin_options.add_argument(
+    rosella_group.add_argument(
         '--output_directory',
         help='Output directory',
         dest="output",
@@ -241,59 +225,59 @@ def main():
     )
 
     ## UMAP parameters
-    bin_options.add_argument('--n_neighbors',
+    rosella_group.add_argument('--n_neighbors',
                              help='Number of neighbors considered in UMAP',
                              dest="n_neighbors",
                              default=100)
 
-    bin_options.add_argument(
+    rosella_group.add_argument(
         '--a_spread',
         help=
         'The spread of UMAP embeddings. Directly manipulates the "a" parameter',
         dest="a",
         default=1.58)
 
-    bin_options.add_argument(
+    rosella_group.add_argument(
         '--b_tail',
         help=
         'Similar to the heavy-tail parameter sometimes used in t-SNE. Directly manipulates the "b" parameter',
         dest="b",
         default=0.4)
 
-    bin_options.add_argument(
+    rosella_group.add_argument(
         '--min_dist',
         help=
         'Minimum distance used by UMAP during construction of high dimensional graph',
         dest="min_dist",
         default=0.0)
 
-    bin_options.add_argument('--n_components',
+    rosella_group.add_argument('--n_components',
                              help='Dimensions to use in UMAP projection',
                              dest="n_components",
                              default=2)
 
-    bin_options.add_argument('--metric',
+    rosella_group.add_argument('--metric',
                              help='Metric to use in UMAP projection',
                              dest="metric",
                              default="aggregate_variant_tnf")
     ## HDBSCAN parameters
-    bin_options.add_argument('--min_cluster_size',
+    rosella_group.add_argument('--min_cluster_size',
                              help='Minimum cluster size for HDBSCAN',
                              dest="min_cluster_size",
                              default=5)
 
-    bin_options.add_argument('--min_samples',
+    rosella_group.add_argument('--min_samples',
                              help='Minimum samples for HDBSCAN',
                              dest="min_samples",
                              default=5)
 
-    bin_options.add_argument('--cluster_selection_method',
+    rosella_group.add_argument('--cluster_selection_method',
                              help='Cluster selection method used by HDBSCAN. Either "eom" or "leaf"',
                              dest='cluster_selection_method',
                              default='eom')
 
     ## Genral parameters
-    bin_options.add_argument(
+    rosella_group.add_argument(
         '--precomputed',
         help='Flag indicating whether the input matrix is a set of precomputed distances',
         dest="precomputed",
@@ -303,11 +287,108 @@ def main():
         default=False,
     )
 
-    bin_options.add_argument('--cores',
+    rosella_group.add_argument('--cores',
                              help='Number of cores to run in parallel',
                              dest='threads',
                              default=8)
+
+
+    bin_options = subparsers.add_parser(
+        'bin',
+        description='Perform UMAP and then HDBSCAN on array of variant depths',
+        formatter_class=CustomHelpFormatter,
+        parents=[rosella_group],
+        epilog='''
+                                ~ bin ~
+    How to use bin:
+
+    flight bin --input coverm_output.tsv --kmer_frequencies kmer_frequencies.tsv --assembly scaffolds.fasta
+
+    ''')
+
+    ## Main input array. Coverages from CoverM contig
+
+    bin_options.add_argument(
+        '--variant_rates',
+        help='Per contig SNV and SV rates over a given sliding window size',
+        dest='variant_rates',
+        required=False
+    )
+
+
     bin_options.set_defaults(func=bin)
+
+    refine_options = subparsers.add_parser(
+        'refine',
+        description='Refine a set of MAGs from any binning algorithm using the rosella algorithm',
+        formatter_class=CustomHelpFormatter,
+        parents=[rosella_group],
+        epilog='''
+                                ~ refine ~
+    How to use bin:
+
+    flight refine --input coverm_output.tsv --kmer_frequencies kmer_frequencies.tsv --checkm_file checkm.out --genome_directory genomes_to_refine/ --extension fna
+
+    ''')
+
+    ## Main input array. Coverages from CoverM contig
+
+    refine_options.add_argument(
+        '--checkm_file',
+        help='The CheckM completeness and contamination output table containing your genomes of interest. Can be Checkm1 or Checkm2',
+        dest='checkm_file',
+        required=False
+    )
+
+    refine_options.add_argument(
+        '--min_completeness',
+        help='The minimum valid completeness score',
+        dest='min_completeness',
+        required=False,
+        default="50"
+    )
+
+    refine_options.add_argument(
+        '--max_contamination',
+        help='The maximum valid contamination score. Bins with values higher than this will be forcibly deconstructed',
+        dest='max_contamination',
+        required=False,
+        default="10"
+    )
+
+    refine_options.add_argument(
+        '--genome_directory',
+        help='The directory containing the MAGs a user wants to refine',
+        dest='bin_folder',
+        required=False,
+    )
+
+    refine_options.add_argument(
+        '--extension',
+        help='The file extension used for MAGs in the MAG directory',
+        dest='bin_extension',
+        required=False,
+    )
+
+    refine_options.add_argument(
+        '--genome_paths',
+        help='One or more genomes you wish to refine.',
+        dest='bin_paths',
+        required=False,
+        nargs='+'
+    )
+
+    refine_options.add_argument(
+        '--contaminated_only',
+        help='Only attempt to refine bins that exceed the max_contamination value',
+        dest="contaminated_only",
+        type=str2bool,
+        nargs='?',
+        const=True,
+        default=False,
+    )
+
+    refine_options.set_defaults(func=refine)
 
     filter_options = subparsers.add_parser(
         'filter',
@@ -437,14 +518,9 @@ def fit(args):
                 numpy.save(prefix + '_labels.npy', clusterer.labels())
 
 
-
-def bin(args):
+def rosella_engine_constructor(args):
     prefix = args.output
-    # os.environ["NUMEXPR_MAX_THREADS"] = str(max((int(args.threads) // 2 + 1), 1))
-    # # os.environ["NUMBA_NUM_THREADS"] = str(min(1, max((int(args.threads) // 2 + 1), 1))) # try and reduce the number of race conditions occurring in numba functions?
-    # os.environ["NUMBA_NUM_THREADS"] = str(max((int(args.threads) // 2 + 1), 1)) # try and reduce the number of race conditions occurring in numba functions?
-    # os.environ["MKL_NUM_THREADS"] = str(max((int(args.threads) // 2 + 1), 1))
-    # os.environ["OPENBLAS_NUM_THREADS"] = str(max((int(args.threads) // 2 + 1), 1))
+
     os.environ["NUMEXPR_MAX_THREADS"] = str(int(args.threads))
     os.environ["NUMBA_NUM_THREADS"] = str(int(args.threads))  # try and reduce the number of race conditions occurring in numba functions?
     os.environ["MKL_NUM_THREADS"] = str(int(args.threads))
@@ -460,24 +536,34 @@ def bin(args):
     if not os.path.exists(prefix):
         os.makedirs(prefix)
 
-    if not args.precomputed:
-        rosella = Rosella(
-            count_path=args.input,
-            long_count_path=args.long_input,
-            kmer_frequencies=args.kmer_frequencies,
-            output_prefix=prefix,
-            assembly=args.assembly,
-            n_neighbors=int(args.n_neighbors),
-            min_contig_size=int(args.min_contig_size),
-            min_dist=float(args.min_dist),
-            threads=int(args.threads),
-            a=float(args.a),
-            b=float(args.b),
-            initialization='spectral'
-            )
+    rosella = Rosella(
+        count_path=args.input,
+        long_count_path=args.long_input,
+        kmer_frequencies=args.kmer_frequencies,
+        output_prefix=prefix,
+        assembly=args.assembly,
+        n_neighbors=int(args.n_neighbors),
+        min_contig_size=int(args.min_contig_size),
+        min_dist=float(args.min_dist),
+        threads=int(args.threads),
+        a=float(args.a),
+        b=float(args.b),
+        initialization='spectral'
+        )
 
-        rosella.perform_binning(args)
+    return rosella
 
+
+def bin(args):
+
+    rosella = rosella_engine_constructor(args)
+    rosella.perform_binning(args)
+
+
+def refine(args):
+
+    rosella = rosella_engine_constructor(args)
+    rosella.perform_refining(args)
 
 
 def filter(args):

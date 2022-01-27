@@ -73,11 +73,12 @@ class Validator(Clusterer, Embedder):
     def average_bin_stats(self, min_bin_size_to_check=1e6):
         mean_of_means = [0, 0, 0, 0]
         n_usable_bins = 0
-        for bin in self.bins:
-            tids = self.bins[bin]
+        for bin_id in self.bins:
+            tids = self.bins[bin_id]
+
             if len(tids) == 1:
                 continue
-            elif bin == 0:
+            elif bin_id == 0:
                 continue
 
             contigs, log_lengths, tnfs = self.extract_contigs(tids)
@@ -100,21 +101,30 @@ class Validator(Clusterer, Embedder):
                 mean_of_means[3] += mean_agg
                 n_usable_bins += 1
 
-        mean_of_means = [mean_of_means[i] / n_usable_bins for i in range(4)]
+        try:
+            mean_of_means = [mean_of_means[i] / n_usable_bins for i in range(4)]
+        except ZeroDivisionError:
+            return mean_of_means
 
         return mean_of_means
 
-    def prune_bin(self,
-                  bin_id,
-                  tids,
-                  contigs,
-                  log_lengths,
-                  tnfs,
-                  n_samples = None,
-                  sample_distances = None,
-                  max_contig_size = 2e5,
-                  bins_to_remove = None,
-                  something_changed = None):
+    def prune_bin(
+            self,
+            bin_id,
+            tids,
+            contigs,
+            log_lengths,
+            tnfs,
+            n_samples = None,
+            sample_distances = None,
+            max_contig_size = 2e5,
+            bins_to_remove = None,
+            something_changed = None,
+            min_completeness = 50,
+            max_contamination = 10,
+            bin_completeness = None,
+            bin_contamination = None,
+    ):
         """
         If a bin isn't reclustering even though it looks like it should be, then it likely has
         some noisy contigs present. These are contigs that are close enough to the actual bins contigs
@@ -151,33 +161,64 @@ class Validator(Clusterer, Embedder):
         m_level = max(0.3, mean_md * 2)
         r_level = max(0.15, mean_tnf * 2)
         e_level = max(6, mean_euc * 2)
-        # check for any obviously misplaced contigs
-        for (tid, avgs, log_length) in zip(tids, per_contig_avg, log_lengths):
-            if log_length <= max_contig_size and (avgs[0] >= m_level or avgs[1] >= r_level or avgs[2] >= e_level):
-                removed.append(tid)
-        remove = False
 
-        if len(removed) > 0 and len(removed) != len(tids):
-            [(tids.remove(r), self.unbinned_tids.append(r)) for r in removed]
-            current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
+        while True:
+            # check for any obviously misplaced contigs
+            for (tid, avgs, log_length) in zip(tids, per_contig_avg, log_lengths):
+                if log_length <= max_contig_size and (avgs[0] >= m_level or avgs[1] >= r_level or avgs[2] >= e_level):
+                    removed.append(tid)
+            remove = False
 
-            if current_contigs['contigLen'].sum() <= self.min_bin_size:
-                [self.unbinned_tids.append(tid) for tid in tids]
-                remove = True
+            if len(removed) > 0 and len(removed) != len(tids):
+                [(tids.remove(r), self.unbinned_tids.append(r)) for r in removed]
+                current_contigs, current_lengths, current_tnfs = self.extract_contigs(tids)
 
-        if len(tids) == 0 or remove:
-            bins_to_remove.append(bin_id)
-        elif len(removed) > 0:
-            something_changed.append(bin_id)
+                if current_contigs['contigLen'].sum() <= self.min_bin_size:
+                    [self.unbinned_tids.append(tid) for tid in tids]
+                    remove = True
 
-    def validate_bins(self,
-                      plots, n, x_min, x_max, y_min, y_max,
-                      bin_unbinned=False,
-                      reembed=False,
-                      big_only=False,
-                      quick_filter=False,
-                      debug=False,
-                      large_bins_only=False):
+            if len(tids) == 0 or remove:
+                bins_to_remove.append(bin_id)
+                break
+            elif len(removed) > 0:
+                something_changed.append(bin_id)
+                break
+            elif bin_contamination >= max_contamination:
+                # forcibly lower the thresholds slightly and try again
+                m_level *= 0.9
+                r_level *= 0.9
+                e_level *= 0.9
+                continue
+            else:
+                break
+
+
+    def retrieve_bin_checkm_stats(self, bin_id):
+        bin_completeness, bin_contamination = 0, 0
+        if self.input_bin_stats is not None:
+            bin_in_input_stats = self.input_bin_stats["bin_index"] == bin_id
+            if np.any(bin_in_input_stats):
+                bin_values = self.input_bin_stats[bin_in_input_stats]
+                bin_completeness = bin_values["completeness"].values[0]
+                bin_contamination = bin_values["contamination"].values[0]
+
+        return bin_completeness, bin_contamination
+
+    def validate_bins(
+            self,
+            plots, n, x_min, x_max, y_min, y_max,
+            bin_unbinned=False,
+            reembed=False,
+            big_only=False,
+            quick_filter=False,
+            debug=False,
+            large_bins_only=False,
+            min_completeness=50,
+            max_contamination=10,
+            min_bin_size=1e6,
+            contaminated_only=False,
+            refining_mode=False,
+    ):
         """
         Function for deciding whether a bin needs to be reembedded or split up
         Uses internal bin statistics, mainly mean ADP and Rho values
@@ -195,10 +236,19 @@ class Validator(Clusterer, Embedder):
         reembed_if_no_cluster = []
         switches = []
 
-        md_thresh, tnf_thresh, euc_thresh, agg_thresh = self.average_bin_stats()
+        md_thresh, tnf_thresh, euc_thresh, agg_thresh = self.average_bin_stats(min_bin_size)
 
         bins = self.bins.keys()
         for bin_id in bins:
+            bin_completeness, bin_contamination = self.retrieve_bin_checkm_stats(bin_id)
+
+            # first guard check for contaminated only flag
+            if n == 0 and contaminated_only:
+                if bin_contamination <= max_contamination:
+                    # remove this bin from further analysis
+                    bins_to_remove.append(bin_id)
+                    continue
+
             tids = self.bins[bin_id]
             if len(tids) == 1 or bin_id == 0:
                 continue
@@ -226,7 +276,11 @@ class Validator(Clusterer, Embedder):
                             sample_distances,
                             1e4,
                             bins_to_remove,
-                            something_changed
+                            something_changed,
+                            min_completeness,
+                            max_contamination,
+                            bin_completeness,
+                            bin_contamination
                         )
                     except (ZeroDivisionError) as e:
                         # Only one contig left, break out
@@ -358,14 +412,18 @@ class Validator(Clusterer, Embedder):
 
                 # Always check bins with bad bin stats or if they are large, just for sanity check
                 if (
-                    bin_size >= 10e6 or misplaced_contigs or very_misplaced_contigs or slightly_misplaced_contigs
+                    bin_size >= 10e6
+                    or misplaced_contigs or very_misplaced_contigs or slightly_misplaced_contigs
                     or mean_agg >= a_level or mean_md >= m_level
                     or mean_euc >= e_level or mean_tnf >= r_level
+                    or bin_contamination > max_contamination
                 ):
 
                     if debug:
                         print("Reclustering bin %d" % bin_id)
-                    if bin_size >= 14e6 or very_misplaced_contigs:
+                    if bin_contamination > max_contamination:
+                        factor = 1
+                    elif bin_size >= 14e6 or very_misplaced_contigs:
                         factor = min(max(mean_md, mean_agg) * 2, 1.0)
                     elif misplaced_contigs or bin_size >= 12e6:
                         factor = min(max(mean_md, mean_agg) * 1.5, 1.0)
@@ -388,6 +446,7 @@ class Validator(Clusterer, Embedder):
                         switches.append([0, 1, 2])
                     else:
                         self.survived.append(bin_id)
+
 
 
 
@@ -452,10 +511,11 @@ class Validator(Clusterer, Embedder):
                     else:
                         try:
                             contigs, log_lengths, tnfs = self.extract_contigs(self.bins[result[0]])
+                            bin_completeness, bin_contamination = self.retrieve_bin_checkm_stats(result[0])
                             bin_size = contigs['contigLen'].sum()
-                            # if result[4] <= 0.5 or bin_size >= 14e6:
-                            #     max_contig_size_to_remove = 1e9 # essentially unlimited
-                            if result[5]:
+                            if result[4] == 0.0:
+                                max_contig_size_to_remove = 1e9 # essentially unlimited
+                            elif result[5]:
                                 max_contig_size_to_remove = 1e5
                             else:
                                 max_contig_size_to_remove = 1e4
@@ -472,7 +532,11 @@ class Validator(Clusterer, Embedder):
                                 sample_distances,
                                 max_contig_size_to_remove,
                                 bins_to_remove,
-                                something_changed
+                                something_changed,
+                                min_completeness,
+                                max_contamination,
+                                bin_completeness,
+                                bin_contamination
                             )
                         except ZeroDivisionError:
                             # Only one contig left, break out

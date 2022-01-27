@@ -27,22 +27,27 @@ __maintainer__ = "Rhys Newell"
 __email__ = "rhys.newell near hdr.qut.edu.au"
 __status__ = "Development"
 
-import logging
+
 ###############################################################################
 # System imports
 import threadpoolctl
-import warnings
 import matplotlib
+import warnings
+import logging
+import glob
+import sys
+import os
 
 # Function imports
-import numpy as np
-import seaborn as sns
 from numba import njit, set_num_threads
+from Bio import SeqIO
+import seaborn as sns
+import numpy as np
 
 # self imports
-import flight.utils as utils
 from flight.rosella.validating import Validator
 import flight.distance as distance
+import flight.utils as utils
 import faulthandler
 
 faulthandler.enable()
@@ -103,6 +108,7 @@ class Rosella(Validator):
             self.sort_bins()
             n += 1
 
+
     def slow_refine(
             self,
             plots,
@@ -113,6 +119,11 @@ class Rosella(Validator):
             y_min=20,
             y_max=20,
             large_bins_only=False,
+            min_completeness=50.0,
+            max_contamination=10.0,
+            min_bin_size_for_averages=1e6,
+            contaminated_only=False,
+            refining_mode=False,
     ):
         # Each cluster is checked for internal metrics. If the metrics look bad then
         # Recluster -> re-embed -> recluster. If any of the new clusters look better
@@ -125,11 +136,17 @@ class Rosella(Validator):
                                           x_min, x_max,
                                           y_min, y_max,
                                           reembed=True,
-                                          large_bins_only=large_bins_only)
+                                          large_bins_only=large_bins_only,
+                                          min_completeness=min_completeness,
+                                          max_contamination=max_contamination,
+                                          min_bin_size=min_bin_size_for_averages,
+                                          contaminated_only=contaminated_only,
+                                          refining_mode=refining_mode)
             self.sort_bins()
             n += 1
             if not self.overclustered:
                 break  # no more clusters have broken
+
 
     def big_contig_filter(
             self,
@@ -153,6 +170,7 @@ class Rosella(Validator):
 
             n += 1
 
+
     def perform_limited_binning(self, unbinned):
         labels, _, _, _ = self.ensemble_cluster_multiple_embeddings(
             [self.precomputed_reducer_low.embedding_[unbinned],
@@ -168,6 +186,7 @@ class Rosella(Validator):
         )
 
         return labels[0]
+
 
     def perform_embedding(self, set_embedding=False, retry=0, retry_threshold=1):
         """
@@ -202,8 +221,9 @@ class Rosella(Validator):
         else:
             raise IndexError
 
+
     def perform_binning(self, args):
-        plots = []
+        plots = None
         set_num_threads(int(self.threads))
         with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
             with warnings.catch_warnings():
@@ -243,18 +263,6 @@ class Rosella(Validator):
                         self.findem
                     )
 
-                    # self.embeddings = self.embeddings2
-                    # self.plot(
-                    #     self.findem,
-                    #     suffix="_second"
-                    # )
-                    #
-                    # self.embeddings = self.embeddings3
-                    # self.plot(
-                    #     self.findem,
-                    #     suffix="_third"
-                    # )
-
                     logging.info("Second embedding.")
                     self.sort_bins()
                     # 2. Recover the unbinned tids, and then perform the same procedure on them
@@ -291,8 +299,10 @@ class Rosella(Validator):
             # except RuntimeError:  # no plotting has occurred due to no embedding
             #     pass
 
+
     def do_nothing(self):
         pass
+
 
     def embed_unbinned(self, suffix="unbinned"):
         try:
@@ -323,6 +333,7 @@ class Rosella(Validator):
             # not enough unbinned contigs
             self.get_labels_from_bins()
 
+
     def get_ranks(self):
         logging.info("Getting distance info...")
         contig_lengths = self.tnfs[~self.disconnected]["contigLen"].values
@@ -337,6 +348,99 @@ class Rosella(Validator):
         )
 
         return stat
+
+
+    def perform_refining(self, args):
+        import pandas as pd
+
+        plots = None
+        set_num_threads(int(self.threads))
+        with threadpoolctl.threadpool_limits(limits=int(args.threads), user_api='blas'):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+
+                logging.info("Reading in bin statistics...")
+                # get checkm results if present
+                if args.checkm_file is not None: self.checkm_file = pd.read_csv(args.checkm_file, sep='\t', comment="[")
+
+                input_bin_stats, bin_dict = retrieve_stats(
+                    self.large_contigs,
+                    args.bin_paths,
+                    args.bin_folder,
+                    args.bin_extension,
+                    self.checkm_file
+                )
+                self.disconnected = np.array([False for _ in range(self.large_contigs.shape[0])])
+                self.disconnected_intersected = np.array([False for _ in range(self.large_contigs.shape[0])])
+                self.embeddings = np.random.rand(self.large_contigs.shape[0], 2)
+                self.bins = bin_dict
+
+                if input_bin_stats is not None: self.input_bin_stats = pd.DataFrame(data=input_bin_stats)
+
+                logging.info("Refining bins...")
+                x_min, x_max, y_min, y_max = 20, 20, 20, 20 # default plotting margins
+
+                self.slow_refine(plots, 0, 10, x_min, x_max, y_min, y_max, False, float(args.min_completeness), float(args.max_contamination), 0, args.contaminated_only, True)
+                self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
+                self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
+                logging.info(f"Writing bins... {len(self.bins.keys())}")
+                self.write_bins(int(args.min_bin_size))
+
+
+
+
+
+def retrieve_stats(coverage_file, bin_paths=None, bin_folder=None, bin_extension="fna", checkm_file=None):
+    """
+    Retrieves information about all bins within `bin_folder` given the file extension `bin_extension`
+
+    if checkm file is not None
+    returns a dict containing the bin_id, number of contigs, size in base pairs, completeness, and contamination
+
+    Always returns dictionary with bin id and tids in that bin
+    """
+    if checkm_file is not None:
+        output_dict = {"bin_id": [], "bin_index": [], "n_contigs": [], "size": [], "completeness": [], "contamination": []}
+    else:
+        output_dict = None
+
+
+    bin_index_dict = {}
+
+    if bin_folder is not None:
+        bin_paths = glob.glob(f"{bin_folder}/*.{bin_extension}")
+    elif bin_paths is None:
+        sys.exit(f"No bin folder or bin paths supplied. Please supply one or the other and try again...")
+
+    for bin_index, fasta_path in enumerate(bin_paths):
+        bin_index += 1
+        bin_id = fasta_path.split("/")[-1]
+        bin_id = os.path.splitext(bin_id)[0]
+
+        contig_ids = []
+        for sequence in SeqIO.parse(open(fasta_path), "fasta"):
+            contig_ids.append(sequence.id)
+        contigs_in_bin = coverage_file[coverage_file["contigName"].isin(contig_ids)]
+        bin_index_dict[bin_index] = contigs_in_bin["tid"].values.tolist()
+
+        if checkm_file is not None:
+            output_dict["bin_id"].append(bin_id)
+            output_dict["bin_index"].append(bin_index)
+            output_dict["n_contigs"].append(len(contig_ids))
+            output_dict["size"].append(
+                contigs_in_bin['contigLen'].sum())
+
+            try:
+                # checkm1 uses Bin Id
+                checkm_stats = checkm_file[checkm_file["Bin Id"] == bin_id]
+            except KeyError:
+                # checkm2 uses Name
+                checkm_stats = checkm_file[checkm_file["Name"] == bin_id]
+
+            output_dict["completeness"].append(checkm_stats["Completeness"].values[0])
+            output_dict["contamination"].append(checkm_stats["Contamination"].values[0])
+
+    return (output_dict, bin_index_dict)
 
 def do_nothing():
     pass
