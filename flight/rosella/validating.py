@@ -967,19 +967,6 @@ def reembed_static(
                 else:
                     if debug:
                         print('No suitable embeddings...')
-                    if max_multi == -1 and max_precom == -1 and max_kmeans == -1:
-                        labels = max_precom
-                        max_validity = -1
-                    elif max(max_multi, max_precom, max_kmeans) == max_kmeans:
-                        labels = labels_kmeans_embeddings
-                        max_validity = kmeans_score_embeddings
-                    elif max(max_multi, max_precom) == max_precom:
-                        labels = labels_kmeans_precom
-                        max_validity = max_precom
-                        precomputed = True
-                    else:
-                        labels = labels_multi
-                        max_validity = max_multi
 
                 if unbinned_embeddings.all() == 0 or \
                         (max_validity <= 0 and max_validity != -1 and min_validity != 0) or \

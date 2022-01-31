@@ -444,12 +444,13 @@ def main():
                 datefmt='%m/%d/%Y %I:%M:%S %p')
 
         logging.info("Time - %s" % (time))
-        logging.info("Command - %s" % ' '.join(sys.argv))
+
 
         args.func(args)
 
 
 def fit(args):
+    logging.info("Command - %s" % ' '.join(sys.argv))
     prefix = args.input.replace(".npy", "")
     os.environ["NUMBA_NUM_THREADS"] = args.threads
     os.environ["MKL_NUM_THREADS"] = args.threads
@@ -555,7 +556,7 @@ def rosella_engine_constructor(args):
 
 
 def bin(args):
-
+    logging.info("Command - %s" % ' '.join(sys.argv))
     rosella = rosella_engine_constructor(args)
     rosella.perform_binning(args)
 
