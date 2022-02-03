@@ -54,6 +54,7 @@ setup(
         "tqdm",
         "tbb",
         "joblib",
+        "pebble",
     ],
     entry_points={
           'console_scripts': [
