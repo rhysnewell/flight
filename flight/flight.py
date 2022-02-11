@@ -497,13 +497,16 @@ def fit(args):
                     # clusterer.cluster_means = clusterer.get_cluster_means()
                     clusterer.combine_bins()
                     clusterer.plot()
-                except ZeroDivisionError:
+                except (ZeroDivisionError, ValueError):
                     clusterer.labels = np.array([-1 for _ in range(clusterer.clr_depths.shape[0])])
 
                 logging.info("Writing variant labels...")
                 numpy.save(prefix + '_labels.npy', clusterer.labels_for_printing())
                 logging.info("Calculating cluster separation values...")
-                numpy.save(prefix + '_separation.npy', clusterer.separation)
+                if not clusterer.separation is None:
+                    numpy.save(prefix + '_separation.npy', clusterer.separation)
+                else:
+                    numpy.save(prefix + '_separation.npy', numpy.array([[0.0]]))
             else:
                 clusterer = Cluster(args.input,
                                    prefix,

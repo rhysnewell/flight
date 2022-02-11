@@ -393,8 +393,9 @@ class Cluster:
         labels_no_unlabelled = set(self.labels[self.labels != -1])
         if len(labels_no_unlabelled) > 1:
             cluster_centres = [[] for _ in range(len(labels_no_unlabelled))]
-            for label in labels_no_unlabelled:
-                cluster_centres[label] = self.cluster_means[label]
+            for index, label in enumerate(labels_no_unlabelled):
+                # print(f"Len {len(cluster_centres)} index {index} label {label}")
+                cluster_centres[index] = self.cluster_means[label]
 
             dist_mat = pairwise_distances(cluster_centres)
 
@@ -436,7 +437,7 @@ class Cluster:
 
 
     def cluster_distances(self):
-        ## Cluster on the UMAP embeddings and return soft clusters
+        ## Cluster on the UMAP embeddings
 
         tuned = utils.hyperparameter_selection(self.depths, self.threads, metric=self.metric)
         best = utils.best_validity(tuned)

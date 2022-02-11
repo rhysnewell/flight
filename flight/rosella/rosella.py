@@ -235,7 +235,7 @@ class Rosella(Validator):
                     logging.info("Filtering disconnected contigs...")
                     self.filter()
                     self.fit_disconnect()
-
+                    logging.info(f"Filtered {self.disconnected.sum()} contigs...")
                     # 1. First pass of embeddings + clustering
                     self.kmer_signature = self.tnfs[~self.disconnected].iloc[:, 2:].values
                     self.coverage_profile = self.large_contigs[~self.disconnected].iloc[:, 3:].values
