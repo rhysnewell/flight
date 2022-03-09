@@ -476,14 +476,16 @@ def fit(args):
                     threads=int(args.threads),
                 )
                 try:
-                    de = distance.ProfileDistanceEngine()
-                    stat = de.makeRanksStatVariants(clusterer.clr_depths)
-                    clusterer.fit_transform(stat)
+                    # de = distance.ProfileDistanceEngine()
+                    # stat = de.makeRanksStatVariants(clusterer.clr_depths)
+                    logging.info("Calculating UMAP embeddings...")
+                    clusterer.fit_transform()
+                    logging.info("Calculating clusters...")
                     labels, validities, _, _ = Clusterer.ensemble_cluster_multiple_embeddings(
-                        [clusterer.precomputed_reducer_low.embedding_,
-                         clusterer.precomputed_reducer_mid.embedding_,
-                         clusterer.precomputed_reducer_high.embedding_],
+                        [clusterer.embeddings],
                         top_n=3,
+                        min_size_start=3,
+                        min_size_end=15,
                         metric="euclidean",
                         cluster_selection_methods="eom",
                         solver="hbgf",

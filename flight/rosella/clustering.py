@@ -163,9 +163,9 @@ class Clusterer(Binner):
             core_dist_n_jobs=threads,
             approx_min_span_tree=False
         )
-        clusterer.fit(distances)
 
         try:
+            clusterer.fit(distances)
             if metric != "precomputed":
                 cluster_validity = Clusterer.validity(
                     clusterer.labels_, distances, quick=True
@@ -174,7 +174,11 @@ class Clusterer(Binner):
                 cluster_validity = Clusterer.validity(
                     clusterer.labels_, embeddings_for_precomputed, quick=True
                 )
-        except (ValueError, FloatingPointError):
+        except (ValueError, FloatingPointError, SystemError, AttributeError):
+            """
+            SystemError occurs in some mysterious part of numpy. Seems C++ returns a NULL at some point
+            rather than a nice Python Error object and it can't recover. 
+            """
             try:
                 if metric != "precomputed":
                     cluster_validity = Clusterer.validity(
@@ -184,8 +188,9 @@ class Clusterer(Binner):
                     cluster_validity = Clusterer.validity(
                         clusterer.labels_, embeddings_for_precomputed, quick=False
                     )
-            except (ValueError, FloatingPointError):
+            except (ValueError, FloatingPointError, SystemError, AttributeError):
                 cluster_validity = -1
+                clusterer.labels_ = np.array([-1 for _ in range(distances.shape[0])])
 
         return (cluster_validity, min_size, min_sample, clusterer.labels_)
 
@@ -195,12 +200,13 @@ class Clusterer(Binner):
             metric="euclidean",
             selection_method="eom",
             top_n=3,
-            # min_sizes = [2, 4, 6, 8, 10],
-            # min_samples = [3, 6, 9, 12],
+            min_size_start=1,
+            min_size_end=10,
             solver="hbgf",
             threads=16,
             embeddings_for_precomputed=None,
             use_multiple_processes=True,
+
     ):
         """
         Uses cluster ensembling with ClusterEnsembles package to produce partitioned set of
@@ -236,7 +242,7 @@ class Clusterer(Binner):
                             threads
                         ),
                         timeout=1800,
-                    ) for (min_size, min_sample) in itertools.combinations(range(1, 10), 2) if min_size != 1
+                    ) for (min_size, min_sample) in itertools.combinations(range(min_size_start, min_size_end), 2) if min_size != 1
                 ]
                 # executor.close()
                 for future in futures:
@@ -285,7 +291,7 @@ class Clusterer(Binner):
                         min_size,
                         min_sample,
                         threads
-                ) for (min_size, min_sample) in itertools.combinations(range(1, 10), 2) if min_size != 1
+                ) for (min_size, min_sample) in itertools.combinations(range(min_size_start, min_size_end), 2) if min_size != 1
             ]
 
             for result in results:
@@ -327,12 +333,12 @@ class Clusterer(Binner):
             metric="euclidean",
             cluster_selection_methods="eom",
             top_n=3,
-            # min_sizes = [2, 4, 6, 8, 10],
-            # min_samples = [3, 6, 9, 12],
+            min_size_start=1,
+            min_size_end=10,
             solver="hbgf",
             threads=16,
             embeddings_for_precomputed=None,
-            use_multiple_processes=True,
+            use_multiple_processes=False,
     ):
         """
         Uses cluster ensembles to find best results across multiple different embeddings
@@ -359,6 +365,8 @@ class Clusterer(Binner):
                 metric,
                 cluster_selection_methods,
                 top_n,
+                min_size_start,
+                min_size_end,
                 solver,
                 threads,
                 embeddings_for_precomputed[idx],

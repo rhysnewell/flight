@@ -19,4 +19,4 @@ dependencies:
   - threadpoolctl
   - imageio
   - pebble
-  - umap-learn>=0.5
+  - umap-learn==0.5.1

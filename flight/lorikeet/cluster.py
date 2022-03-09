@@ -197,7 +197,7 @@ class Cluster:
             metric=metrics.rho_variants,
             a=a,
             b=b,
-            init="spectral"
+            init="spectral",
         )
         self.distance_reducer = umap.UMAP(
             n_neighbors=n_neighbors,
@@ -208,7 +208,7 @@ class Cluster:
             # metric=metrics.euclidean_variant,
             a=a,
             b=b,
-            init="spectral"
+            init="spectral",
         )
 
         self.precomputed_reducer_low = umap.UMAP(
@@ -266,31 +266,34 @@ class Cluster:
         # Not sure to include this
         pass
 
-    def fit_transform(self, stat, second_pass=False):
+    def fit_transform(self, second_pass=False):
         ## Calculate the UMAP embeddings
         try:
             if self.depths.shape[0] >= 5:
                 # dist_embeddings = self.distance_reducer.fit(self.clr_depths)
                 # rho_embeddings = self.rho_reducer.fit(self.clr_depths)
                 # intersect = dist_embeddings * rho_embeddings
-                self.precomputed_reducer_low.fit(sp_distance.squareform(stat))
-                self.precomputed_reducer_mid.fit(sp_distance.squareform(stat))
-                self.precomputed_reducer_high.fit(sp_distance.squareform(stat))
-                self.embeddings = self.precomputed_reducer_low.embedding_
+                dist_embeddings = self.distance_reducer.fit(self.clr_depths)
+                rho_embeddings = self.rho_reducer.fit(self.clr_depths)
+                logging.info("Calculating intersection...")
+                intersect = dist_embeddings * rho_embeddings
+                self.embeddings = intersect.embedding_
                 # self.embeddings = self.distance_reducer.fit_transform(self.clr_depths)
             else:
-                self.precomputed_reducer_low.embedding_ = self.clr_depths
-                self.precomputed_reducer_mid.embedding_ = self.clr_depths
-                self.precomputed_reducer_high.embedding_ = self.clr_depths
+                # self.precomputed_reducer_low.embedding_ = self.clr_depths
+                # self.precomputed_reducer_mid.embedding_ = self.clr_depths
+                # self.precomputed_reducer_high.embedding_ = self.clr_depths
                 self.embeddings = self.clr_depths
         except TypeError as e:
             if not second_pass:
                 ## TypeError occurs here on sparse input. So need to lower the number of components
                 ## That are trying to be embedded to. Choose minimum of 2
-                self.precomputed_reducer_low.n_components = 2
-                self.precomputed_reducer_mid.n_components = 2
-                self.precomputed_reducer_high.n_components = 2
-                self.fit_transform(stat, True)
+                # self.precomputed_reducer_low.n_components = 2
+                # self.precomputed_reducer_mid.n_components = 2
+                # self.precomputed_reducer_high.n_components = 2
+                self.distance_reducer.n_components = 2
+                self.rho_reducer.n_components = 2
+                self.fit_transform(True)
             else:
                 raise e
 
