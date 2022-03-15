@@ -55,6 +55,7 @@ setup(
         "tbb",
         "joblib",
         "pebble",
+        "biopython"
     ],
     entry_points={
           'console_scripts': [
