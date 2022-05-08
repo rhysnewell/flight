@@ -921,20 +921,16 @@ def get_single_contig_averages(contig_depth, depths, n_samples, sample_distances
 
     return values
 
-@njit(fastmath=True)
+# @njit(fastmath=True)
 def get_averages(depths, n_samples, sample_distances):
-    contigs = List()
-    tids = List()
+    contigs = np.zeros((depths.shape[0], 4), dtype=np.float64)
+    tids = list(range(depths.shape[0]))
     # distances = np.zeros((depths.shape[0], depths.shape[0]))
     w = (n_samples) / (n_samples + 1) # weighting by number of samples same as in metabat2
 
-    [(contigs.append(List([0.0, 0.0, 0.0, 0.0])), tids.append(x)) for x in range(depths.shape[0])]
+    # [(contigs.append(List([0.0, 0.0, 0.0, 0.0])), tids.append(x)) for x in range(depths.shape[0])]
 
     pairs = combinations(tids, 2)
-    mean_md = 0
-    mean_tnf = 0
-    mean_euc = 0
-    mean_agg = 0
 
     col_start = n_samples * 2
     
@@ -952,33 +948,18 @@ def get_averages(depths, n_samples, sample_distances):
 
         agg = np.sqrt((md**w) * (tnf_dist**(1-w)))
 
-        mean_md += md
-        mean_tnf += tnf_dist
-        mean_euc += tnf_euc
-        mean_agg += agg
-
-        contigs[i[0]][0] += md
-        contigs[i[0]][1] += tnf_dist
-        contigs[i[0]][2] += tnf_euc
-        contigs[i[0]][3] += agg
+        contigs[(i[0], i[1]), 0] += md
+        contigs[(i[0], i[1]), 1] += tnf_dist
+        contigs[(i[0], i[1]), 2] += tnf_euc
+        contigs[(i[0], i[1]), 3] += agg
 
 
-        contigs[i[1]][0] += md
-        contigs[i[1]][1] += tnf_dist
-        contigs[i[1]][2] += tnf_euc
-        contigs[i[1]][3] += agg
-
-
-    for i in range(len(contigs)):
-        contigs[i][0] /= (len(contigs) - 1)
-        contigs[i][1] /= (len(contigs) - 1)
-        contigs[i][2] /= (len(contigs) - 1)
-        contigs[i][3] /= (len(contigs) - 1)
+    contigs /= (len(contigs) - 1)
                 
-    mean_md = mean_md / len(pairs)
-    mean_tnf = mean_tnf / len(pairs)
-    mean_euc = mean_euc / len(pairs)
-    mean_agg = mean_agg / len(pairs)
+    mean_md = contigs[:, 0].mean()
+    mean_tnf = contigs[:, 1].mean()
+    mean_euc = contigs[:, 2].mean()
+    mean_agg = contigs[:, 3].mean()
     
     return mean_md, mean_tnf, mean_euc, mean_agg, contigs
 

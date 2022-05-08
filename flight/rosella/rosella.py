@@ -160,7 +160,7 @@ class Rosella(Validator):
     ):
         while n <= n_max:
             plots, n = self.validate_bins(plots, n, x_min, x_max, y_min, y_max,
-                                          big_only=True)
+                                          big_only=True, min_bin_size=self.min_bin_size)
             self.sort_bins()
             # plots, n = self.validate_bins(plots, n,
             #                               x_min, x_max,
@@ -260,6 +260,7 @@ class Rosella(Validator):
                         'contig_17512_pilon' # AalE
                     ]
                     self.plot(
+                        None,
                         self.findem
                     )
 
@@ -268,24 +269,31 @@ class Rosella(Validator):
                     # 2. Recover the unbinned tids, and then perform the same procedure on them
                     #    The idea here is to pick up any obvious clusters that were missed. We reembed
                     #    again to try and make the relationships more obvious than the original embedding.
+                    self.dissolve_bins()
                     self.embed_unbinned("unbinned_1")
                     logging.info("Refining bins...")
                     # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
                     self.slow_refine(plots, 0, 5, x_min, x_max, y_min, y_max)
-                    self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
+                    # self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
                     # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
 
                     logging.info("Third embedding.")
                     # 3. Recover the unbinned tids, and then perform the same procedure on them
                     #    The idea here is to pick up any obvious clusters that were missed. We reembed
                     #    again to try and make the relationships more obvious than the original embedding.
+                    self.dissolve_bins()
                     self.embed_unbinned("unbinned_2")
-
-                    self.slow_refine(plots, 0, 1, x_min, x_max, y_min, y_max)
-                    self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
+                    self.slow_refine(plots, 0, 2, x_min, x_max, y_min, y_max)
+                    # self.dissolve_bins(5e5)
+                    # self.embed_unbinned("unbinned_3")
+                    # self.slow_refine(plots, 0, 0, x_min, x_max, y_min, y_max)
+                    self.big_contig_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
+                    # self.dissolve_bins(1e6)
+                    # self.embed_unbinned("unbinned_4")
                     # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
                     self.get_labels_from_bins()
                     self.plot(
+                        None,
                         self.findem,
                         suffix="final"
                     )
@@ -320,6 +328,7 @@ class Rosella(Validator):
 
             self.labels = unbinned_labels
             self.plot(
+                unbinned,
                 [],
                 plot_bin_ids=True,
                 suffix=suffix

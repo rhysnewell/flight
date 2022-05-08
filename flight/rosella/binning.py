@@ -556,6 +556,26 @@ class Binner:
         return None
 
 
+    def dissolve_bins(self, min_bin_size=1e6):
+        bins = self.bins.keys()
+        bins_to_remove = []
+        for bin_id in bins:
+            tids = self.bins[bin_id]
+            # if len(tids) == 1 or bin_id == 0:
+            #     continue
+
+            contigs, log_lengths, tnfs = self.extract_contigs(tids)
+            bin_size = contigs['contigLen'].sum()
+            if bin_size < min_bin_size:
+                self.unbinned_tids = self.unbinned_tids + tids
+                bins_to_remove.append(bin_id)
+
+        for k in bins_to_remove:
+            try:
+                _ = self.bins.pop(k)
+            except KeyError:
+                pass
+
     def get_n_samples_and_distances(self):
         if self.n_samples > 0:
             n_samples = self.n_samples
@@ -594,54 +614,64 @@ class Binner:
         return mean_tnf, mean_agg, mean_md, per_contig_avg
             
         
-    def plot(self, findem=None, plot_bin_ids=False, suffix="initial"):
+    def plot(self, tids=None, findem=None, plot_bin_ids=False, suffix="initial"):
 
         if findem is None:
             findem = []
 
-        names = list(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigName'])
-        indices = []
-        for to_find in findem:
-            try:
-                indices.append(names.index(to_find))
-            except ValueError:
-                indices.append(-1)
-
+        # names = list(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigName'])
+        # indices = []
+        # for to_find in findem:
+        #     try:
+        #         indices.append(names.index(to_find))
+        #     except ValueError:
+        #         indices.append(-1)
+        if tids is None:
+            to_plot = self.large_contigs[~self.disconnected][~self.disconnected_intersected]
+        else:
+            to_plot = self.large_contigs[~self.disconnected][tids]
+        to_plot['x'] = self.embeddings[:, 0]
+        to_plot['y'] = self.embeddings[:, 1]
+        to_plot['label'] = self.labels
         label_set = set(self.labels)
         color_palette = sns.color_palette('husl', max(self.labels) + 1)
         cluster_colors = [
             color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in self.labels
         ]
+        to_plot['colour'] = cluster_colors
 # 
         # cluster_member_colors = [
             # sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
         # ]
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111)
 
         ## Plot large contig membership
-        ax.scatter(self.embeddings[:, 0],
-                   self.embeddings[:, 1],
-                   s=12,
-                   linewidth=0,
-                   c=cluster_colors,
-                   # c = self.clusterer.labels_,
-                   alpha=0.7)
+        sns.scatterplot(
+                data=to_plot,
+                x="x",
+                y="y",
+                sizes="contigLen",
+                linewidth=0,
+                hue="label",
+                legend=False,
+                # c = self.clusterer.labels_,
+                alpha=0.7)
 
-        if plot_bin_ids:
-            plotted_label = []
-            for i, label in enumerate(self.labels):
-                if label != -1 and label not in plotted_label:
-                    ax.annotate(str(label), xy=(self.embeddings[i, 0] - 0.5,
-                                               self.embeddings[i, 1] - 0.5),
-                                xycoords='data')
-                    plotted_label.append(label)
+        # if plot_bin_ids:
+        #     plotted_label = []
+        #     for i, label in enumerate(self.labels):
+        #         if label != -1 and label not in plotted_label:
+        #             ax.annotate(str(label), xy=(self.embeddings[i, 0] - 0.5,
+        #                                        self.embeddings[i, 1] - 0.5),
+        #                         xycoords='data')
+        #             plotted_label.append(label)
 
-        for i, idx in enumerate(indices):
-            if idx != -1:
-                ax.annotate(findem[i], xy=(self.embeddings[idx, 0],
-                                           self.embeddings[idx, 1]),
-                            xycoords='data')
+        # for i, idx in enumerate(indices):
+        #     if idx != -1:
+        #         ax.annotate(findem[i], xy=(self.embeddings[idx, 0],
+        #                                    self.embeddings[idx, 1]),
+        #                     xycoords='data')
 
         # plt.gca().set_aspect('equal', 'datalim')
         count_unbinned = len(self.labels[self.labels == -1])

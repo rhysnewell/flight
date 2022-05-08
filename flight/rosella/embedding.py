@@ -98,6 +98,8 @@ class Embedder(Binner):
             initial_disconnections = self.check_contigs(self.large_contigs['tid'], minimum_connections, close_check)
 
             disconnected = initial_disconnections #+ np.array(self.large_contigs['tid'].isin(
+            # disconnected = np.array([False for i in range(self.large_contigs.values.shape[0])])
+
         except ValueError: # Everything was disconnected
             disconnected = np.array([True for i in range(self.large_contigs.values.shape[0])])
 
@@ -164,7 +166,8 @@ class Embedder(Binner):
         index_dep = NNDescent(
             contigs.values[:, 3:],
             metric=metrics.metabat_distance_nn,
-            n_neighbors=30)
+            n_neighbors=30
+        )
 
         for idx, tid in enumerate(tids):
 
@@ -174,9 +177,14 @@ class Embedder(Binner):
             prob1 = min(skew_dist1.pdf(log_lengths[idx]), 1.0)
             prob2 = min(skew_dist2.pdf(log_lengths[idx]), 1.0)
             prob = max(prob1, prob2)
-            rho_thresh = min(max(prob * 0.5, 0.05), 1.0)
-            euc_thresh = min(max(prob * 10, 1.0), 10)
-            dep_thresh = min(max((prob / 2) + 0.05, 0.1), 1.0)
+            if prob2 > prob1:
+                rho_thresh = min(max(prob * 0.5, 0.05), 1.0)
+                euc_thresh = min(max(prob * 10, 1.0), 10)
+                dep_thresh = min(max((prob / 2) + 0.05, 0.1), 1.0)
+            else:
+                rho_thresh = min(max(prob * 0.5, 0.05), 1.0)
+                euc_thresh = min(max(prob * 10, 1.0), 10)
+                dep_thresh = min(max(prob * 0.5, 0.05), 1.0)
 
             dep_connected = sum(x <= dep_thresh
                                 for x in index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
