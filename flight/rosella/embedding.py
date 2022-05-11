@@ -182,9 +182,9 @@ class Embedder(Binner):
                 euc_thresh = min(max(prob * 10, 1.0), 10)
                 dep_thresh = min(max((prob / 2) + 0.05, 0.1), 1.0)
             else:
-                rho_thresh = min(max(prob * 0.5, 0.05), 1.0)
-                euc_thresh = min(max(prob * 10, 1.0), 10)
-                dep_thresh = min(max(prob * 0.5, 0.05), 1.0)
+                rho_thresh = min(max(prob * 0.5, 0.1), 1.0)
+                euc_thresh = min(max(prob * 10, 3.5), 10)
+                dep_thresh = min(max(prob * 0.5, 0.1), 1.0)
 
             dep_connected = sum(x <= dep_thresh
                                 for x in index_dep.neighbor_graph[1][idx, 1:(minimum_connections + 1)]) # exclude first index since it is to itself
@@ -381,6 +381,48 @@ class Embedder(Binner):
 
         return results
 
+    def fit_transform(self, tids, switches = None, set_embedding=False):
+        """
+        switches - controls which UMAP is performed. A switch of [0, 1, 2] will intersect three UMAPs:
+                    '0' = ADP UMAP
+                    '1' = Rho UMAP
+                    '2' = Euclidean UMAP
+                    Any UMAP that should not be performed can be replaced with 'None'. e.g. [0, 1, None] will intersect
+                    only ADP and Rho UMAPs
+
+        """
+        if switches is None:
+            switches = [0, 1, 2]
+
+        contigs, log_lengths, tnfs = self.extract_contigs(tids)
+
+        embedders = [] # embedders must be of length 3
+        for i in range(3): # thus we iterate thrice
+            if i in switches: # if i is in the switches provided, append the embedder
+                embedders.append(
+                    fit_transform_static(
+                        contigs, log_lengths, tnfs, self.n_neighbors,
+                        self.n_components, self.a, self.b, self.random_seed, i
+                    )
+                )
+            else: # Else append None
+                embedders.append(None)
+
+        # Embedders must have three indices due to this function assuming three
+        intersection = switch_intersector_static(
+            embedders[0],
+            embedders[1],
+            embedders[2]
+        )
+
+        if set_embedding:
+            self.embeddings = intersection.embedding_
+
+        return intersection.embedding_
+
+
+
+
 def multi_transform_static(
         stat,
         reducer=None,
@@ -407,49 +449,43 @@ def multi_transform_static(
         except TypeError:
             return None
 
-def switch_intersector_static(depth_reducer, tnf_reducer, euc_reducer, switch=None):
-    if switch is None:
-        switch = [0, 1, 2]
-    if 0 in switch and 1 in switch and 2 in switch:
-        # All
-        # print("All: Switch", switch)
+def switch_intersector_static(depth_reducer=None, tnf_reducer=None, euc_reducer=None):
+    if depth_reducer is not None and tnf_reducer is not None and euc_reducer is not None:
         return depth_reducer * tnf_reducer * euc_reducer
-    elif 0 in switch and 1 in switch:
+    elif depth_reducer is not None and tnf_reducer is not None:
         # Rho and MD
         # print("MD and TNF: Switch", switch)
         return depth_reducer * tnf_reducer
-    elif 0 in switch and 2 in switch:
+    elif depth_reducer is not None and euc_reducer is not None:
         # print("MD and EUC: Switch", switch)
         return depth_reducer * euc_reducer
-    elif 1 in switch and 2 in switch:
+    elif tnf_reducer is not None and euc_reducer is not None:
         # print("EUC and TNF: Switch", switch)
         return tnf_reducer * euc_reducer
-    elif 0 in switch:
+    elif depth_reducer is not None:
         # print("MD: Switch", switch)
         return depth_reducer
-    elif 1 in switch:
+    elif tnf_reducer is not None:
         # print("TNF: Switch", switch)
         return tnf_reducer
-    elif 2 in switch:
+    elif euc_reducer is not None:
         # print("EUC: Switch", switch)
         return euc_reducer
 
 
 def fit_transform_static(
         contigs, log_lengths, tnfs,
-        n_neighbours, n_samples, sample_distances,
+        n_neighbours, n_components,
         a, b, random_seed,
         switch=0):
     np.random.seed(random_seed)
     random.seed(random_seed)
     if switch == 0:
         depth_reducer = umap.UMAP(
-            metric=metrics.aggregate_tnf,
+            metric=metrics.metabat_distance_nn,
             # disconnection_distance=2,
-            metric_kwds={"n_samples": n_samples,
-                         "sample_distances": sample_distances},
             n_neighbors=n_neighbours,
-            n_components=2,
+            n_components=n_components,
             min_dist=0,
             set_op_mix_ratio=1,
             a=a,
@@ -457,16 +493,14 @@ def fit_transform_static(
             random_state=random_seed
         )
 
-        return depth_reducer.fit(
-            np.concatenate(
-                (contigs.iloc[:, 3:], log_lengths.values[:, None], tnfs.iloc[:, 2:]), axis=1)
-        )
+        return depth_reducer.fit(contigs.iloc[:, 3:].values)
+
     elif switch == 1:
         tnf_reducer = umap.UMAP(
             metric=metrics.rho,
             # disconnection_distance=2,
             n_neighbors=n_neighbours,
-            n_components=2,
+            n_components=n_components,
             min_dist=0,
             set_op_mix_ratio=1,
             a=a,
@@ -474,18 +508,14 @@ def fit_transform_static(
             random_state=random_seed
         )
 
-        return tnf_reducer.fit(
-            np.concatenate(
-                (log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
-                axis=1)
-        )
+        return tnf_reducer.fit(tnfs.iloc[:, 2:].values)
+
     elif switch == 2:
         euc_reducer = umap.UMAP(
             metric=metrics.tnf_euclidean,
             # disconnection_distance=10,
             n_neighbors=n_neighbours,
-            n_components=2,
+            n_components=n_components,
             min_dist=0,
             set_op_mix_ratio=1,
             a=a,
@@ -494,8 +524,5 @@ def fit_transform_static(
         )
 
         return euc_reducer.fit(
-            np.concatenate(
-                (log_lengths.values[:, None],
-                 tnfs.iloc[:, 2:]),
-                axis=1)
+            tnfs.iloc[:, 2:].values
         )

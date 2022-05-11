@@ -236,7 +236,7 @@ class Clusterer(Binner):
                             threads
                         ),
                         timeout=1800,
-                    ) for (min_size, min_sample) in itertools.combinations(range(1, 10), 2) if min_size != 1
+                    ) for (min_size, min_sample) in itertools.permutations(range(1, 10), 2) if min_size != 1 and min_sample <= min_size
                 ]
                 # executor.close()
                 for future in futures:
@@ -285,7 +285,7 @@ class Clusterer(Binner):
                         min_size,
                         min_sample,
                         threads
-                ) for (min_size, min_sample) in itertools.combinations(range(1, 10), 2) if min_size != 1
+                ) for (min_size, min_sample) in itertools.permutations(range(2, 10), 2) if min_size != 1 and min_sample <= min_size
             ]
 
             for result in results:

@@ -41,6 +41,7 @@ import scipy.spatial.distance as sp_distance
 import threadpoolctl
 import warnings
 import signal
+import random
 
 # self imports
 import flight.metrics as metrics
@@ -424,9 +425,9 @@ class Validator(Clusterer, Embedder):
                                            + np.array(per_contig_avg[:, 1] >= r_upper) \
                                            + np.array(per_contig_avg[:, 2] >= e_upper)
 
-                misplaced_array = np.array(per_contig_avg[:, 0] > m_level) \
-                                  + np.array(per_contig_avg[:, 1] > r_level) \
-                                  + np.array(per_contig_avg[:, 2] > e_level)
+                misplaced_array = np.array(per_contig_avg[:, 0] >= m_level) \
+                                  + np.array(per_contig_avg[:, 1] >= r_level) \
+                                  + np.array(per_contig_avg[:, 2] >= e_level)
                 # very_misplaced_array = np.array(per_contig_avg[:, 0] > m_level) + np.array(per_contig_avg[:, 1] > r_level) + np.array(per_contig_avg[:, 2] > e_level)
                 if contigs['contigLen'][misplaced_array].sum() >= 1.0e6:
                     misplaced_contigs = True
@@ -449,15 +450,15 @@ class Validator(Clusterer, Embedder):
                     if bin_contamination > max_contamination or bin_size >= max_bin_size:
                         factor = 1
                     elif bin_size >= 16e6:
-                        factor = min(max(m_level, a_level) * 2, 1.0)
+                        factor = min(max(m_level, a_level) * 2.5, 1.0)
                     elif bin_size >= 14e6 or very_misplaced_contigs:
-                        factor = min(max(m_level, a_level) * 1.5, 1.0)
+                        factor = min(max(m_level, a_level) * 2.0, 1.0)
                     elif misplaced_contigs or bin_size >= 12e6:
-                        factor = min(max(m_level, a_level), 1.0)
+                        factor = min(max(m_level, a_level) * 1.5, 1.0)
                     # elif bin_size >= 10e6:
                     #     factor = min(max(mean_md, mean_agg) * 1.25, 1.0)
                     else:
-                        factor = max(a_upper, m_upper)
+                        factor = min(max(a_upper, m_upper) * 1.25, 1.0)
                     reembed_separately.append(bin_id)
                     lower_thresholds.append(1 - factor)
                     force_new_clustering.append(True)  # send it to turbo hell
@@ -916,7 +917,12 @@ def reembed_static(
                 # contigs, log_lengths, tnfs = self.extract_contigs(tids)
                 # try:
                 embeddings = []
-                for i in range(3, 4):
+                for i in range(0, 2):
+                    seed = random_seed << i
+                    if seed >= 2**32:
+                        random_seed = random.randint(69, 420)
+                        seed = random_seed << i
+
                     precomputed_reducer_low = umap.UMAP(
                         metric="precomputed",
                         n_neighbors=max_n_neighbours,
@@ -924,7 +930,7 @@ def reembed_static(
                         a=1.48,
                         b=0.3,
                         n_jobs=threads,
-                        random_state = random_seed * i
+                        random_state = random_seed << i
                     )
 
                     precomputed_reducer_mid = umap.UMAP(
@@ -934,7 +940,7 @@ def reembed_static(
                         a=1.48,
                         b=0.4,
                         n_jobs=threads,
-                        random_state = (random_seed * i) << 2
+                        random_state = random_seed << i
                     )
 
                     try:
@@ -1053,7 +1059,7 @@ def reembed_static(
                     reembed,
                     force,
                     debug,
-                    random_seed << 3,
+                    random_seed << 1 + random.randint(69, 420),
                     threads,
                     attempts + 1,
                     max_attempts
