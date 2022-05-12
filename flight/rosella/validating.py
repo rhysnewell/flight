@@ -447,7 +447,9 @@ class Validator(Clusterer, Embedder):
 
                     if debug:
                         print("Reclustering bin %d" % bin_id)
-                    if bin_contamination > max_contamination or bin_size >= max_bin_size:
+                    if bin_contamination > max_contamination:
+                        factor = min(max(m_level, a_level) * 3.0 + bin_contamination / 100, 1.0)
+                    elif bin_size >= max_bin_size:
                         factor = 1
                     elif bin_size >= 16e6:
                         factor = min(max(m_level, a_level) * 2.5, 1.0)

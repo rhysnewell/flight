@@ -120,7 +120,7 @@ class Rosella(Validator):
             y_max=20,
             large_bins_only=False,
             min_completeness=50.0,
-            max_contamination=10.0,
+            max_contamination=20.0,
             min_bin_size_for_averages=1e6,
             contaminated_only=False,
             refining_mode=False,
