@@ -76,7 +76,7 @@ class Validator(Clusterer, Embedder):
         n_usable_bins = 0
         for bin_id in self.bins:
             tids = self.bins[bin_id]
-
+            tids = set(tids)
             if len(tids) == 1:
                 continue
             elif bin_id == 0:
@@ -125,6 +125,7 @@ class Validator(Clusterer, Embedder):
             max_contamination = 10,
             bin_completeness = None,
             bin_contamination = None,
+            debug = False,
     ):
         """
         If a bin isn't reclustering even though it looks like it should be, then it likely has
@@ -154,16 +155,25 @@ class Validator(Clusterer, Embedder):
                                  n_samples,
                                  sample_distances)
 
-        per_contig_avg = np.array(per_contig_avg)
 
         removed = []
 
-        a_level = max(0.35, mean_agg * 2)
-        m_level = max(0.3, mean_md * 2)
-        r_level = max(0.15, mean_tnf * 2)
-        e_level = max(6, mean_euc * 2)
+        std_md = per_contig_avg[:, 0].std()
+        std_tnf = per_contig_avg[:, 1].std()
+        std_euc = per_contig_avg[:, 2].std()
+        std_agg = per_contig_avg[:, 3].std()
 
-        while True:
+        a_level = min(max(0.35, mean_agg * 2), mean_agg + std_agg * 3.0)
+        m_level = min(max(0.3, mean_md * 2), mean_md + std_md * 3.0)
+        r_level = min(max(0.15, mean_tnf * 2), mean_tnf + std_tnf * 3.0)
+        e_level = min(max(6, mean_euc * 2), mean_euc + std_euc * 3.0)
+
+        if debug:
+            print(f"Pruning {bin_id} {a_level} {m_level} {r_level} {e_level}")
+
+        counter = 0
+        while counter <= 20:
+            counter += 1
             # check for any obviously misplaced contigs
             for (tid, avgs, log_length) in zip(tids, per_contig_avg, log_lengths):
                 if log_length <= max_contig_size and (avgs[0] >= m_level or avgs[1] >= r_level or avgs[2] >= e_level):
@@ -189,13 +199,15 @@ class Validator(Clusterer, Embedder):
                 m_level *= 0.9
                 r_level *= 0.9
                 e_level *= 0.9
+                if debug:
+                    print(f"Reducing {bin_id} {a_level} {m_level} {r_level} {e_level}")
                 continue
             else:
                 break
 
 
     def retrieve_bin_checkm_stats(self, bin_id):
-        bin_completeness, bin_contamination = 0, 0
+        bin_completeness, bin_contamination = 100, 0
         if self.input_bin_stats is not None:
             bin_in_input_stats = self.input_bin_stats["bin_index"] == bin_id
             if np.any(bin_in_input_stats):
@@ -243,10 +255,11 @@ class Validator(Clusterer, Embedder):
         bins = self.bins.keys()
         for bin_id in bins:
             bin_completeness, bin_contamination = self.retrieve_bin_checkm_stats(bin_id)
-
+            if debug:
+                print(f"{bin_id} {bin_completeness} {bin_contamination}")
             # first guard check for contaminated only flag
             if n == 0 and contaminated_only:
-                if bin_contamination <= max_contamination:
+                if bin_contamination <= max_contamination or bin_completeness <= min_completeness:
                     # remove this bin from further analysis
                     bins_to_remove.append(bin_id)
                     continue
@@ -461,6 +474,9 @@ class Validator(Clusterer, Embedder):
                     #     factor = min(max(mean_md, mean_agg) * 1.25, 1.0)
                     else:
                         factor = min(max(a_upper, m_upper) * 1.25, 1.0)
+
+                    if debug:
+                        print(f"{bin_id} {factor} {bin_size}")
                     reembed_separately.append(bin_id)
                     lower_thresholds.append(1 - factor)
                     force_new_clustering.append(True)  # send it to turbo hell
@@ -502,6 +518,8 @@ class Validator(Clusterer, Embedder):
 
                 try:
                     signal.alarm(300)
+                    if debug:
+                        print(f"{bin_id} reembedding")
                     result = reembed_static(
                         bin_id,
                         self.bins[bin_id],
@@ -524,6 +542,8 @@ class Validator(Clusterer, Embedder):
                         self.threads,
                     )
                     signal.alarm(0)
+                    if debug:
+                        print(f"{bin_id} handling")
                     plots, remove = self.handle_new_embedding(
                         result[0], result[1], result[2], result[3], result[4],
                         plots, n, x_min, x_max, y_min, y_max, False, result[6], debug=False
@@ -563,7 +583,8 @@ class Validator(Clusterer, Embedder):
                                 min_completeness,
                                 max_contamination,
                                 bin_completeness,
-                                bin_contamination
+                                bin_contamination,
+                                debug=debug
                             )
                         except ZeroDivisionError:
                             # Only one contig left, break out
@@ -932,7 +953,7 @@ def reembed_static(
                         a=1.48,
                         b=0.3,
                         n_jobs=threads,
-                        random_state = random_seed << i
+                        random_state = seed
                     )
 
                     precomputed_reducer_mid = umap.UMAP(
@@ -942,7 +963,7 @@ def reembed_static(
                         a=1.48,
                         b=0.4,
                         n_jobs=threads,
-                        random_state = random_seed << i
+                        random_state = seed
                     )
 
                     try:

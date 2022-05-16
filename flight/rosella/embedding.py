@@ -183,7 +183,7 @@ class Embedder(Binner):
                 dep_thresh = min(max((prob / 2) + 0.05, 0.1), 1.0)
             else:
                 rho_thresh = min(max(prob * 0.5, 0.05), 1.0)
-                euc_thresh = min(max(prob * 10, 2), 10)
+                euc_thresh = min(max(prob * 10, 2.5), 10)
                 dep_thresh = min(max(prob * 0.5, 0.1), 1.0)
 
             dep_connected = sum(x <= dep_thresh

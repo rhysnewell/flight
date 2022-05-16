@@ -124,6 +124,7 @@ class Rosella(Validator):
             min_bin_size_for_averages=1e6,
             contaminated_only=False,
             refining_mode=False,
+            debug=False,
     ):
         # Each cluster is checked for internal metrics. If the metrics look bad then
         # Recluster -> re-embed -> recluster. If any of the new clusters look better
@@ -141,7 +142,9 @@ class Rosella(Validator):
                                           max_contamination=max_contamination,
                                           min_bin_size=min_bin_size_for_averages,
                                           contaminated_only=contaminated_only,
-                                          refining_mode=refining_mode)
+                                          refining_mode=refining_mode,
+                                          debug=debug
+                                          )
             self.sort_bins()
             n += 1
             if not self.overclustered:
@@ -414,7 +417,7 @@ class Rosella(Validator):
                 logging.info("Refining bins...")
                 x_min, x_max, y_min, y_max = 20, 20, 20, 20 # default plotting margins
 
-                self.slow_refine(plots, 0, 10, x_min, x_max, y_min, y_max, False, float(args.min_completeness), float(args.max_contamination), 0, args.contaminated_only, True)
+                self.slow_refine(plots, 0, 10, x_min, x_max, y_min, y_max, False, float(args.min_completeness), float(args.max_contamination), 0, args.contaminated_only, True, True)
                 self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
                 self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
                 logging.info(f"Writing bins... {len(self.bins.keys())}")

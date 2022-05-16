@@ -199,11 +199,12 @@ class Binner:
         n_components = min(max(self.n_samples + self.long_samples, 2), 10)
         # n_components = 2
 
-        self.a = 1.48
-        # self.a = a
-        numerator = min(max(np.log10(self.nX(25)[1]), np.log10(50000)), np.log10(100000))
+
+        numerator = max(np.log10(self.nX(25)[1]), np.log10(50000))
         # set self.b by scaling the based on the n25 of the sample, between 0.3 and 0.4
-        self.b = 0.1 * ((numerator - np.log10(50000)) / (np.log10(100000) - np.log10(50000))) + 0.3
+        self.b = 0.1 * ((numerator - np.log10(50000)) / (min(np.log10(500000), self.nX(75)[1]) - numerator)) + 0.3
+        self.a = min(max(self.large_contigs.shape[0] / 15000 + 1.0, 1.4), 2.0)
+        # self.a = a
 
         self.precomputed_reducer_low = umap.UMAP(
             metric="precomputed",
