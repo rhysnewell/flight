@@ -607,12 +607,6 @@ def rho(x, y):
     return - This is a transformed, inversed version of rho. Normal rho -1 <= rho <= 1
     transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
     """
-
-    # rp = max(a[0], b[0], 1)
-    # rp = 1
-    # # l = 0
-    # x = a[1:]
-    # y = b[1:]
     mu_x = 0.0
     mu_y = 0.0
     norm_x = 0.0
