@@ -243,7 +243,11 @@ class Rosella(Validator):
                     # 1. First pass of embeddings + clustering
                     self.kmer_signature = self.tnfs[~self.disconnected].iloc[:, 2:].values
                     self.coverage_profile = self.large_contigs[~self.disconnected].iloc[:, 3:].values
-                    self.labels = self.perform_embedding(self.large_contigs[~self.disconnected]['tid'].values, switches=[0, 1, None], set_embedding=True)
+                    if self.n_samples <= 1:
+                        switches = [0, 1, None]
+                    else:
+                        switches = [0, None, 2]
+                    self.labels = self.perform_embedding(self.large_contigs[~self.disconnected]['tid'].values, switches=[0, None, 2], set_embedding=True)
 
                     ## Plot limits
                     x_min = min(self.embeddings[:, 0]) - 10

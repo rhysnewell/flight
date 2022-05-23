@@ -343,10 +343,17 @@ class Validator(Clusterer, Embedder):
                     r_level = 0.15
                     e_level = 4
 
-                    if ((round(mean_md, 2) >= md_filt
-                         or round(mean_agg, 2) >= agg_filt
-                         or round(mean_tnf, 2) >= r_level)
-                        and bin_size > 1e6) or bin_size >= 15e6:
+                    # detect if a large portion of contigs seem out of place
+                    misplaced_contigs = False
+
+                    misplaced_array = np.array(per_contig_avg[:, 0] >= md_filt) \
+                                      + np.array(per_contig_avg[:, 1] >= rho_filt) \
+                                      + np.array(per_contig_avg[:, 2] >= euc_filt)
+
+                    if contigs['contigLen'][misplaced_array].sum() >= 1.0e6:
+                        misplaced_contigs = True
+
+                    if misplaced_contigs or bin_size >= 15e6:
                         if debug:
                             print("Checking big contigs for bin: ", bin_id)
                         for max_idx in range(per_contig_avg.shape[0]):
@@ -359,13 +366,9 @@ class Validator(Clusterer, Embedder):
 
                             if debug:
                                 print("Found large contig: ", max_idx, tids[max_idx])
-                            if (max_values[3] >= agg_filt or max_values[0] >= md_filt) and \
+                            if (max_values[3] >= agg_filt or max_values[0] >= md_filt) or \
                                     (max_values[1] >= rho_filt
-                                     or max_values[2] >= euc_filt) or \
-                                    (max_values[3] >= 0.1 or max_values[0] >= 0.1) and \
-                                    (max_values[1] >= 0.2
-                                     or max_values[2] >= e_level) \
-                                    or bin_size >= 15e6:
+                                     or max_values[2] >= euc_filt):
                                 if debug:
                                     print("Removing contig: ", max_idx, tids[max_idx])
                                 removed_single.append(tids[max_idx])
@@ -461,7 +464,7 @@ class Validator(Clusterer, Embedder):
                     if debug:
                         print("Reclustering bin %d" % bin_id)
                     if bin_contamination > max_contamination:
-                        factor = min(max(m_level, a_level) * 3.0 + bin_contamination / 100, 1.0)
+                        factor = min(max(m_level, a_level) * 5.0 + bin_contamination / 100, 1.0)
                     elif bin_size >= max_bin_size:
                         factor = 1
                     elif bin_size >= 16e6:
@@ -556,39 +559,40 @@ class Validator(Clusterer, Embedder):
                         self.overclustered = True
 
                     else:
-                        try:
-                            contigs, log_lengths, tnfs = self.extract_contigs(self.bins[result[0]])
-                            bin_completeness, bin_contamination = self.retrieve_bin_checkm_stats(result[0])
-                            bin_size = contigs['contigLen'].sum()
-                            if result[4] == 0.0:
-                                max_contig_size_to_remove = 1e9 # essentially unlimited
-                            elif result[5]:
-                                max_contig_size_to_remove = 1e5
-                            else:
-                                max_contig_size_to_remove = 1e4
-
-                            if debug:
-                                print(f"max contig size to remove {max_contig_size_to_remove} for {result[0]}")
-                            self.prune_bin(
-                                result[0],
-                                self.bins[result[0]],
-                                contigs,
-                                log_lengths,
-                                tnfs,
-                                n_samples,
-                                sample_distances,
-                                max_contig_size_to_remove,
-                                bins_to_remove,
-                                something_changed,
-                                min_completeness,
-                                max_contamination,
-                                bin_completeness,
-                                bin_contamination,
-                                debug=debug
-                            )
-                        except ZeroDivisionError:
-                            # Only one contig left, break out
-                            continue
+                        continue
+                        # try:
+                        #     contigs, log_lengths, tnfs = self.extract_contigs(self.bins[result[0]])
+                        #     bin_completeness, bin_contamination = self.retrieve_bin_checkm_stats(result[0])
+                        #     bin_size = contigs['contigLen'].sum()
+                        #     if result[4] == 0.0:
+                        #         max_contig_size_to_remove = 1e9 # essentially unlimited
+                        #     elif result[5]:
+                        #         max_contig_size_to_remove = 1e5
+                        #     else:
+                        #         max_contig_size_to_remove = 1e4
+                        #
+                        #     if debug:
+                        #         print(f"max contig size to remove {max_contig_size_to_remove} for {result[0]}")
+                        #     self.prune_bin(
+                        #         result[0],
+                        #         self.bins[result[0]],
+                        #         contigs,
+                        #         log_lengths,
+                        #         tnfs,
+                        #         n_samples,
+                        #         sample_distances,
+                        #         max_contig_size_to_remove,
+                        #         bins_to_remove,
+                        #         something_changed,
+                        #         min_completeness,
+                        #         max_contamination,
+                        #         bin_completeness,
+                        #         bin_contamination,
+                        #         debug=debug
+                        #     )
+                        # except ZeroDivisionError:
+                        #     # Only one contig left, break out
+                        #     continue
 
                 except TimeoutError:
 
