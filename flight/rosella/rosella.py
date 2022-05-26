@@ -272,7 +272,7 @@ class Rosella(Validator):
                         self.findem
                     )
 
-                    self.embed_unbinned(self.findem, "unbinned_1")
+                    self.embed_unbinned(self.findem, "unbinned_1", switches)
                     logging.info("Second embedding.")
                     self.sort_bins()
                     # 2. Recover the unbinned tids, and then perform the same procedure on them
@@ -294,8 +294,8 @@ class Rosella(Validator):
                     # self.embed_unbinned("unbinned_2")
                     # self.slow_refine(plots, 0, 2, x_min, x_max, y_min, y_max)
                     self.dissolve_bins(1e6)
-                    self.embed_unbinned(self.findem, "unbinned_2")
-                    self.embed_unbinned(self.findem, "unbinned_3")
+                    self.embed_unbinned(self.findem, "unbinned_2", switches)
+                    self.embed_unbinned(self.findem, "unbinned_3", switches)
                     # self.slow_refine(plots, 0, 0, x_min, x_max, y_min, y_max)
                     # self.big_contig_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
                     # self.dissolve_bins(1e6)
@@ -322,7 +322,7 @@ class Rosella(Validator):
         pass
 
 
-    def embed_unbinned(self, findem = None, suffix="unbinned"):
+    def embed_unbinned(self, findem = None, suffix="unbinned", switches=None):
         try:
             self.get_labels_from_bins()
             all_embedded = self.embeddings
@@ -334,7 +334,10 @@ class Rosella(Validator):
             self.kmer_signature = self.tnfs[~self.disconnected][unbinned].iloc[:, 2:].values
             self.coverage_profile = self.large_contigs[~self.disconnected][unbinned].iloc[:, 3:].values
 
-            unbinned_labels = self.perform_embedding(self.large_contigs[~self.disconnected][unbinned]['tid'].values, switches=[0, 1, 2], set_embedding=True)
+            try:
+                unbinned_labels = self.perform_embedding(self.large_contigs[~self.disconnected][unbinned]['tid'].values, switches=switches, set_embedding=True)
+            except (IndexError, TypeError):
+                unbinned_labels = np.array([-1 for _ in range(len(unbinned))])
 
             self.labels = unbinned_labels
             self.plot(
