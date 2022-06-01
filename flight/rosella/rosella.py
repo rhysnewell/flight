@@ -204,6 +204,8 @@ class Rosella(Validator):
                 # generate umap embeddings
                 logging.info("Fitting precomputed matrix using UMAP...")
                 # embeddings = self.fit_transform_precomputed(stat, set_embedding)
+                if len(tids) <= self.n_neighbors:
+                    return np.array([-1 for _ in tids])
                 embeddings = self.fit_transform(tids, switches=switches, set_embedding=set_embedding)
                 # ensemble clustering against each umap embedding
                 logging.info("Clustering UMAP embedding...")
@@ -335,7 +337,10 @@ class Rosella(Validator):
             self.coverage_profile = self.large_contigs[~self.disconnected][unbinned].iloc[:, 3:].values
 
             try:
-                unbinned_labels = self.perform_embedding(self.large_contigs[~self.disconnected][unbinned]['tid'].values, switches=switches, set_embedding=True)
+                if len(unbinned) > self.n_neighbors:
+                    unbinned_labels = self.perform_embedding(self.large_contigs[~self.disconnected][unbinned]['tid'].values, switches=switches, set_embedding=True)
+                else:
+                    unbinned_labels = np.array([-1 for _ in range(len(unbinned))])
             except (IndexError, TypeError):
                 unbinned_labels = np.array([-1 for _ in range(len(unbinned))])
 

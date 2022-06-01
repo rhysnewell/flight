@@ -484,7 +484,7 @@ def fit_transform_static(
         depth_reducer = umap.UMAP(
             metric=metrics.metabat_distance_nn,
             # disconnection_distance=2,
-            n_neighbors=n_neighbours,
+            n_neighbors=min(n_neighbours, contigs.shape[0] // 2),
             n_components=n_components,
             min_dist=0,
             set_op_mix_ratio=1,
@@ -499,7 +499,7 @@ def fit_transform_static(
         tnf_reducer = umap.UMAP(
             metric=metrics.rho,
             # disconnection_distance=2,
-            n_neighbors=n_neighbours,
+            n_neighbors=min(n_neighbours, contigs.shape[0] // 2),
             n_components=n_components,
             min_dist=0,
             set_op_mix_ratio=1,
@@ -514,7 +514,7 @@ def fit_transform_static(
         euc_reducer = umap.UMAP(
             metric=metrics.tnf_euclidean,
             # disconnection_distance=10,
-            n_neighbors=n_neighbours,
+            n_neighbors=min(n_neighbours, contigs.shape[0] // 2),
             n_components=n_components,
             min_dist=0,
             set_op_mix_ratio=1,
