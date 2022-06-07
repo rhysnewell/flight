@@ -199,11 +199,13 @@ class Binner:
         n_components = min(max(self.n_samples + self.long_samples, 2), 10)
         # n_components = 2
 
-        self.a = 1.48
-        # self.a = a
-        numerator = min(max(np.log10(self.nX(25)[1]), np.log10(50000)), np.log10(100000))
+
+        numerator = max(np.log10(self.nX(25)[1]), np.log10(50000))
         # set self.b by scaling the based on the n25 of the sample, between 0.3 and 0.4
-        self.b = 0.1 * ((numerator - np.log10(50000)) / (np.log10(100000) - np.log10(50000))) + 0.4
+        self.b = min(max(0.1 * (numerator / (max(np.log10(500000), np.log10(self.nX(75)[1])))) + 0.2, 0.3), 0.4)
+        # self.b = max(min(np.log10(self.nX(10)[1]) * 0.1, 0.3), 0.5)
+        self.a = min(max(np.log10(self.nX(10)[1]) * 0.1 + 1.0, 1.4), 2.0)
+        # self.a = a
 
         self.precomputed_reducer_low = umap.UMAP(
             metric="precomputed",
@@ -340,27 +342,33 @@ class Binner:
                 indices.append(-1)
 
         # print(labels)
-        plots.append(utils.plot_for_offset(unbinned_embeddings, labels, x_min, x_max, y_min, y_max, n))
-        color_palette = sns.color_palette('husl', max(labels) + 1)
-        cluster_colors = [
-            color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in labels
-        ]
+        # plots.append(utils.plot_for_offset(unbinned_embeddings, labels, x_min, x_max, y_min, y_max, n))
 
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
 
-        ## Plot large contig membership
-        ax.scatter(unbinned_embeddings[:, 0],
-                   unbinned_embeddings[:, 1],
-                   s=20,
-                   linewidth=0,
-                   c=cluster_colors,
-                   alpha=0.7)
+        contigs['x'] = unbinned_embeddings[:, 0]
+        contigs['y'] = unbinned_embeddings[:, 1]
+        contigs['label'] = labels
+        # label_set = set(labels)
+
+        sns.scatterplot(
+            data=contigs,
+            x="x",
+            y="y",
+            size="contigLen",
+            sizes=(20, 500),
+            linewidth=0,
+            hue="label",
+            legend="brief",
+            # c = self.clusterer.labels_,
+            alpha=0.5,
+            # palette=palette,
+        )
+
         found = False
         for i, index in enumerate(indices):
             if index != -1:
-                ax.annotate(self.findem[i], xy=(unbinned_embeddings[index, 0], unbinned_embeddings[index, 1]),
-                            xycoords='data')
+                # ax.annotate(self.findem[i], xy=(unbinned_embeddings[index, 0], unbinned_embeddings[index, 1]),
+                #             xycoords='data')
                 found = True
 
         total_new_bins = len(set(labels))
@@ -372,6 +380,8 @@ class Binner:
 
         if found:
             plt.savefig(format('%s/UMAP_projection_of_problem_cluster_%d.png' % (self.path, n)))
+
+        plt.clf()
 
         return plots
 
@@ -556,6 +566,26 @@ class Binner:
         return None
 
 
+    def dissolve_bins(self, min_bin_size=1e6):
+        bins = self.bins.keys()
+        bins_to_remove = []
+        for bin_id in bins:
+            tids = self.bins[bin_id]
+            # if len(tids) == 1 or bin_id == 0:
+            #     continue
+
+            contigs, log_lengths, tnfs = self.extract_contigs(tids)
+            bin_size = contigs['contigLen'].sum()
+            if bin_size < min_bin_size:
+                self.unbinned_tids = self.unbinned_tids + tids
+                bins_to_remove.append(bin_id)
+
+        for k in bins_to_remove:
+            try:
+                _ = self.bins.pop(k)
+            except KeyError:
+                pass
+
     def get_n_samples_and_distances(self):
         if self.n_samples > 0:
             n_samples = self.n_samples
@@ -594,12 +624,20 @@ class Binner:
         return mean_tnf, mean_agg, mean_md, per_contig_avg
             
         
-    def plot(self, findem=None, plot_bin_ids=False, suffix="initial"):
+    def plot(self, tids=None, findem=None, plot_bin_ids=False, suffix="initial"):
 
         if findem is None:
             findem = []
 
-        names = list(self.large_contigs[~self.disconnected][~self.disconnected_intersected]['contigName'])
+
+
+        if tids is None:
+            to_plot = self.large_contigs[~self.disconnected]
+            names = list(self.large_contigs[~self.disconnected]['contigName'])
+        else:
+            to_plot = self.large_contigs[~self.disconnected][tids]
+            names = list(self.large_contigs[~self.disconnected][tids]['contigName'])
+
         indices = []
         for to_find in findem:
             try:
@@ -607,49 +645,53 @@ class Binner:
             except ValueError:
                 indices.append(-1)
 
+        to_plot['x'] = self.embeddings[:, 0]
+        to_plot['y'] = self.embeddings[:, 1]
+        to_plot['label'] = self.labels
         label_set = set(self.labels)
-        color_palette = sns.color_palette('husl', max(self.labels) + 1)
-        cluster_colors = [
-            color_palette[x] if x >= 0 else (0.0, 0.0, 0.0) for x in self.labels
-        ]
 # 
         # cluster_member_colors = [
             # sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
         # ]
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111)
+        # palette = sns.color_palette('hls', len(label_set))
         ## Plot large contig membership
-        ax.scatter(self.embeddings[:, 0],
-                   self.embeddings[:, 1],
-                   s=12,
-                   linewidth=0,
-                   c=cluster_colors,
-                   # c = self.clusterer.labels_,
-                   alpha=0.7)
+        sns.scatterplot(
+                data=to_plot,
+                x="x",
+                y="y",
+                size="contigLen",
+                sizes=(20, 500),
+                linewidth=0,
+                hue="label",
+                legend="brief",
+                # c = self.clusterer.labels_,
+                alpha=0.5,
+                # palette=palette,
+        )
 
         if plot_bin_ids:
             plotted_label = []
             for i, label in enumerate(self.labels):
                 if label != -1 and label not in plotted_label:
-                    ax.annotate(str(label), xy=(self.embeddings[i, 0] - 0.5,
-                                               self.embeddings[i, 1] - 0.5),
-                                xycoords='data')
+                    plt.text(
+                        self.embeddings[i, 0] - 0.5,
+                        self.embeddings[i, 1] - 0.5, str(label)
+                    )
                     plotted_label.append(label)
 
         for i, idx in enumerate(indices):
             if idx != -1:
-                ax.annotate(findem[i], xy=(self.embeddings[idx, 0],
-                                           self.embeddings[idx, 1]),
-                            xycoords='data')
+                plt.text(self.embeddings[idx, 0], self.embeddings[idx, 1], findem[i])
 
-        # plt.gca().set_aspect('equal', 'datalim')
         count_unbinned = len(self.labels[self.labels == -1])
 
         plt.title(format('UMAP projection of contigs: %d clusters, %d contigs, %d unbinned' % (len(label_set), len(self.labels), count_unbinned)), fontsize=24)
         plt.savefig(self.path + '/UMAP_projection_with_clusters_' + suffix + '.png')
+        plt.clf()
 
-    def bin_contigs(self, assembly_file, min_bin_size=200000):
+    def bin_contigs(self):
         try:
             max_bin_label = max(self.bins.keys())
         except ValueError:

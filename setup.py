@@ -38,8 +38,8 @@ setup(
     data_files=[(".", ["README.md", "LICENSE"])],
     include_package_data=True,
     install_requires= [
-        "umap-learn == 0.5.1",
-        "numpy >= 1.17",
+        "umap-learn >= 0.5.3",
+        "numpy >= 1.21",
         "scikit-learn >= 0.22",
         "scipy >= 1.0",
         "numba >= 0.49",

@@ -120,10 +120,11 @@ class Rosella(Validator):
             y_max=20,
             large_bins_only=False,
             min_completeness=50.0,
-            max_contamination=10.0,
+            max_contamination=20.0,
             min_bin_size_for_averages=1e6,
             contaminated_only=False,
             refining_mode=False,
+            debug=False,
     ):
         # Each cluster is checked for internal metrics. If the metrics look bad then
         # Recluster -> re-embed -> recluster. If any of the new clusters look better
@@ -141,7 +142,9 @@ class Rosella(Validator):
                                           max_contamination=max_contamination,
                                           min_bin_size=min_bin_size_for_averages,
                                           contaminated_only=contaminated_only,
-                                          refining_mode=refining_mode)
+                                          refining_mode=refining_mode,
+                                          debug=debug
+                                          )
             self.sort_bins()
             n += 1
             if not self.overclustered:
@@ -160,7 +163,7 @@ class Rosella(Validator):
     ):
         while n <= n_max:
             plots, n = self.validate_bins(plots, n, x_min, x_max, y_min, y_max,
-                                          big_only=True)
+                                          big_only=True, min_bin_size=self.min_bin_size)
             self.sort_bins()
             # plots, n = self.validate_bins(plots, n,
             #                               x_min, x_max,
@@ -188,7 +191,7 @@ class Rosella(Validator):
         return labels[0]
 
 
-    def perform_embedding(self, set_embedding=False, retry=0, retry_threshold=1):
+    def perform_embedding(self, tids, switches=None, set_embedding=False, retry=0, retry_threshold=1):
         """
         set_embedding - Whether to overwrite the current self embeddings value
         retry - The current retry count
@@ -197,14 +200,17 @@ class Rosella(Validator):
         if retry <= retry_threshold:
             try:
                 # condensed ranked distance matrix for contigs
-                stat = self.get_ranks()
+                # stat = self.get_ranks()
                 # generate umap embeddings
                 logging.info("Fitting precomputed matrix using UMAP...")
-                embeddings = self.fit_transform_precomputed(stat, set_embedding)
+                # embeddings = self.fit_transform_precomputed(stat, set_embedding)
+                if len(tids) <= self.n_neighbors:
+                    return np.array([-1 for _ in tids])
+                embeddings = self.fit_transform(tids, switches=switches, set_embedding=set_embedding)
                 # ensemble clustering against each umap embedding
                 logging.info("Clustering UMAP embedding...")
                 labels, validities, n_bins, unbinned = self.ensemble_cluster_multiple_embeddings(
-                    embeddings,
+                    [embeddings],
                     top_n=3,
                     metric="euclidean",
                     cluster_selection_methods="eom",
@@ -239,7 +245,11 @@ class Rosella(Validator):
                     # 1. First pass of embeddings + clustering
                     self.kmer_signature = self.tnfs[~self.disconnected].iloc[:, 2:].values
                     self.coverage_profile = self.large_contigs[~self.disconnected].iloc[:, 3:].values
-                    self.labels = self.perform_embedding(set_embedding=True)
+                    if self.n_samples <= 1:
+                        switches = [0, 1, None]
+                    else:
+                        switches = [0, None, 2]
+                    self.labels = self.perform_embedding(self.large_contigs[~self.disconnected]['tid'].values, switches=[0, None, 2], set_embedding=True)
 
                     ## Plot limits
                     x_min = min(self.embeddings[:, 0]) - 10
@@ -251,25 +261,28 @@ class Rosella(Validator):
                         plots.append(
                             utils.plot_for_offset(self.embeddings, self.labels, x_min, x_max, y_min,
                                                   y_max, 0))
-                    self.bin_contigs(args.assembly, int(args.min_bin_size))
+                    self.bin_contigs()
 
                     self.findem = [
-                        # 'contig_29111_pilon', 'contig_5229_pilon', 'contig_7458_pilon', # Ega
+                        'RL|S1|C13963', 'RL|S1|C11210', 'RL|S1|C12411', 'RL|S1|C13372', 'RL|S1|C14115', 'RL|S1|C16600', 'RL|S1|C17450',
                         'contig_810_pilon', 'scaffold_1358_pilon', # Ret
                         # 'contig_3_pilon'
                         'contig_17512_pilon' # AalE
                     ]
                     self.plot(
+                        None,
                         self.findem
                     )
 
+                    self.embed_unbinned(self.findem, "unbinned_1", switches)
                     logging.info("Second embedding.")
                     self.sort_bins()
                     # 2. Recover the unbinned tids, and then perform the same procedure on them
                     #    The idea here is to pick up any obvious clusters that were missed. We reembed
                     #    again to try and make the relationships more obvious than the original embedding.
-                    self.embed_unbinned("unbinned_1")
-                    logging.info("Refining bins...")
+                    # self.dissolve_bins(5e5)
+                    # self.embed_unbinned("unbinned_1")
+                    # logging.info("Refining bins...")
                     # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
                     self.slow_refine(plots, 0, 5, x_min, x_max, y_min, y_max)
                     self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
@@ -279,13 +292,20 @@ class Rosella(Validator):
                     # 3. Recover the unbinned tids, and then perform the same procedure on them
                     #    The idea here is to pick up any obvious clusters that were missed. We reembed
                     #    again to try and make the relationships more obvious than the original embedding.
-                    self.embed_unbinned("unbinned_2")
-
-                    self.slow_refine(plots, 0, 1, x_min, x_max, y_min, y_max)
-                    self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
+                    # self.dissolve_bins(5e5)
+                    # self.embed_unbinned("unbinned_2")
+                    # self.slow_refine(plots, 0, 2, x_min, x_max, y_min, y_max)
+                    self.dissolve_bins(1e6)
+                    self.embed_unbinned(self.findem, "unbinned_2", switches)
+                    self.embed_unbinned(self.findem, "unbinned_3", switches)
+                    # self.slow_refine(plots, 0, 0, x_min, x_max, y_min, y_max)
+                    # self.big_contig_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
+                    # self.dissolve_bins(1e6)
+                    # self.embed_unbinned("unbinned_4")
                     # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
                     self.get_labels_from_bins()
                     self.plot(
+                        None,
                         self.findem,
                         suffix="final"
                     )
@@ -304,7 +324,7 @@ class Rosella(Validator):
         pass
 
 
-    def embed_unbinned(self, suffix="unbinned"):
+    def embed_unbinned(self, findem = None, suffix="unbinned", switches=None):
         try:
             self.get_labels_from_bins()
             all_embedded = self.embeddings
@@ -316,18 +336,47 @@ class Rosella(Validator):
             self.kmer_signature = self.tnfs[~self.disconnected][unbinned].iloc[:, 2:].values
             self.coverage_profile = self.large_contigs[~self.disconnected][unbinned].iloc[:, 3:].values
 
-            unbinned_labels = self.perform_embedding(set_embedding=True)
+            try:
+                if len(unbinned) > self.n_neighbors:
+                    unbinned_labels = self.perform_embedding(self.large_contigs[~self.disconnected][unbinned]['tid'].values, switches=switches, set_embedding=True)
+                else:
+                    unbinned_labels = np.array([-1 for _ in range(len(unbinned))])
+            except (IndexError, TypeError):
+                unbinned_labels = np.array([-1 for _ in range(len(unbinned))])
 
             self.labels = unbinned_labels
             self.plot(
-                [],
+                unbinned,
+                findem,
                 plot_bin_ids=True,
                 suffix=suffix
             )
             unbinned_labels[unbinned_labels != -1] += max_bin_key
+
             self.labels = all_labels
             self.labels[unbinned] = unbinned_labels
+
+            self.unbinned_tids = []
+
+            for (idx, label) in enumerate(unbinned_labels):
+                if label != -1:
+                    try:
+                        self.bins[label.item() + 1].append(
+                            self.assembly[self.large_contigs[~self.disconnected][unbinned].iloc[
+                                idx, 0]])  # inputs values as tid
+                    except KeyError:
+                        # self.bin_validity[label.item() + 1] = self.validity_indices[label]
+                        self.bins[label.item() + 1] = [
+                            self.assembly[
+                                self.large_contigs[
+                                    ~self.disconnected
+                                ][unbinned].iloc[idx, 0]]]
+                else:
+                    self.unbinned_tids.append(self.assembly[self.large_contigs[~self.disconnected][
+                        unbinned].iloc[idx, 0]])
+
             self.embeddings = all_embedded
+            
         except (ValueError, IndexError):
             # IndexError from call to perform_embedding when very few contigs left
             # not enough unbinned contigs
@@ -380,13 +429,13 @@ class Rosella(Validator):
                 logging.info("Refining bins...")
                 x_min, x_max, y_min, y_max = 20, 20, 20, 20 # default plotting margins
 
-                self.slow_refine(plots, 0, 10, x_min, x_max, y_min, y_max, False, float(args.min_completeness), float(args.max_contamination), 0, args.contaminated_only, True)
+                self.slow_refine(plots, 0, 10, x_min, x_max, y_min, y_max, False,
+                                 float(args.min_completeness), float(args.max_contamination),
+                                 0, args.contaminated_only, True, False)
                 self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
                 self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
                 logging.info(f"Writing bins... {len(self.bins.keys())}")
                 self.write_bins(int(args.min_bin_size))
-
-
 
 
 
