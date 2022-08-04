@@ -137,7 +137,7 @@ class Cluster:
         count_path,
         output_prefix,
         scaler="clr",
-        n_neighbors=100,
+        n_neighbors=200,
         min_dist=0.1,
         n_components=2,
         random_state=42,
@@ -195,8 +195,6 @@ class Cluster:
             random_state=random_seed,
             # spread=1,
             metric=metrics.rho_variants,
-            a=a,
-            b=b,
             init="spectral",
         )
         self.distance_reducer = umap.UMAP(
@@ -206,8 +204,6 @@ class Cluster:
             random_state=random_seed,
             # spread=1,
             # metric=metrics.euclidean_variant,
-            a=a,
-            b=b,
             init="spectral",
         )
 
@@ -274,9 +270,9 @@ class Cluster:
                 # rho_embeddings = self.rho_reducer.fit(self.clr_depths)
                 # intersect = dist_embeddings * rho_embeddings
                 dist_embeddings = self.distance_reducer.fit(self.clr_depths)
-                rho_embeddings = self.rho_reducer.fit(self.clr_depths)
+                # rho_embeddings = self.rho_reducer.fit(self.clr_depths)
                 logging.info("Calculating intersection...")
-                intersect = dist_embeddings * rho_embeddings
+                intersect = dist_embeddings
                 self.embeddings = intersect.embedding_
                 # self.embeddings = self.distance_reducer.fit_transform(self.clr_depths)
             else:

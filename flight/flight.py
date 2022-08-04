@@ -114,7 +114,7 @@ def main():
     fit_options.add_argument('--n_neighbors',
                              help='Number of neighbors considered in UMAP',
                              dest="n_neighbors",
-                             default=100)
+                             default=30)
 
     fit_options.add_argument(
         '--min_dist',
