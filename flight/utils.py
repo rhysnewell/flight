@@ -35,18 +35,15 @@ import sys
 # Function imports
 import numpy as np
 import pandas as pd
-import multiprocessing as mp
 import hdbscan
 import itertools
 import threadpoolctl
 import concurrent.futures
-from numba import set_num_threads
-import imageio
+
 import seaborn as sns
 import matplotlib
 import matplotlib.pyplot as plt
 import concurrent
-import sklearn.metrics as sk_metrics
 from sklearn.metrics.pairwise import pairwise_distances
 
 ###############################################################################                                                                                                                      [44/1010]

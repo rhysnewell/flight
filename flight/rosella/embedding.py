@@ -33,7 +33,7 @@ import logging
 
 # Function imports
 import numpy as np
-from numba import njit, set_num_threads
+from numba import njit
 import pandas as pd
 import seaborn as sns
 import matplotlib
@@ -41,8 +41,6 @@ import umap
 import scipy.stats as sp_stats
 import scipy.spatial.distance as sp_distance
 from sklearn.mixture import GaussianMixture
-import pebble
-import multiprocessing
 import random
 from pynndescent import NNDescent
 import warnings
