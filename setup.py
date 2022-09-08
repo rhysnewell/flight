@@ -39,9 +39,10 @@ setup(
     include_package_data=True,
     install_requires= [
         "umap-learn >= 0.5.3",
-        "numpy >= 1.21",
-        "scikit-learn >= 0.22",
-        "scipy >= 1.0",
+        "numpy <= 1.21",
+        "scikit-learn == 1.0.2",
+        "scipy == 1.8.1",
+        "scikit-bio >= 0.5.7",
         "numba >= 0.49",
         "pandas >= 1.3",
         "pynndescent>=0.5.7",
