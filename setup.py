@@ -54,7 +54,7 @@ setup(
         "seaborn",
         "tqdm",
         "tbb",
-        "joblib",
+        "joblib<1.2.0", # <1.2 because of https://github.com/scikit-learn-contrib/hdbscan/pull/563
         "pebble",
         "biopython"
     ],

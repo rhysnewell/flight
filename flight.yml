@@ -4,7 +4,7 @@ channels:
   - defaults
 dependencies:
   - python>=3.9
-  - joblib>=1
+  - joblib>=1,<1.2 # <1.2 because of https://github.com/scikit-learn-contrib/hdbscan/pull/563
   - tbb
   - hdbscan
   - matplotlib
