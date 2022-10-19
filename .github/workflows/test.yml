@@ -1,0 +1,31 @@
+name: Test with Setup-Miniconda From Marketplace
+on: [push]
+
+jobs:
+  miniconda:
+    name: Miniconda ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash -l {0}
+    strategy:
+        matrix:
+            os: ["ubuntu-latest"]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: conda-incubator/setup-miniconda@v2
+        with:
+          activate-environment: test
+          environment-file: flight.yml
+          python-version: 3.9
+          auto-activate-base: false
+          mamba-version: "*"
+          channels: conda-forge,defaults,bioconda
+      - run: |
+          conda info
+          conda list
+      - name: Run tests
+        run: |
+            pip install -e . && \
+            flight bin --help && \
+            python3 <<< "import flight; print(flight.__version__)"
