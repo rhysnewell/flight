@@ -186,12 +186,13 @@ class Binner:
         self.large_contigs['tid'] = tids
         
         ## Handle TNFs
-        self.tnfs = pd.read_csv(kmer_frequencies, sep='\t')
+        self.tnfs = pd.read_csv(kmer_frequencies, header=None)
+        self.tnfs.rename(columns={0: 'contigName'}, inplace=True)
         self.tnfs = self.tnfs[self.tnfs['contigName'].isin(self.large_contigs['contigName'])]
         ## Divide by row sums to get frequencies
-        self.tnfs.iloc[:, 2:] = skbio.stats.composition.clr(self.tnfs.iloc[:, 2:].astype(np.float64) + 1)
+        self.tnfs.iloc[:, 1:] = skbio.stats.composition.clr(self.tnfs.iloc[:, 1:].astype(np.float64) + 1)
         ## Set custom log base change for lengths
-        self.log_lengths = np.log(self.tnfs['contigLen']) / np.log(max(sp_stats.mstats.gmean(self.tnfs['contigLen']), 10000))
+        self.log_lengths = np.log(self.coverage_table['contigLen']) / np.log(max(sp_stats.mstats.gmean(self.coverage_table['contigLen']), 10000))
 
         self.binning_method = 'eom'
         self.min_cluster_size = 2
@@ -398,10 +399,10 @@ class Binner:
         w = (n_samples) / (n_samples + 1)  # weighting by number of samples same as in metabat2
 
         contig1 = np.concatenate((depth1.iloc[:, 3:].values,
-                                     tnfs1.iloc[:, 2:].values), axis=1)
+                                     tnfs1.iloc[:, 1:].values), axis=1)
 
         contig2 = np.concatenate((depth2.iloc[:, 3:].values,
-                                  tnfs2.iloc[:, 2:].values), axis=1)
+                                  tnfs2.iloc[:, 1:].values), axis=1)
 
         md = metrics.metabat_distance_nn(
             contig1[0, :n_samples * 2],
@@ -446,7 +447,7 @@ class Binner:
                 try:
                     other_depths = np.concatenate((contigs.iloc[:, 3:].values,
                                                     log_lengths.values[:, None],
-                                                    tnfs.iloc[:, 2:].values), axis=1)
+                                                    tnfs.iloc[:, 1:].values), axis=1)
                     mean_md, \
                     mean_rho, \
                     mean_euc, \
@@ -609,7 +610,7 @@ class Binner:
         per_contig_avg = \
             metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
                                                    log_lengths.values[:, None],
-                                                   tnfs.iloc[:, 2:].values), axis=1),
+                                                   tnfs.iloc[:, 1:].values), axis=1),
                                                    n_samples,
                                                    sample_distances)
 

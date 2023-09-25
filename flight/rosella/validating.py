@@ -93,7 +93,7 @@ class Validator(Clusterer, Embedder):
                 _ = \
                     metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
                                                          log_lengths.values[:, None],
-                                                         tnfs.iloc[:, 2:].values), axis=1),
+                                                         tnfs.iloc[:, 1:].values), axis=1),
                                          self.n_samples,
                                          self.short_sample_distance)
                 mean_of_means[0] += mean_md
@@ -151,7 +151,7 @@ class Validator(Clusterer, Embedder):
         per_contig_avg = \
             metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
                                                  log_lengths.values[:, None],
-                                                 tnfs.iloc[:, 2:].values), axis=1),
+                                                 tnfs.iloc[:, 1:].values), axis=1),
                                  n_samples,
                                  sample_distances)
 
@@ -314,7 +314,7 @@ class Validator(Clusterer, Embedder):
                         per_contig_avg = \
                             metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
                                                                  log_lengths.values[:, None],
-                                                                 tnfs.iloc[:, 2:].values), axis=1),
+                                                                 tnfs.iloc[:, 1:].values), axis=1),
                                                  n_samples,
                                                  sample_distances)
 
@@ -393,7 +393,7 @@ class Validator(Clusterer, Embedder):
                     per_contig_avg = \
                         metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
                                                              log_lengths.values[:, None],
-                                                             tnfs.iloc[:, 2:].values), axis=1),
+                                                             tnfs.iloc[:, 1:].values), axis=1),
                                              n_samples,
                                              sample_distances)
 
@@ -755,7 +755,7 @@ class Validator(Clusterer, Embedder):
                             per_contig_avg = \
                                 metrics.get_averages(np.concatenate((contigs.iloc[:, 3:].values,
                                                                      log_lengths.values[:, None],
-                                                                     tnfs.iloc[:, 2:].values), axis=1),
+                                                                     tnfs.iloc[:, 1:].values), axis=1),
                                                      n_samples,
                                                      sample_distances)
                         except ZeroDivisionError:
@@ -871,7 +871,7 @@ def reembed_static(
                 de = distance.ProfileDistanceEngine()
                 stat = de.makeRankStat(
                     contigs.iloc[:, 3:].values,
-                    tnfs.iloc[:, 2:].values,
+                    tnfs.iloc[:, 1:].values,
                     log_lengths.values,
                     silent=True,
                     fun=lambda a: a / max(a),
@@ -1042,7 +1042,7 @@ def reembed_static(
                     except ValueError:
                         distances = metrics.distance_matrix(np.concatenate((contigs.iloc[:, 3:].values,
                                                                             log_lengths.values[:, None],
-                                                                            tnfs.iloc[:, 2:].values), axis=1),
+                                                                            tnfs.iloc[:, 1:].values), axis=1),
                                                             n_samples,
                                                             sample_distances)
 

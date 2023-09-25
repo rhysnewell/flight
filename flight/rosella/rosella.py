@@ -202,13 +202,13 @@ class Rosella(Validator):
                 # condensed ranked distance matrix for contigs
                 # stat = self.get_ranks()
                 # generate umap embeddings
-                logging.info("Fitting precomputed matrix using UMAP...")
+                # logging.info("Fitting precomputed matrix using UMAP...")
                 # embeddings = self.fit_transform_precomputed(stat, set_embedding)
                 if len(tids) <= self.n_neighbors:
                     return np.array([-1 for _ in tids])
                 embeddings = self.fit_transform(tids, switches=switches, set_embedding=set_embedding)
                 # ensemble clustering against each umap embedding
-                logging.info("Clustering UMAP embedding...")
+                # logging.info("Clustering UMAP embedding...")
                 labels, validities, n_bins, unbinned = self.ensemble_cluster_multiple_embeddings(
                     [embeddings],
                     top_n=3,
@@ -243,7 +243,7 @@ class Rosella(Validator):
                     self.fit_disconnect()
                     logging.info(f"Filtered {self.disconnected.sum()} contigs...")
                     # 1. First pass of embeddings + clustering
-                    self.kmer_signature = self.tnfs[~self.disconnected].iloc[:, 2:].values
+                    self.kmer_signature = self.tnfs[~self.disconnected].iloc[:, 1:].values
                     self.coverage_profile = self.large_contigs[~self.disconnected].iloc[:, 3:].values
                     if self.n_samples <= 1:
                         switches = [0, 1, None]
@@ -333,7 +333,7 @@ class Rosella(Validator):
             unbinned += self.large_contigs[~self.disconnected]['tid'].isin(self.unbinned_tids).values
             max_bin_key = max(self.labels)
             # reset kmer sigs
-            self.kmer_signature = self.tnfs[~self.disconnected][unbinned].iloc[:, 2:].values
+            self.kmer_signature = self.tnfs[~self.disconnected][unbinned].iloc[:, 1:].values
             self.coverage_profile = self.large_contigs[~self.disconnected][unbinned].iloc[:, 3:].values
 
             try:

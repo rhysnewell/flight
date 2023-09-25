@@ -157,7 +157,7 @@ class Embedder(Binner):
 
         contigs, ll, tnfs = \
             self.extract_contigs(self.large_contigs['tid'])
-        current_tnfs = tnfs.iloc[:, 2:].values
+        current_tnfs = tnfs.iloc[:, 1:].values
 
         index_rho = NNDescent(current_tnfs, metric=metrics.rho, n_neighbors=30)
         index_euc = NNDescent(current_tnfs, metric=metrics.tnf_euclidean, n_neighbors=30)
@@ -266,11 +266,11 @@ class Embedder(Binner):
 
             current = np.concatenate((current_contigs.iloc[:, 3:].values,
                                       current_log_lengths.values[:, None],
-                                      current_tnfs.iloc[:, 2:].values), axis=1)
+                                      current_tnfs.iloc[:, 1:].values), axis=1)
 
             others = np.concatenate((other_contigs.iloc[:, 3:].values,
                                      other_log_lengths.values[:, None],
-                                     other_tnfs.iloc[:, 2:].values), axis=1)
+                                     other_tnfs.iloc[:, 1:].values), axis=1)
 
 
             # Scale the thresholds based on the probability distribution
@@ -319,11 +319,11 @@ class Embedder(Binner):
 
         current = np.concatenate((current_contigs.iloc[:, 3:].values,
                                   current_log_lengths.values[:, None],
-                                  current_tnfs.iloc[:, 2:].values), axis=1)[0]
+                                  current_tnfs.iloc[:, 1:].values), axis=1)[0]
 
         others = np.concatenate((other_contigs.iloc[:, 3:].values,
                                  other_log_lengths.values[:, None],
-                                 other_tnfs.iloc[:, 2:].values), axis=1)
+                                 other_tnfs.iloc[:, 1:].values), axis=1)
 
         return metrics.check_connections(
             current, others, n_samples, sample_distances,
@@ -506,7 +506,7 @@ def fit_transform_static(
             random_state=random_seed
         )
 
-        return tnf_reducer.fit(tnfs.iloc[:, 2:].values)
+        return tnf_reducer.fit(tnfs.iloc[:, 1:].values)
 
     elif switch == 2:
         euc_reducer = umap.UMAP(
@@ -522,5 +522,5 @@ def fit_transform_static(
         )
 
         return euc_reducer.fit(
-            tnfs.iloc[:, 2:].values
+            tnfs.iloc[:, 1:].values
         )
