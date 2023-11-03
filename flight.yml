@@ -3,7 +3,7 @@ channels:
   - bioconda
   - defaults
 dependencies:
-  - python>=3.9
+  - python>=3.8,<=3.10
   - joblib>=1,<1.2 # <1.2 because of https://github.com/scikit-learn-contrib/hdbscan/pull/563
   - tbb
   - hdbscan

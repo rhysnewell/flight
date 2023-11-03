@@ -332,6 +332,13 @@ def main():
     ''')
 
     ## Main input array. Coverages from CoverM contig
+    refine_options.add_argument(
+        '--output_prefix',
+        help='The prefix for the output files',
+        dest='output_prefix',
+        required=False,
+        default="refined_bins"
+    )
 
     refine_options.add_argument(
         '--checkm_file',

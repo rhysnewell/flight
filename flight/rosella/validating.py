@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 ###############################################################################
-# binning.py - A binning algorithm spinning off of the methodology of
-#              Lorikeet
+# validating.py
 ###############################################################################
 #                                                                             #
 # This program is free software: you can redistribute it and/or modify        #

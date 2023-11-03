@@ -795,7 +795,7 @@ class Binner:
                 max_bin_id += 1
 
 
-    def write_bins(self, min_bin_size=200000):
+    def write_bins(self, min_bin_size=200000, output_prefix=None):
         # self.bins = {k.item():v if isinstance(k, np.int64) else k:v for k,v in self.bins.items()}
         writing_bins = {}
         for key, value in self.bins.items():
@@ -803,8 +803,10 @@ class Binner:
                 writing_bins[key.item()] = value
             else:
                 writing_bins[key] = value
+        if output_prefix is None:
+            output_prefix = "rosella_bins"
 
-        with open(self.path + '/rosella_bins.json', 'w') as fp:
+        with open(self.path + f"/{output_prefix}.json", 'w') as fp:
             json.dump(writing_bins, fp, cls=NpEncoder)
 
 

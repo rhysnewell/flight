@@ -263,12 +263,12 @@ class Rosella(Validator):
                                                   y_max, 0))
                     self.bin_contigs()
 
-                    self.findem = [
-                        'RL|S1|C13963', 'RL|S1|C11210', 'RL|S1|C12411', 'RL|S1|C13372', 'RL|S1|C14115', 'RL|S1|C16600', 'RL|S1|C17450',
-                        'contig_810_pilon', 'scaffold_1358_pilon', # Ret
-                        # 'contig_3_pilon'
-                        'contig_17512_pilon' # AalE
-                    ]
+                    # self.findem = [
+                    #     'RL|S1|C13963', 'RL|S1|C11210', 'RL|S1|C12411', 'RL|S1|C13372', 'RL|S1|C14115', 'RL|S1|C16600', 'RL|S1|C17450',
+                    #     'contig_810_pilon', 'scaffold_1358_pilon', # Ret
+                    #     # 'contig_3_pilon'
+                    #     'contig_17512_pilon' # AalE
+                    # ]
                     self.plot(
                         None,
                         self.findem
@@ -284,8 +284,8 @@ class Rosella(Validator):
                     # self.embed_unbinned("unbinned_1")
                     # logging.info("Refining bins...")
                     # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
-                    self.slow_refine(plots, 0, 5, x_min, x_max, y_min, y_max)
-                    self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
+                    # self.slow_refine(plots, 0, 5, x_min, x_max, y_min, y_max)
+                    # self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
                     # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
 
                     logging.info("Third embedding.")
@@ -295,9 +295,9 @@ class Rosella(Validator):
                     # self.dissolve_bins(5e5)
                     # self.embed_unbinned("unbinned_2")
                     # self.slow_refine(plots, 0, 2, x_min, x_max, y_min, y_max)
-                    self.dissolve_bins(1e6)
-                    self.embed_unbinned(self.findem, "unbinned_2", switches)
-                    self.embed_unbinned(self.findem, "unbinned_3", switches)
+                    # self.dissolve_bins(1e6)
+                    # self.embed_unbinned(self.findem, "unbinned_2", switches)
+                    # self.embed_unbinned(self.findem, "unbinned_3", switches)
                     # self.slow_refine(plots, 0, 0, x_min, x_max, y_min, y_max)
                     # self.big_contig_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
                     # self.dissolve_bins(1e6)
@@ -419,6 +419,7 @@ class Rosella(Validator):
                     args.bin_extension,
                     self.checkm_file
                 )
+                logging.info(f"Bin stats: {input_bin_stats}")
                 self.disconnected = np.array([False for _ in range(self.large_contigs.shape[0])])
                 self.disconnected_intersected = np.array([False for _ in range(self.large_contigs.shape[0])])
                 self.embeddings = np.random.rand(self.large_contigs.shape[0], 2)
@@ -435,7 +436,7 @@ class Rosella(Validator):
                 self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
                 self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
                 logging.info(f"Writing bins... {len(self.bins.keys())}")
-                self.write_bins(int(args.min_bin_size))
+                self.write_bins(int(args.min_bin_size), args.output_prefix)
 
 
 
@@ -463,8 +464,8 @@ def retrieve_stats(coverage_file, bin_paths=None, bin_folder=None, bin_extension
 
     for bin_index, fasta_path in enumerate(bin_paths):
         bin_index += 1
-        bin_id = fasta_path.split("/")[-1]
-        bin_id = os.path.splitext(bin_id)[0]
+        bin_id_ext = fasta_path.split("/")[-1]
+        bin_id = os.path.splitext(bin_id_ext)[0]
 
         contig_ids = []
         for sequence in SeqIO.parse(open(fasta_path), "fasta"):
@@ -483,8 +484,15 @@ def retrieve_stats(coverage_file, bin_paths=None, bin_folder=None, bin_extension
                 # checkm1 uses Bin Id
                 checkm_stats = checkm_file[checkm_file["Bin Id"] == bin_id]
             except KeyError:
-                # checkm2 uses Name
-                checkm_stats = checkm_file[checkm_file["Name"] == bin_id]
+                try:
+                    # checkm2 uses Name
+                    checkm_stats = checkm_file[checkm_file["Name"] == bin_id]
+                except KeyError:
+                    # amber uses BINID and contains full path from when it was run
+                    # so match on endswith
+                    checkm_stats = checkm_file[checkm_file["BINID"].str.endswith(bin_id_ext)]
+                    checkm_stats["Contamination"] = (1 - checkm_stats["precision_bp"]) * 100
+                    checkm_stats["Completeness"] = checkm_stats["recall_bp"] * 100
 
             output_dict["completeness"].append(checkm_stats["Completeness"].values[0])
             output_dict["contamination"].append(checkm_stats["Contamination"].values[0])
