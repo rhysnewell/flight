@@ -45,8 +45,9 @@ setup(
         "scikit-bio >= 0.5.7",
         "numba >= 0.49",
         "pandas >= 1.3",
-        "pynndescent>=0.5.7",
-        "hdbscan>=0.8.28",
+        "pynndescent >= 0.5.7",
+        "hdbscan >= 0.8.28",
+        "joblib <= 1.3.0",
         "pebble",
         "threadpoolctl",
         "imageio",
@@ -54,7 +55,6 @@ setup(
         "seaborn",
         "tqdm",
         "tbb",
-        "joblib<1.2.0", # <1.2 because of https://github.com/scikit-learn-contrib/hdbscan/pull/563
         "pebble",
         "biopython"
     ],
