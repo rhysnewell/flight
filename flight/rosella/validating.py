@@ -33,14 +33,14 @@ import numpy as np
 import umap
 import seaborn as sns
 import matplotlib
-import multiprocessing
-import pebble
+import pandas as pd
 from concurrent.futures import TimeoutError
 import scipy.spatial.distance as sp_distance
 import threadpoolctl
 import warnings
 import signal
 import random
+import logging
 
 # self imports
 import flight.metrics as metrics
@@ -877,10 +877,24 @@ def reembed_static(
                     use_multiple_processes=False
                 )
 
+                # ensure no na or null values
+                # if pd.isnull(stat).any():
+                #     # change them to 1
+                #     logging.debug(stat)
+                #     stat = np.nan_to_num(stat)
+                
                 distances = np.nan_to_num(sp_distance.squareform(stat))
 
-                labels_kmeans_embeddings, kmeans_score_embeddings = get_best_kmeans_result(unbinned_embeddings, 5, random_seed)
-                labels_kmeans_precom, kmeans_score_precom = get_best_kmeans_result(distances, 5, random_seed)
+                try:
+                    labels_kmeans_embeddings, kmeans_score_embeddings = get_best_kmeans_result(unbinned_embeddings, 5, random_seed)
+                except TypeError:
+                    kmeans_score_embeddings = -1
+                    labels_kmeans_embeddings = np.array([-1 for _ in range(len(tids))])
+                try:
+                    labels_kmeans_precom, kmeans_score_precom = get_best_kmeans_result(distances, 5, random_seed)
+                except TypeError:
+                    kmeans_score_precom = -1
+                    labels_kmeans_precom = np.array([-1 for _ in range(len(tids))])
                 validity_multi = Clusterer.validity(labels_multi, unbinned_embeddings)
 
                 # labels_multi = np.array([-1 for _ in range(len(tids))])

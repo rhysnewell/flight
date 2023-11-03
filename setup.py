@@ -40,10 +40,10 @@ setup(
     install_requires= [
         "umap-learn >= 0.5.3",
         "numpy <= 1.24",
-        "scikit-learn == 1.0.2",
+        "scikit-learn >= 1.0.2, <= 1.1",
         "scipy <= 1.11",
         "scikit-bio >= 0.5.7",
-        "numba >= 0.49",
+        "numba>=0.53,<=0.57",
         "pandas >= 1.3",
         "pynndescent >= 0.5.7",
         "hdbscan >= 0.8.28",
