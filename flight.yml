@@ -6,12 +6,12 @@ dependencies:
   - python>=3.8,<=3.10
   - joblib>=1,<1.2 # <1.2 because of https://github.com/scikit-learn-contrib/hdbscan/pull/563
   - tbb
-  - hdbscan
+  - hdbscan>=0.8.28
   - matplotlib
   - numpy
   - pandas
   - seaborn
-  - scikit-learn
+  - scikit-learn==1.0.2
   - scikit-bio
   - numba=0.53.0
   - pebble
@@ -19,4 +19,4 @@ dependencies:
   - threadpoolctl
   - imageio
   - pebble
-  - umap-learn==0.5.1
+  - umap-learn>=0.5.3
