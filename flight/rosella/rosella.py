@@ -202,13 +202,13 @@ class Rosella(Validator):
                 # condensed ranked distance matrix for contigs
                 # stat = self.get_ranks()
                 # generate umap embeddings
-                # logging.info("Fitting precomputed matrix using UMAP...")
                 # embeddings = self.fit_transform_precomputed(stat, set_embedding)
+                logging.info("Creating intersected UMAP...")
                 if len(tids) <= self.n_neighbors:
                     return np.array([-1 for _ in tids])
                 embeddings = self.fit_transform(tids, switches=switches, set_embedding=set_embedding)
                 # ensemble clustering against each umap embedding
-                # logging.info("Clustering UMAP embedding...")
+                logging.info("Clustering UMAP embedding...")
                 labels, validities, n_bins, unbinned = self.ensemble_cluster_multiple_embeddings(
                     [embeddings],
                     top_n=3,
@@ -249,6 +249,8 @@ class Rosella(Validator):
                         switches = [0, 1, None]
                     else:
                         switches = [0, None, 2]
+
+                    logging.info(f"Creating initial embedding of {self.large_contigs[~self.disconnected]['tid'].shape[0]} contigs...")
                     self.labels = self.perform_embedding(self.large_contigs[~self.disconnected]['tid'].values, switches=[0, None, 2], set_embedding=True)
 
                     ## Plot limits
@@ -274,41 +276,18 @@ class Rosella(Validator):
                         self.findem
                     )
 
+                    logging.info("Embedding unbinned contigs...")
                     self.embed_unbinned(self.findem, "unbinned_1", switches)
-                    logging.info("Second embedding.")
-                    self.sort_bins()
-                    # 2. Recover the unbinned tids, and then perform the same procedure on them
-                    #    The idea here is to pick up any obvious clusters that were missed. We reembed
-                    #    again to try and make the relationships more obvious than the original embedding.
-                    # self.dissolve_bins(5e5)
-                    # self.embed_unbinned("unbinned_1")
-                    # logging.info("Refining bins...")
-                    # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
-                    # self.slow_refine(plots, 0, 5, x_min, x_max, y_min, y_max)
-                    # self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)
-                    # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
 
-                    logging.info("Third embedding.")
-                    # 3. Recover the unbinned tids, and then perform the same procedure on them
-                    #    The idea here is to pick up any obvious clusters that were missed. We reembed
-                    #    again to try and make the relationships more obvious than the original embedding.
-                    # self.dissolve_bins(5e5)
-                    # self.embed_unbinned("unbinned_2")
-                    # self.slow_refine(plots, 0, 2, x_min, x_max, y_min, y_max)
-                    # self.dissolve_bins(1e6)
-                    # self.embed_unbinned(self.findem, "unbinned_2", switches)
-                    # self.embed_unbinned(self.findem, "unbinned_3", switches)
-                    # self.slow_refine(plots, 0, 0, x_min, x_max, y_min, y_max)
-                    # self.big_contig_filter(plots, 0, 2, x_min, x_max, y_min, y_max)
-                    # self.dissolve_bins(1e6)
-                    # self.embed_unbinned("unbinned_4")
-                    # self.quick_filter(plots, 0, 1, x_min, x_max, y_min, y_max)
+                    logging.info("Preparing output for parsing...")
+                    self.sort_bins()
                     self.get_labels_from_bins()
                     self.plot(
                         None,
                         self.findem,
                         suffix="final"
                     )
+                    logging.info("Binning filtered contigs...")
                     self.bin_filtered(int(args.min_bin_size), keep_unbinned=False, unbinned_only=False)
                 else:
                     self.rescue_contigs(int(args.min_bin_size))
@@ -420,6 +399,7 @@ class Rosella(Validator):
                     self.checkm_file
                 )
                 logging.info(f"Bin stats: {input_bin_stats}")
+                logging.info(f"Bin dict: {bin_dict}")
                 self.disconnected = np.array([False for _ in range(self.large_contigs.shape[0])])
                 self.disconnected_intersected = np.array([False for _ in range(self.large_contigs.shape[0])])
                 self.embeddings = np.random.rand(self.large_contigs.shape[0], 2)
@@ -469,7 +449,12 @@ def retrieve_stats(coverage_file, bin_paths=None, bin_folder=None, bin_extension
 
         contig_ids = []
         for sequence in SeqIO.parse(open(fasta_path), "fasta"):
-            contig_ids.append(sequence.id)
+            seq_id = sequence.id
+            if type(seq_id) == int:
+                seq_id = str(seq_id)
+            contig_ids.append(seq_id)
+        logging.info(f"Bin {bin_id} contains {len(contig_ids)} contigs")
+        logging.info(f"First contig id: {contig_ids[0]}")
         contigs_in_bin = coverage_file[coverage_file["contigName"].isin(contig_ids)]
         bin_index_dict[bin_index] = contigs_in_bin["tid"].values.tolist()
 

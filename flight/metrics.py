@@ -924,7 +924,9 @@ def get_averages(depths, n_samples, sample_distances):
 
     # [(contigs.append(List([0.0, 0.0, 0.0, 0.0])), tids.append(x)) for x in range(depths.shape[0])]
 
-    pairs = combinations(tids, 2)
+    typed_tids = List()
+    [typed_tids.append(x) for x in tids]
+    pairs = combinations(typed_tids, 2)
 
     col_start = n_samples * 2
     

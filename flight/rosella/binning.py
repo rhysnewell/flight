@@ -123,6 +123,10 @@ class Binner:
         if count_path is not None and long_count_path is not None:
             self.coverage_table = pd.read_csv(count_path, sep='\t')
             self.long_depths = pd.read_csv(long_count_path, sep='\t')
+            # ensure contigName column is str in both tables
+            self.coverage_table['contigName'] = self.coverage_table['contigName'].astype(str)
+            self.long_depths['contigName'] = self.long_depths['contigName'].astype(str)
+
             self.coverage_table['coverageSum'] = (self.coverage_table.iloc[:, 3::2] > 0).any(axis=1)
             self.long_depths['coverageSum'] = (self.long_depths.iloc[:, 3::2] > 0).any(axis=1)
 
@@ -147,6 +151,7 @@ class Binner:
 
         elif count_path is not None:
             self.coverage_table = pd.read_csv(count_path, sep='\t')
+            self.coverage_table['contigName'] = self.coverage_table['contigName'].astype(str)
             self.coverage_table['coverageSum'] = (self.coverage_table.iloc[:, 3::2] > 0).any(axis=1)
             self.large_contigs = self.coverage_table[(self.coverage_table["contigLen"] >= min_contig_size)
                                  & (self.coverage_table["coverageSum"])]
@@ -163,6 +168,7 @@ class Binner:
         else:
             ## Treat long coverages as the default set
             self.coverage_table = pd.read_csv(long_count_path, sep='\t')
+            self.coverage_table['contigName'] = self.coverage_table['contigName'].astype(str)
             self.coverage_table['coverageSum'] = (self.coverage_table.iloc[:, 3::2] > 0).any(axis=1)
             self.large_contigs = self.coverage_table[(self.coverage_table["contigLen"] >= min_contig_size)
                                  & (self.coverage_table["coverageSum"])]
@@ -188,6 +194,7 @@ class Binner:
         ## Handle TNFs
         self.tnfs = pd.read_csv(kmer_frequencies, header=None)
         self.tnfs.rename(columns={0: 'contigName'}, inplace=True)
+        self.tnfs['contigName'] = self.tnfs['contigName'].astype(str)
         self.tnfs = self.tnfs[self.tnfs['contigName'].isin(self.large_contigs['contigName'])]
         ## Divide by row sums to get frequencies
         self.tnfs.iloc[:, 1:] = skbio.stats.composition.clr(self.tnfs.iloc[:, 1:].astype(np.float64) + 1)
