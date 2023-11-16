@@ -410,7 +410,7 @@ class Rosella(Validator):
                 logging.info("Refining bins...")
                 x_min, x_max, y_min, y_max = 20, 20, 20, 20 # default plotting margins
 
-                self.slow_refine(plots, 0, 10, x_min, x_max, y_min, y_max, False,
+                self.slow_refine(plots, 0, args.max_retries, x_min, x_max, y_min, y_max, False,
                                  float(args.min_completeness), float(args.max_contamination),
                                  0, args.contaminated_only, True, False)
                 self.big_contig_filter(plots, 0, 3, x_min, x_max, y_min, y_max)

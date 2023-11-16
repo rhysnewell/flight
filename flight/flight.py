@@ -395,6 +395,15 @@ def main():
         default=False,
     )
 
+    refine_options.add_argument(
+        '--max_retries',
+        help='The maximum number of times to attempt to refine a bin',
+        dest='max_retries',
+        required=False,
+        type=int,
+        default=5
+    )
+
     refine_options.set_defaults(func=refine)
 
     filter_options = subparsers.add_parser(
@@ -429,31 +438,31 @@ def main():
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Parsing input ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-    if (len(sys.argv) == 2 or len(sys.argv) == 1 or sys.argv[1] == '-h'
-            or sys.argv[1] == '--help'):
-        phelp()
+    # if (len(sys.argv) == 2 or len(sys.argv) == 1 or sys.argv[1] == '-h'
+    #         or sys.argv[1] == '--help'):
+    #     phelp()
+    # else:
+    args = main_parser.parse_args()
+    time = datetime.datetime.now().strftime('%H:%M:%S %d-%m-%Y')
+
+    if args.log:
+        if os.path.isfile(args.log):
+            raise Exception("File %s exists" % args.log)
+        logging.basicConfig(
+            filename=args.log,
+            level=debug[args.verbosity],
+            format='%(asctime)s %(levelname)s: %(message)s',
+            datefmt='%m/%d/%Y %I:%M:%S %p')
     else:
-        args = main_parser.parse_args()
-        time = datetime.datetime.now().strftime('%H:%M:%S %d-%m-%Y')
+        logging.basicConfig(
+            level=debug[args.verbosity],
+            format='%(asctime)s %(levelname)s: %(message)s',
+            datefmt='%m/%d/%Y %I:%M:%S %p')
 
-        if args.log:
-            if os.path.isfile(args.log):
-                raise Exception("File %s exists" % args.log)
-            logging.basicConfig(
-                filename=args.log,
-                level=debug[args.verbosity],
-                format='%(asctime)s %(levelname)s: %(message)s',
-                datefmt='%m/%d/%Y %I:%M:%S %p')
-        else:
-            logging.basicConfig(
-                level=debug[args.verbosity],
-                format='%(asctime)s %(levelname)s: %(message)s',
-                datefmt='%m/%d/%Y %I:%M:%S %p')
-
-        logging.info("Time - %s" % (time))
+    logging.info("Time - %s" % (time))
 
 
-        args.func(args)
+    args.func(args)
 
 
 def fit(args):
@@ -609,16 +618,16 @@ def write_contig(contig, assembly, f):
     f.write(fasta)
 
 
-def phelp():
-    print("""
-Usage:
-flight [SUBCOMMAND] ..
+# def phelp():
+#     print("""
+# Usage:
+# flight [SUBCOMMAND] ..
 
-Subcommands:
-bin - Bin sets of metagenomic contigs into MAGs
-fit - Genotype variants into metagenomic strains *For use with Lorikeet*
+# Subcommands:
+# bin - Bin sets of metagenomic contigs into MAGs
+# fit - Genotype variants into metagenomic strains *For use with Lorikeet*
 
-""")
+# """)
 
 
 def str2bool(v):
