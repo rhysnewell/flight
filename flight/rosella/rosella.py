@@ -207,6 +207,18 @@ class Rosella(Validator):
                 if len(tids) <= self.n_neighbors:
                     return np.array([-1 for _ in tids])
                 embeddings = self.fit_transform(tids, switches=switches, set_embedding=set_embedding)
+
+                n_contigs = embeddings.shape[0]
+                # need to set a sensible min_start_size and min_end_size based on the number of contigs
+                # more contigs means these numbers need to be higher, the default min_start_size is 1, and end size is 10
+                # so we need to scale these numbers based on the number of contigs
+                _, n25 = self.nX(25)
+                # min_size_start = (n_contigs // 100_000) + 2
+                # min_size_end = min_size_start + 10
+
+                min_size_start = max((n_contigs // n25), 2)
+                min_size_end = min_size_start + 10
+
                 # ensemble clustering against each umap embedding
                 logging.info("Clustering UMAP embedding...")
                 labels, validities, n_bins, unbinned = self.ensemble_cluster_multiple_embeddings(
@@ -217,7 +229,9 @@ class Rosella(Validator):
                     solver="hbgf",
                     embeddings_for_precomputed=embeddings,
                     threads=self.threads,
-                    use_multiple_processes=False
+                    use_multiple_processes=False,
+                    min_size_start=min_size_start,
+                    min_size_end=min_size_end
                 )
 
                 return labels[0]
