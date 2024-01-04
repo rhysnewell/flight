@@ -413,7 +413,6 @@ class Rosella(Validator):
                     self.checkm_file
                 )
                 logging.info(f"Bin stats: {input_bin_stats}")
-                logging.info(f"Bin dict: {bin_dict}")
                 self.disconnected = np.array([False for _ in range(self.large_contigs.shape[0])])
                 self.disconnected_intersected = np.array([False for _ in range(self.large_contigs.shape[0])])
                 self.embeddings = np.random.rand(self.large_contigs.shape[0], 2)
